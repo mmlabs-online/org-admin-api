@@ -4,7 +4,7 @@ Admin API server for the mmlabs ecosystem — FastAPI + PostgreSQL.
 
 ## Quick start
 
-Requires [uv](https://docs.astral.sh/uv/) and Docker (or a local PostgreSQL 16).
+Requires [uv](https://docs.astral.sh/uv/) and Docker (or a local PostgreSQL 17).
 
 ```bash
 cp .env.example .env
@@ -13,6 +13,8 @@ make db-up        # Postgres on :5432 with org_admin and org_admin_test database
 make migrate
 make dev          # http://localhost:8000/docs
 ```
+
+Deploy: see [`docs/deploy.md`](docs/deploy.md) (tag `vX.Y.Z` on main → api-admin.mmlabs.online).
 
 Run everything CI runs:
 

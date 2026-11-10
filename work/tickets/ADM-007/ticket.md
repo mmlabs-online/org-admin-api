@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | architecture, security |
 | Attempts | 0 |
@@ -25,6 +25,11 @@ Ship org-admin-api to `api-admin.mmlabs.online` with the same release/deploy mod
 - [ ] CI stays green; the release workflow is validated (YAML parses, version guard tested on sample tags)
 
 ## Notes / answers from owner
+- 2026-11-10: implemented directly (outside `/run`) at the owner's request: `release.yml`, `Dockerfile` (no auto-migrate), `docs/deploy.md` here, and a registration PR on `mmlabs-online/deployment`. No plan/review files. Divergences from the criteria above, following the deployment repo's conventions:
+  - release is triggered by a **tag `vX.Y.Z` on main** (the shared `docs/app-release.yml` template), not a `release/vX.Y.Z` branch;
+  - Postgres is the deployment repo's **shared Postgres 17** (database/role `org_admin`, external volume `pgdata`, nightly + offsite backups), not a separate Postgres service — still compose on the Mac runner;
+  - the pre-migration backup uses the shared `pg-backup` sidecar (`/backup.sh`).
+- Remaining before DONE: owner one-time setup in `docs/deploy.md`, first tag `v0.1.0`, and a healthy `/healthz` on api-admin.mmlabs.online.
 - 2026-11-10: hostname is `api-admin.mmlabs.online`.
 - 2026-11-10: deploy to the same Mac self-hosted runner (`macbook-runner`) as stoktok, Docker Compose, Cloudflare Tunnel. Postgres 16 runs as a service in the same compose stack on the Mac (persistent named volume, see acceptance criteria). Follow stoktok's `docs/deploy.md` and `deploy/deployment-repo/` as the reference.
 - 2026-11-10: no Cloudflare Access gate needed before ADM-002 (spec §6.1); the endpoints are public until auth ships — accepted by owner.

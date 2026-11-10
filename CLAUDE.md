@@ -13,10 +13,10 @@ Admin API server for the whole **mmlabs** ecosystem: internal staff use it (via 
 | Layer | Choice |
 |---|---|
 | API | Python 3.12, **FastAPI**, Pydantic v2, pydantic-settings |
-| DB | **PostgreSQL 16**, SQLAlchemy 2.0 async (`asyncpg`), Alembic |
+| DB | **PostgreSQL 17** (the shared mmlabs Postgres in production, database `org_admin`), SQLAlchemy 2.0 async (`asyncpg`), Alembic |
 | Tooling | `uv`, `ruff` (lint + format), `mypy --strict`, `pytest` + `pytest-asyncio` + `httpx` |
-| Runtime | Docker image (runs `alembic upgrade head` then uvicorn); docker-compose for local Postgres |
-| CI | GitHub Actions: lint, typecheck, tests on Postgres, `alembic check` |
+| Runtime | Docker image (uvicorn only; migrations run as a separate deploy step). Deployed on the Mac runner via `mmlabs-online/deployment` — see `docs/deploy.md` |
+| CI/CD | GitHub Actions: `ci.yml` (lint, typecheck, tests on Postgres, `alembic check`); `release.yml` (tag `vX.Y.Z` → image → deployment PR) |
 
 Do not change the stack without the owner's explicit decision.
 
