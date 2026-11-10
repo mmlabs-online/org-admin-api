@@ -58,6 +58,11 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - 100% of mutating endpoints write an audit entry (once §5.4 lands).
 - No secrets in code or logs; config via env only.
 
+### §6.1 Deployment
+- Public hostname: **`api-admin.mmlabs.online`** (owner, 2026-11-10).
+- Release/deploy follows the mmlabs model used by stoktok: release branch → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the self-hosted runner, exposed through Cloudflare Tunnel (to confirm, §8 Q5).
+- Until staff authentication (§5.2) ships, the hostname must sit behind Cloudflare Access; it is never exposed unauthenticated.
+
 ## §7 Success metrics
 
 - All admin actions for in-scope products go through this API (no direct DB edits).
@@ -68,7 +73,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - [ ] Q2. Staff login: Google Workspace SSO, the mmlabs "Authen" service, another IdP, or email/password + 2FA?
 - [ ] Q3. Is this API the **source of truth** for orgs/users, or does it aggregate data owned by each product?
 - [ ] Q4. How do products consume admin decisions — pull (API with service keys), push (webhooks/events), or both?
-- [ ] Q5. Deployment target and environments (same model as stoktok: Docker Compose + Cloudflare Tunnel + shared deploy repo?)
+- [ ] Q5. Deployment target: same Mac self-hosted runner + Docker Compose + Cloudflare Tunnel as stoktok? Postgres in the compose stack on that host, or an existing/managed Postgres? (Hostname decided: `api-admin.mmlabs.online`, 2026-11-10.)
 - [ ] Q6. Compliance needs (audit retention period, PII handling)?
 
 Answers go here with date, and into the relevant ticket's "Notes / answers from owner".
