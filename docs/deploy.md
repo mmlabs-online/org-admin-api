@@ -8,8 +8,10 @@ Only the owner merges in either repository.
 ## Flow
 
 ```
-git tag vX.Y.Z (on main) ─push─► release.yml (GitHub runner)
+push branch release/vX.Y.Z (from main) ─► release.yml (GitHub runner)
+                                   ├─ check: commit on main, version new and higher than every tag; create tag vX.Y.Z
                                    ├─ build image mingming21400/org-admin-api:vX.Y.Z (linux/amd64), push to Docker Hub
+                                   ├─ smoke test: run the pushed image, GET /healthz
                                    └─ open PR release/org-admin-api-vX.Y.Z on mmlabs-online/deployment
                                         (only apps/org-admin-api/release.env: image@digest + version)
 owner merges that PR ─────────────► deploy-org-admin-api (Mac runner)
@@ -21,15 +23,16 @@ owner merges that PR ─────────────► deploy-org-admin
                                    6. replace the API, wait for /readyz                   ── fail → restore previous image, push revert
 ```
 
-Release a version:
+Release a version: create a branch `release/vX.Y.Z` from the current `main` and push it. Either on
+GitHub (branch dropdown → type `release/v0.1.0` → "Create branch release/v0.1.0 from main"), or:
 
 ```bash
-git checkout main && git pull
-git tag v0.1.0
-git push origin v0.1.0
+git fetch origin && git push origin origin/main:refs/heads/release/v0.1.0
 ```
 
-The tag must point at a commit on `main` (the workflow refuses otherwise). `/healthz` then reports `"version": "v0.1.0"`.
+The workflow refuses a commit that is not on main, a version that already exists or is not higher
+than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates the tag itself.
+`/healthz` then reports `"version": "v0.1.0"`. Never commit to a release branch directly.
 
 ## Database
 
@@ -68,7 +71,7 @@ migration must keep the previous release working:
 4. **Cloudflare:** in the tunnel used by `proxy/` (Zero Trust → Networks → Tunnels → the mmlabs
    tunnel → Public hostnames), add `api-admin.mmlabs.online` → `HTTP` → `org-admin-api:8000`.
    No Cloudflare Access application (owner decision, 2026-11-10 — the API has no auth until ADM-002).
-5. Push the first tag (`v0.1.0`), merge the release PR it opens, and check
+5. Push the branch `release/v0.1.0` from main, merge the release PR it opens, and check
    `https://api-admin.mmlabs.online/healthz`.
 
 ## Operations

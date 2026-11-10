@@ -1,7 +1,10 @@
-# From mmlabs-online/deployment docs/app-release.yml. Pushing a tag vX.Y.Z builds the image, pushes
-# it to Docker Hub, and opens a pull request release/org-admin-api-vX.Y.Z on mmlabs-online/deployment
-# that changes only apps/org-admin-api/release.env. Merging that pull request runs
-# deploy-org-admin-api on the home server (backup → migrate → replace → health check). See docs/deploy.md.
+# A push to a branch `release/vX.Y.Z` (its commit must already be on main) releases exactly vX.Y.Z:
+# it must be new and higher than every existing vX.Y.Z tag. The workflow creates and pushes that git
+# tag, builds and pushes mingming21400/org-admin-api:vX.Y.Z, then opens a pull request
+# release/org-admin-api-vX.Y.Z on mmlabs-online/deployment that changes only
+# apps/org-admin-api/release.env (image pinned by digest). Merging it runs deploy-org-admin-api on
+# macbook-runner (backup → migrate → replace → /readyz). Same flow as stoktok; based on
+# mmlabs-online/deployment docs/app-release.yml. Runbook: docs/deploy.md.
 #
 # Secrets in this repo:
 #   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN  push to mingming21400/org-admin-api
@@ -12,33 +15,69 @@ name: release
 
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+    branches: ['release/v*']
 
 permissions:
-  contents: read
+  contents: write # push the version tag
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
-  APP: org-admin-api                       # folder apps/<APP>/ in the deployment repo
-  IMAGE: mingming21400/org-admin-api       # Docker Hub repository
-  VAR: ORG_ADMIN_API_IMAGE                 # variable apps/<APP>/compose.yml reads
-  VERSION_VAR: ORG_ADMIN_API_VERSION       # becomes APP_VERSION (shown by /healthz)
+  APP: org-admin-api                 # folder apps/<APP>/ in the deployment repo
+  IMAGE: mingming21400/org-admin-api # Docker Hub repository
 
 jobs:
   release:
-    runs-on: ubuntu-latest                 # GitHub's runner: app code never runs on the home server
-    timeout-minutes: 20
+    runs-on: ubuntu-latest           # GitHub's runner: app code never runs on the home server
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: tag is on main
+      - name: guards
+        id: version
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
         run: |
-          git fetch origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag ${GITHUB_REF_NAME} points at a commit that is not on main. Tag a commit from main."
-            exit 1
+            echo "::error::$GITHUB_SHA is not on main: create the release branch from main, never commit to it directly"; exit 1
           fi
+          if git tag --points-at "$GITHUB_SHA" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::$GITHUB_SHA is already released ($(git tag --points-at "$GITHUB_SHA" | tr '\n' ' '))"; exit 1
+          fi
+          if ! [[ "$GITHUB_REF_NAME" =~ ^release/(v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))$ ]]; then
+            echo "::error::branch '$GITHUB_REF_NAME' is not release/vX.Y.Z (for example release/v0.2.0)"; exit 1
+          fi
+          TAG="${BASH_REMATCH[1]}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG already exists: pick a new version branch"; exit 1
+          fi
+          last="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
+          if [ -n "$last" ] && [ "$(printf '%s\n%s\n' "$last" "$TAG" | sort -V | tail -n 1)" != "$TAG" ]; then
+            echo "::error::$TAG is not higher than the latest release $last"; exit 1
+          fi
+          echo "release version: $TAG (previous: ${last:-none})"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          for name in DH_USER DH_TOKEN DEPLOY_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::repository secret for $name is empty (see docs/deploy.md, One-time setup)"; exit 1
+            fi
+          done
+
+      # Reserve the version before pushing the image: a failed run never reuses it.
+      - name: create version tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag "$TAG" "$GITHUB_SHA"
+          git push "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "refs/tags/$TAG"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -53,13 +92,30 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64           # the home server is an Intel Mac
-          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
+          platforms: linux/amd64         # the home server is an Intel Mac
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Start the exact pushed image and hit /healthz (no DB needed). If this fails, no PR is opened.
+      - name: smoke test pushed image
+        env:
+          REF: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+        run: |
+          docker pull "$REF"
+          docker run -d --name smoke -p 127.0.0.1:8000:8000 -e APP_VERSION=smoke "$REF"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/healthz | grep -q '"version":"smoke"'; then echo "healthz ok"; docker rm -f smoke; exit 0; fi
+            sleep 1
+          done
+          docker logs smoke || true
+          docker rm -f smoke || true
+          echo "::error::the pushed image did not answer /healthz"; exit 1
 
       - name: pull request on the deployment repo
         env:
           GH_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.version.outputs.tag }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           branch="release/$APP-$TAG"
@@ -69,8 +125,8 @@ jobs:
           mkdir -p "apps/$APP"
           {
             echo "# Written by the $APP release workflow for $TAG (commit $GITHUB_SHA). Do not edit by hand."
-            echo "$VAR=$IMAGE:$TAG@$DIGEST"
-            echo "$VERSION_VAR=$TAG"
+            echo "ORG_ADMIN_API_IMAGE=$IMAGE:$TAG@$DIGEST"
+            echo "ORG_ADMIN_API_VERSION=$TAG"
           } > "apps/$APP/release.env"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
