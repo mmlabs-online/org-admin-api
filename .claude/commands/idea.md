@@ -1,12 +1,10 @@
 ---
-description: Stage 1 — turn a topic into a PRD-style idea doc in docs/ideas/
-argument-hint: <topic or problem statement>
+description: Shape a new idea into the spec (docs/spec-v1.md) and propose tickets — run before /ticket when scope is new.
+argument-hint: "<idea or problem statement>"
 ---
 
-Topic: $ARGUMENTS
+Idea: `$ARGUMENTS`
 
-1. Read `CLAUDE.md`, `docs/WORKFLOW.md`, and existing files in `docs/ideas/` and `docs/design/` so you don't duplicate or contradict accepted work.
-2. Pick the next free number `NNNN` (4 digits, shared across ideas/design/plans) and a short kebab-case slug.
-3. Delegate to the **product-manager** subagent with: the topic, the context that this is the admin API for the whole mmlabs ecosystem (internal staff users, other mmlabs services as clients), and `docs/templates/idea.md` as the required structure.
-4. Write the result to `docs/ideas/NNNN-<slug>.md` with `Status: Draft`.
-5. Reply with: the file path, a 5-line summary, and the **open questions** the owner must answer before `/design`. Do not start the design.
+1. Dispatch `product-manager` with: the idea, "update docs/spec-v1.md (add or amend the relevant section, keep Open questions current), then return the sections changed, open questions, and proposed tickets (title, goal, areas, priority)".
+2. If the idea needs a technical view to be sized, dispatch `software-architect` in consult mode in parallel and pass its notes to the owner — do not write them into the spec as decisions.
+3. Do not create tickets or commit. Reply in Vietnamese: what changed in the spec, open questions for the owner, and the proposed tickets — the owner then runs `/ticket` for the ones they want.
