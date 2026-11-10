@@ -1,3 +1,9 @@
+# Third-party notices
+
+Agent definitions in `.claude/agents/` and orchestration logic in `.claude/commands/run.md` are adapted from
+**agency-agents** — https://github.com/msitarzewski/agency-agents — under the MIT License:
+
+```
 MIT License
 
 Copyright (c) 2025 AgentLand Contributors
@@ -19,3 +25,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```

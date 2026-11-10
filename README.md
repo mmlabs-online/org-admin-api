@@ -33,6 +33,13 @@ make check
 
 ## How we work
 
-Ideas, designs and plans live in `docs/` and are produced with Claude Code slash commands and subagents. See [`docs/WORKFLOW.md`](docs/WORKFLOW.md) and [`CLAUDE.md`](CLAUDE.md).
+Work is driven by tickets and Claude Code subagents (same loop as stoktok):
 
-Subagents in `.claude/agents/` are adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) (MIT, see `.claude/agents/LICENSE-agency-agents`).
+```
+/ticket "..."   # add a ticket to work/backlog.md
+/run            # agents consult → plan → implement → review → open a PR, automatically
+/status         # board summary
+```
+
+Scope lives in [`docs/spec-v1.md`](docs/spec-v1.md); the workflow, agents and rules are in [`CLAUDE.md`](CLAUDE.md).
+Agent definitions are adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) (MIT, see `THIRD_PARTY_NOTICES.md`).
