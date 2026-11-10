@@ -19,6 +19,8 @@ Ship org-admin-api to `api-admin.mmlabs.online` with the same release/deploy mod
 - [ ] `.github/workflows/release.yml`: a push to `release/vX.Y.Z` (commit already on `main`, version new and higher than every tag) creates the tag, builds the image, pushes it to Docker Hub, and opens a PR on `mmlabs-online/deployment` that pins the image by digest
 - [ ] Drafts for the deployment repo under `deploy/deployment-repo/` (compose file, `deploy-org-admin` workflow with `main`-only guard, health wait on `/readyz`, rollback on failure), secrets prefixed `ORG_ADMIN_` and written to an env file outside git
 - [ ] Database migrations run once per deploy before the new container serves traffic; a failed migration stops the deploy and keeps the old version running
+- [ ] Postgres data survives every redeploy: data lives in a named volume with a fixed name (`external: true` or explicit `name:`), the deploy only recreates the API container (never `docker compose down -v`, never removes or renames the volume), and Postgres is not restarted on a normal release
+- [ ] Before migrations, the deploy takes a `pg_dump` backup to a dated file on the host (kept N days, outside git); a failed migration leaves the DB and the old container untouched, and the runbook has a tested restore command
 - [ ] `docs/deploy.md` runbook: flow, required repo/environment secrets, one-time setup, Cloudflare Tunnel for `api-admin.mmlabs.online`, rollback steps
 - [ ] CI stays green; the release workflow is validated (YAML parses, version guard tested on sample tags)
 
