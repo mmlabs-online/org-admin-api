@@ -29,7 +29,7 @@ make check
 | GET/POST | `/api/v1/organizations` | list (paginated) / create |
 | GET/PATCH/DELETE | `/api/v1/organizations/{id}` | read / update / delete |
 
-> ⚠️ No authentication yet — do not expose publicly. Auth + RBAC is the next planned feature.
+> ⚠️ No authentication yet (ADM-002). Deployed without an access gate by owner decision (2026-11-10) — treat all data as exposed until auth ships.
 
 ## How we work
 

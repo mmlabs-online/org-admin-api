@@ -61,7 +61,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 ### §6.1 Deployment
 - Public hostname: **`api-admin.mmlabs.online`** (owner, 2026-11-10).
 - Release/deploy follows the mmlabs model used by stoktok: release branch → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the self-hosted runner, exposed through Cloudflare Tunnel (to confirm, §8 Q5).
-- Until staff authentication (§5.2) ships, the hostname must sit behind Cloudflare Access; it is never exposed unauthenticated.
+- No Cloudflare Access gate is required before staff authentication (§5.2) ships (owner, 2026-11-10). Accepted risk: until ADM-002 lands, anyone who can reach the hostname can call the admin endpoints.
 
 ## §7 Success metrics
 

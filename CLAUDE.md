@@ -131,4 +131,4 @@ Ticket states: `BACKLOG` → `PLANNING` → `IN_PROGRESS` → `REVIEW` → `DONE
 - Commits: `ADM-xxx: <imperative summary>` (or `solo: <summary>`).
 - Secrets: only in `.env` (git-ignored) and the deploy environment.
 - Third-party agent definitions come from msitarzewski/agency-agents (MIT) — see `THIRD_PARTY_NOTICES.md`.
-- ⚠️ Until ADM-002 is done, the API is unauthenticated: **do not deploy publicly.**
+- ⚠️ Until ADM-002 is done, the API is unauthenticated. The owner accepted deploying it to `api-admin.mmlabs.online` without a Cloudflare Access gate (2026-11-10, spec §6.1); keep ADM-002 high priority.
