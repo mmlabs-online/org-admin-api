@@ -26,5 +26,5 @@ Ship org-admin-api to `api-admin.mmlabs.online` with the same release/deploy mod
 
 ## Notes / answers from owner
 - 2026-11-10: hostname is `api-admin.mmlabs.online`.
-- Open (spec §8 Q5): same Mac self-hosted runner + Cloudflare Tunnel as stoktok? Postgres inside the compose stack on that host, or an existing/managed Postgres? The planner will BLOCK on these if they change the design.
+- 2026-11-10: deploy to the same Mac self-hosted runner (`macbook-runner`) as stoktok, Docker Compose, Cloudflare Tunnel. Postgres 16 runs as a service in the same compose stack on the Mac (persistent named volume, see acceptance criteria). Follow stoktok's `docs/deploy.md` and `deploy/deployment-repo/` as the reference.
 - 2026-11-10: no Cloudflare Access gate needed before ADM-002 (spec §6.1); the endpoints are public until auth ships — accepted by owner.

@@ -60,7 +60,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 
 ### §6.1 Deployment
 - Public hostname: **`api-admin.mmlabs.online`** (owner, 2026-11-10).
-- Release/deploy follows the mmlabs model used by stoktok: release branch → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the self-hosted runner, exposed through Cloudflare Tunnel (to confirm, §8 Q5).
+- Release/deploy follows the mmlabs model used by stoktok: release branch → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the self-hosted runner, exposed through Cloudflare Tunnel. Postgres runs in the same compose stack on the Mac runner, data in a persistent named volume (owner, 2026-11-10).
 - No Cloudflare Access gate is required before staff authentication (§5.2) ships (owner, 2026-11-10). Accepted risk: until ADM-002 lands, anyone who can reach the hostname can call the admin endpoints.
 
 ## §7 Success metrics
@@ -73,7 +73,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - [ ] Q2. Staff login: Google Workspace SSO, the mmlabs "Authen" service, another IdP, or email/password + 2FA?
 - [ ] Q3. Is this API the **source of truth** for orgs/users, or does it aggregate data owned by each product?
 - [ ] Q4. How do products consume admin decisions — pull (API with service keys), push (webhooks/events), or both?
-- [ ] Q5. Deployment target: same Mac self-hosted runner + Docker Compose + Cloudflare Tunnel as stoktok? Postgres in the compose stack on that host, or an existing/managed Postgres? (Hostname decided: `api-admin.mmlabs.online`, 2026-11-10.)
+- [x] Q5. Deployment target — **answered 2026-11-10:** same Mac self-hosted runner as stoktok, Docker Compose, Cloudflare Tunnel; Postgres runs as a service in the same compose stack on that Mac. Hostname `api-admin.mmlabs.online`.
 - [ ] Q6. Compliance needs (audit retention period, PII handling)?
 
 Answers go here with date, and into the relevant ticket's "Notes / answers from owner".
