@@ -13,4 +13,6 @@ COPY app ./app
 RUN useradd --create-home appuser
 USER appuser
 EXPOSE 8000
-CMD ["sh", "-c", "/app/.venv/bin/alembic upgrade head && /app/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Migrations are a separate step (`alembic upgrade head`, run by the deploy before the API is replaced),
+# so an older image can be restarted on a newer schema during a rollback.
+CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

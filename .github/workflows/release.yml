@@ -1,0 +1,82 @@
+# From mmlabs-online/deployment docs/app-release.yml. Pushing a tag vX.Y.Z builds the image, pushes
+# it to Docker Hub, and opens a pull request release/org-admin-api-vX.Y.Z on mmlabs-online/deployment
+# that changes only apps/org-admin-api/release.env. Merging that pull request runs
+# deploy-org-admin-api on the home server (backup → migrate → replace → health check). See docs/deploy.md.
+#
+# Secrets in this repo:
+#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN  push to mingming21400/org-admin-api
+#   DEPLOY_REPO_TOKEN                    fine-grained PAT on mmlabs-online/deployment only:
+#                                        Contents read/write, Pull requests read/write
+
+name: release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: read
+
+env:
+  APP: org-admin-api                       # folder apps/<APP>/ in the deployment repo
+  IMAGE: mingming21400/org-admin-api       # Docker Hub repository
+  VAR: ORG_ADMIN_API_IMAGE                 # variable apps/<APP>/compose.yml reads
+  VERSION_VAR: ORG_ADMIN_API_VERSION       # becomes APP_VERSION (shown by /healthz)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest                 # GitHub's runner: app code never runs on the home server
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: tag is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points at a commit that is not on main. Tag a commit from main."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64           # the home server is an Intel Mac
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
+
+      - name: pull request on the deployment repo
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          branch="release/$APP-$TAG"
+          git clone --depth 1 "https://x-access-token:$GH_TOKEN@github.com/mmlabs-online/deployment.git" deployment
+          cd deployment
+          git switch -c "$branch"
+          mkdir -p "apps/$APP"
+          {
+            echo "# Written by the $APP release workflow for $TAG (commit $GITHUB_SHA). Do not edit by hand."
+            echo "$VAR=$IMAGE:$TAG@$DIGEST"
+            echo "$VERSION_VAR=$TAG"
+          } > "apps/$APP/release.env"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "apps/$APP/release.env"
+          git commit -m "$APP $TAG"
+          git push origin "$branch"
+          gh pr create --repo mmlabs-online/deployment --base main --head "$branch" \
+            --title "$APP $TAG" \
+            --body "Deploys \`$IMAGE:$TAG@$DIGEST\` ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA). Merging runs deploy-$APP on the home server: backup, migrations, then the new API."

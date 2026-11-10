@@ -60,7 +60,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 
 ### §6.1 Deployment
 - Public hostname: **`api-admin.mmlabs.online`** (owner, 2026-11-10).
-- Release/deploy follows the mmlabs model used by stoktok: release branch → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the self-hosted runner, exposed through Cloudflare Tunnel. Postgres runs in the same compose stack on the Mac runner, data in a persistent named volume (owner, 2026-11-10).
+- Release/deploy follows the mmlabs deployment repo: tag `vX.Y.Z` on main → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the Mac self-hosted runner, exposed through Cloudflare Tunnel. Database: the shared mmlabs Postgres 17 (compose on the Mac runner), database `org_admin`, persistent `pgdata` volume with nightly and offsite backups (owner, 2026-11-10). Runbook: `docs/deploy.md`.
 - No Cloudflare Access gate is required before staff authentication (§5.2) ships (owner, 2026-11-10). Accepted risk: until ADM-002 lands, anyone who can reach the hostname can call the admin endpoints.
 
 ## §7 Success metrics
