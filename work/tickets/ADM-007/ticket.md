@@ -26,7 +26,7 @@ Ship org-admin-api to `api-admin.mmlabs.online` with the same release/deploy mod
 
 ## Notes / answers from owner
 - 2026-11-10: implemented directly (outside `/run`) at the owner's request: `release.yml`, `Dockerfile` (no auto-migrate), `docs/deploy.md` here, and a registration PR on `mmlabs-online/deployment`. No plan/review files. Divergences from the criteria above, following the deployment repo's conventions:
-  - release is triggered by a **tag `vX.Y.Z` on main** (the shared `docs/app-release.yml` template), not a `release/vX.Y.Z` branch;
+  - release is triggered by pushing a branch **`release/vX.Y.Z`** from main, like stoktok (owner, 2026-11-10; was tag-based first). The workflow creates the tag;
   - Postgres is the deployment repo's **shared Postgres 17** (database/role `org_admin`, external volume `pgdata`, nightly + offsite backups), not a separate Postgres service — still compose on the Mac runner;
   - the pre-migration backup uses the shared `pg-backup` sidecar (`/backup.sh`).
 - Remaining before DONE: owner one-time setup in `docs/deploy.md`, first tag `v0.1.0`, and a healthy `/healthz` on api-admin.mmlabs.online.

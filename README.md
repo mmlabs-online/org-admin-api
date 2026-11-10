@@ -14,7 +14,7 @@ make migrate
 make dev          # http://localhost:8000/docs
 ```
 
-Deploy: see [`docs/deploy.md`](docs/deploy.md) (tag `vX.Y.Z` on main → api-admin.mmlabs.online).
+Deploy: see [`docs/deploy.md`](docs/deploy.md) (push branch `release/vX.Y.Z` from main → api-admin.mmlabs.online).
 
 Run everything CI runs:
 
