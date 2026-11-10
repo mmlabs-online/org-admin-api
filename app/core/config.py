@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "mmlabs org-admin-api"
     app_env: Literal["local", "test", "staging", "production"] = "local"
     app_debug: bool = False
+    app_version: str = "dev"  # set by the release build (APP_VERSION)
     api_prefix: str = "/api/v1"
 
     database_url: PostgresDsn = Field(
