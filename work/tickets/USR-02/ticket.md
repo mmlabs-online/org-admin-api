@@ -7,7 +7,7 @@
 | Areas | architecture, db, api, auth, security |
 | Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/10 |
 
 ## Goal
 One authorization model for every mmlabs app: registered apps with join policy, org mode and allowed origins; namespaced permissions (some flagged `is_admin`); app-scoped roles including a default `<app>:member` role; role assignments per user (app scope or one org).
