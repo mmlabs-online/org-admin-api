@@ -7,7 +7,7 @@
 | Areas | api, security |
 | Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/14 |
 
 ## Goal
 Apps (and staff) can fetch an app's role → permissions catalog cheaply with ETag / 304, without making it public before the owner decides.
