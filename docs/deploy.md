@@ -1,7 +1,7 @@
 # Deploy runbook (ADM-007)
 
 org-admin-api runs on the mmlabs home server (Mac, self-hosted runner `macbook-runner`) and is served at
-**https://api-admin.mmlabs.online** through the shared Cloudflare Tunnel. How it runs is defined in
+**https://api.mmlabs.online** through the shared Cloudflare Tunnel. How it runs is defined in
 `mmlabs-online/deployment` (`apps/org-admin-api/`, `.github/workflows/deploy-org-admin-api.yml`).
 Only the owner merges in either repository.
 
@@ -69,10 +69,10 @@ migration must keep the previous release working:
    - `DEPLOY_REPO_TOKEN` — fine-grained PAT on `mmlabs-online/deployment` only: Contents read/write,
      Pull requests read/write. (The same kind of token stoktok/calechip use.)
 4. **Cloudflare:** in the tunnel used by `proxy/` (Zero Trust → Networks → Tunnels → the mmlabs
-   tunnel → Public hostnames), add `api-admin.mmlabs.online` → `HTTP` → `org-admin-api:8000`.
+   tunnel → Public hostnames), add `api.mmlabs.online` → `HTTP` → `org-admin-api:8000`.
    No Cloudflare Access application (owner decision, 2026-11-10 — the API has no auth until ADM-002).
 5. Push the branch `release/v0.1.0` from main, merge the release PR it opens, and check
-   `https://api-admin.mmlabs.online/healthz`.
+   `https://api.mmlabs.online/healthz`.
 
 ## Operations
 
