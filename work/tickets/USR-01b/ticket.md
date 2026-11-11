@@ -7,7 +7,7 @@
 | Areas | api, security |
 | Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/9 |
 
 ## Goal
 Staff can list, look up, and enable/disable mmlabs users, without exposing user data publicly before ADM-002 protects admin endpoints.
