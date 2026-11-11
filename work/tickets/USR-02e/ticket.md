@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P1 |
 | Areas | api, security |
 | Attempts | 0 |
@@ -22,6 +22,7 @@ Apps (and staff) can fetch an app's role → permissions catalog cheaply with ET
 - [ ] Tests: ETag stable, changes after a permission/role change, 304 variants, 404 cases, flag off → 404
 
 ## Notes / answers from owner
+- 2026-11-11 (orchestrator): per D17 the catalog is **public and always mounted** — the "(flag-gated)" in the title, "without making it public" in the Goal and "flag off → 404" in the tests list are superseded (they predate the owner's Q1 answer). Test instead that the catalog is reachable with the RBAC flag off.
 - 2026-11-11 (owner): **Q1 yes** — the catalog is public (D17). **Q2 yes** — `{key}` in paths and a non-`Page` document are R9 exceptions (D18).
 - 2026-11-11: created by the orchestrator from the USR-02b planner's split (slice 02b-3). Can merge into USR-02d if Q1 (public catalog) is answered first.
 - Depends on USR-02d.
