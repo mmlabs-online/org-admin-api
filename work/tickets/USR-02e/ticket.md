@@ -1,8 +1,8 @@
-# USR-02e: Role catalog with ETag (flag-gated)
+# USR-02e: Public role catalog with ETag
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | api, security |
 | Attempts | 0 |
