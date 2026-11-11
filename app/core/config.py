@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     argon2_parallelism: int = Field(default=4, ge=1)
     argon2_max_concurrency: int = Field(default=2, ge=1)
 
+    # Temporary: exposes user PII and a disable action without auth. Removed by ADM-002.
+    admin_users_api_enabled: bool = False
+
     @field_validator("trusted_proxy_cidrs")
     @classmethod
     def _valid_cidrs(cls, value: list[str]) -> list[str]:
@@ -61,6 +64,14 @@ class Settings(BaseSettings):
             or self.argon2_time_cost < _ARGON2_MIN_TIME_COST
         ):
             raise ValueError("Argon2 parameters are below the minimum for staging/production")
+        return self
+
+    @model_validator(mode="after")
+    def _admin_users_api_not_public(self) -> Self:
+        if self.admin_users_api_enabled and self.app_env in {"staging", "production"}:
+            raise ValueError(
+                "ADMIN_USERS_API_ENABLED must not be set in staging/production before ADM-002"
+            )
         return self
 
 
