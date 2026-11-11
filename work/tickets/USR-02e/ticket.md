@@ -16,11 +16,12 @@ Apps (and staff) can fetch an app's role → permissions catalog cheaply with ET
 §5.3; ADR-0001 §5; split from USR-02b (`work/tickets/USR-02b/plan.md` → "Split proposal" → slice 02b-3)
 
 ## Acceptance criteria
-- [ ] `GET /api/v1/apps/{key}/roles` in its own router, behind `ADMIN_RBAC_API_ENABLED` (until the owner answers Q1)
+- [ ] `GET /api/v1/apps/{key}/roles` in its own router, **always mounted and public** (D17, R3 class 3), with a per-IP rate limit; no `x-permission` declaration (public allow-list)
 - [ ] Canonical sorted document; strong ETag = hash of the exact response bytes; `If-None-Match` → 304 (lists, `W/`, `*`), empty body, same ETag; `Cache-Control: no-cache`
 - [ ] 404 for unknown, disabled and `admin` apps
 - [ ] Tests: ETag stable, changes after a permission/role change, 304 variants, 404 cases, flag off → 404
 
 ## Notes / answers from owner
+- 2026-11-11 (owner): **Q1 yes** — the catalog is public (D17). **Q2 yes** — `{key}` in paths and a non-`Page` document are R9 exceptions (D18).
 - 2026-11-11: created by the orchestrator from the USR-02b planner's split (slice 02b-3). Can merge into USR-02d if Q1 (public catalog) is answered first.
 - Depends on USR-02d.

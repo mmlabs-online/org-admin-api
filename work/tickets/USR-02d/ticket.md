@@ -20,6 +20,7 @@ Staff can manage an app's permissions and roles, including replacing a role's pe
 - [ ] Key prefix == app key (422); `<app>:*` forced `is_admin` (`false` → 422); `is_system` and `key` never accepted as input
 - [ ] PUT dedupes, lists every unknown/other-app key in 422 details, shares diff logic with the member-role builder; idempotent
 - [ ] Guards (409): delete `admin:*` or a permission held by any role; delete a system role, the app's default role, or a role with assignments; PUT leaving `admin:super-admin` without `admin:*`; PUT adding an `is_admin` permission to the default role; PATCH `is_admin=true` on a permission the default role holds
+- [ ] Origins restricted per D19 (owner, 2026-11-11): only `https://mmlabs.online`, `https://*.mmlabs.online` and loopback (`http(s)://localhost`, `127.0.0.1`, `[::1]`); any other origin → 422 with no echo; update `app/modules/rbac/origins.py` and its tests (existing apps created by 02b with other origins: none exist outside local/test)
 - [ ] Tests per the 02b-2 contract
 
 ## Notes / answers from owner
