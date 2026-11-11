@@ -1,5 +1,7 @@
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any
 
 # Point the app at the test database before anything imports app settings.
 TEST_DATABASE_URL = os.environ.get(
@@ -7,6 +9,10 @@ TEST_DATABASE_URL = os.environ.get(
 )
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["APP_ENV"] = "test"
+# Cheap Argon2id parameters so tests stay fast.
+os.environ["ARGON2_MEMORY_KIB"] = "1024"
+os.environ["ARGON2_TIME_COST"] = "1"
+os.environ["ARGON2_PARALLELISM"] = "1"
 
 import pytest
 from alembic import command
@@ -14,8 +20,13 @@ from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.core.config import Settings
 from app.db.session import get_session
 from app.main import create_app
+from app.modules.auth.deps import get_turnstile_verifier
+from tests.fakes import FakeTurnstileVerifier
+
+MakeClient = Callable[..., AbstractAsyncContextManager[AsyncClient]]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -45,12 +56,30 @@ async def db_session() -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture
-async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
-    app = create_app()
+def fake_turnstile() -> FakeTurnstileVerifier:
+    return FakeTurnstileVerifier()
 
-    async def _override_session() -> AsyncIterator[AsyncSession]:
-        yield db_session
 
-    app.dependency_overrides[get_session] = _override_session
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+@pytest.fixture
+def make_client(db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier) -> MakeClient:
+    """Build a client for an app with optional settings overrides (same DB session)."""
+
+    @asynccontextmanager
+    async def _make(**settings_overrides: Any) -> AsyncIterator[AsyncClient]:
+        app = create_app(Settings(**settings_overrides) if settings_overrides else None)
+
+        async def _override_session() -> AsyncIterator[AsyncSession]:
+            yield db_session
+
+        app.dependency_overrides[get_session] = _override_session
+        app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            yield c
+
+    return _make
+
+
+@pytest.fixture
+async def client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
+    async with make_client() as c:
         yield c

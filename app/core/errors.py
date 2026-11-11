@@ -16,10 +16,13 @@ class AppError(Exception):
     status_code: int = status.HTTP_400_BAD_REQUEST
     code: str = "bad_request"
 
-    def __init__(self, message: str, details: Any = None) -> None:
+    def __init__(
+        self, message: str, details: Any = None, headers: dict[str, str] | None = None
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.details = details
+        self.headers = headers
 
 
 class NotFoundError(AppError):
@@ -37,6 +40,18 @@ class PermissionDeniedError(AppError):
     code = "permission_denied"
 
 
+class RateLimitedError(AppError):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "rate_limited"
+
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(
+            "Too many requests",
+            details={"retry_after": retry_after},
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
 def _envelope(code: str, message: str, details: Any = None) -> dict[str, Any]:
     return {"error": {"code": code, "message": message, "details": details}}
 
@@ -47,6 +62,7 @@ async def _app_error_handler(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content=_envelope(exc.code, exc.message, exc.details),
+        headers=exc.headers,
     )
 
 
@@ -56,7 +72,12 @@ async def _validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=_envelope(
-            "validation_error", "Request validation failed", jsonable_encoder(exc.errors())
+            "validation_error",
+            "Request validation failed",
+            # Never echo submitted values (`input`, `ctx`): they may hold passwords or emails.
+            jsonable_encoder(
+                [{"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()]
+            ),
         ),
     )
 

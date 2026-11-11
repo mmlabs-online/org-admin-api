@@ -2,5 +2,6 @@
 
 from app.db.base import Base
 from app.modules.organizations.models import Organization
+from app.modules.users.models import User
 
-__all__ = ["Base", "Organization"]
+__all__ = ["Base", "Organization", "User"]
