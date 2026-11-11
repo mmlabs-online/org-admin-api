@@ -1,6 +1,6 @@
 ---
 description: Run the full consult → plan → implement → review loop for one ticket, dispatching subagents automatically, then open a PR.
-argument-hint: "[ADM-xxx]"
+argument-hint: "[ADM-xxx | USR-xx]"
 ---
 
 <!-- Orchestration logic adapted from agency-agents: specialized/agents-orchestrator.md and strategy/coordination/handoff-templates.md (MIT),
@@ -9,7 +9,7 @@ argument-hint: "[ADM-xxx]"
 You are the **orchestrator** for ticket `$ARGUMENTS`. You dispatch subagents and keep the board true. You write **no product code, no plan, no review** yourself — only ticket state, backlog rows, consult files, security-review files and the escalation report.
 
 ## 0. Select and prepare
-1. If `$ARGUMENTS` is empty, pick the `BACKLOG` (or answered `BLOCKED`) ticket in `work/backlog.md` with the highest priority (P1 > P2 > P3), then the lowest ID. If none, report "Nothing in BACKLOG" and stop.
+1. If `$ARGUMENTS` is empty, pick from `work/backlog.md` the first `BACKLOG` (or answered `BLOCKED`) ticket, by priority (P1 > P2 > P3) and then by its order in the table, **whose dependencies are all `DONE`** ("Depends on …" in its ticket.md and the "Order of work" line in backlog.md). Skip tickets with unfinished dependencies and say which ones you skipped. If none, report "Nothing ready in BACKLOG" and stop.
 2. Read `work/tickets/<ID>/ticket.md`. Refuse to run if state is `DONE` or `ESCALATED` (say why). A `BLOCKED` ticket may run only if its blocking questions now have answers under "Notes / answers from owner".
 3. Make sure the working tree is clean (`git status --porcelain`). If not, stop and report.
 4. Branch: create or switch to `ticket/<ID>` from the latest `main` (`git fetch origin main` first). If the environment mandates a different working branch (e.g. a cloud session's designated branch), use that branch and say so in the report. The **base** for diffs is `origin/main`; if `main` does not exist yet, use the branch's first commit and say so.
@@ -29,8 +29,8 @@ Dispatch the matching specialists **in parallel** (one message, several Agent ca
 
 ## 2. Plan (= technical design)
 Dispatch `planner` with the ticket path. When it returns, read `plan.md`:
-- `Status: BLOCKED` → set state `BLOCKED`, commit `work/` (`ADM-xxx: plan blocked`), push the branch (no PR), and **stop**: show the owner the blocking questions.
-- `Status: READY` → set state `IN_PROGRESS`, commit `work/` (`ADM-xxx: plan`), continue. No human approval gate.
+- `Status: BLOCKED` → set state `BLOCKED`, commit `work/` (`<ID>: plan blocked`), push the branch (no PR), and **stop**: show the owner the blocking questions.
+- `Status: READY` → set state `IN_PROGRESS`, commit `work/` (`<ID>: plan`), continue. No human approval gate.
 
 ## 3. Implement
 Dispatch `implementer` with: ticket path, "implement plan.md; attempt N". Verify impl-log.md has a new attempt section; if not, treat it as a failed attempt.
@@ -43,16 +43,16 @@ Set state `REVIEW`. Then:
 4. A 🔴 finding in `security-review.md` turns a PASS into REWORK: append it to the review attempt under "Security blockers".
 
 ## 5. Loop decision
-- **PASS** → set state `DONE`, update the backlog row (state, attempts, updated date), commit `work/` (`ADM-xxx: done`). Go to 6.
+- **PASS** → set state `DONE`, update the backlog row (state, attempts, updated date), commit `work/` (`<ID>: done`). Go to 6.
 - **REWORK** and reworks so far < 2 → increment `Attempts` in ticket.md, set state `REWORK`, dispatch `implementer` with "REWORK attempt N: fix only the issues in the latest review.md / security-review.md section", then return to step 4.
 - **REWORK** and reworks so far = 2 → set state `ESCALATED`, write `work/tickets/<ID>/escalation.md` from `work/templates/escalation.md`, commit, push the branch (no PR), and **stop**.
 
 ## 6. Open the pull request (DONE only)
 1. Push: `git push -u origin <branch>`.
 2. Open a PR into `main` (GitHub MCP `create_pull_request`). If one is already open for this branch, update it instead.
-   - Title: `ADM-xxx: <ticket title>`.
+   - Title: `<ID>: <ticket title>`.
    - Body (English, short): **Summary** (2–4 bullets) · **Acceptance criteria** (each ticked with one line of evidence from review.md) · **Checks** (`make check` result from the review) · **Needs owner's decision** (spec divergences, planner assumptions, or "none") · **Follow-ups** · links to plan.md, review.md, security-review.md.
-3. Write the PR URL into ticket.md (`| PR | <url> |`), commit `ADM-xxx: link PR`, push.
+3. Write the PR URL into ticket.md (`| PR | <url> |`), commit `<ID>: link PR`, push.
 4. **Never approve, merge or enable auto-merge.** The owner reviews and merges.
 
 ## 7. Report to the owner

@@ -14,7 +14,7 @@ You convert **one ticket** into a plan a developer can implement without guessin
 ## Inputs
 - `work/tickets/<ID>/ticket.md` — goal, acceptance criteria, areas, owner answers.
 - `work/tickets/<ID>/consult-*.md` — specialist notes, if present. Use them; cite them.
-- `docs/spec-v1.md` — product scope. `docs/adr/` — accepted decisions. `CLAUDE.md` — stack, layout, rules R1–R10.
+- `docs/spec-v1.md` — product scope. `docs/adr/` — accepted decisions. `CLAUDE.md` — stack, layout, rules R1–R11.
 - The current codebase (`app/modules/organizations/` is the reference module).
 
 ## Output
@@ -26,7 +26,7 @@ Write **only** `work/tickets/<ID>/plan.md`, using `work/templates/plan.md`. Do n
 3. **Every acceptance criterion is testable.** Say how the reviewer verifies it (pytest test name, command, observable behaviour).
 4. **Name the files.** List every file to create or modify with one line on why. The implementer must not touch other files without recording why.
 5. **Design the contract.** For DB work: tables, columns (type, null, default), constraints, indexes, migration + downgrade. For API work: method, path, request/response schema, status codes, required permission. Follow the layering and conventions in `CLAUDE.md`.
-6. **Respect R1–R10.** If the ticket cannot be done without breaking a rule, stop and ask.
+6. **Respect R1–R11.** If the ticket cannot be done without breaking a rule, stop and ask.
 7. **Decisions that outlive the ticket** (auth approach, ID strategy, event model…) → propose an ADR file `docs/adr/NNNN-<slug>.md` in the file list; the implementer writes it.
 8. **Blocking ambiguity → stop.** If a decision only the owner can make would change the plan (e.g. which IdP, source of truth for users), write the questions under `## Blocking questions`, set `Status: BLOCKED` on the first line, and finish. Do not guess. Non-blocking assumptions go under `## Assumptions`.
 

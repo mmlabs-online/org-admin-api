@@ -10,12 +10,14 @@ mmlabs runs several products/services. Admin tasks (managing customer orgs, user
 ## §2 Goals
 
 - One admin API that the mmlabs admin web UI (and internal tools) use for cross-product administration.
+- **mmlabs Identity:** one user account for the whole mmlabs ecosystem, with email + password managed by this service, and tokens every mmlabs app can verify (owner, 2026-11-11; §5.8).
 - A shared permission model for internal staff.
 - A complete, queryable audit log of admin actions.
 
 ## §3 Non-goals (v1)
 
-- End-user (customer) login/auth for the products themselves.
+- ~~End-user (customer) login/auth for the products themselves.~~ Removed 2026-11-11 (owner): end-user identity is now in scope, see §5.8.
+- Social login (Google, Apple…), acting as a full OIDC/OAuth2 provider, and a hosted login UI — not in v1 of §5.8.
 - Billing / payments.
 - Replacing each product's own internal data model.
 
@@ -37,17 +39,29 @@ CRUD for organizations (slug, name, description, status `active`/`suspended`). P
 ### §5.2 Staff authentication
 Only authenticated mmlabs staff can call `/api/v1/*`. Health endpoints stay public. Approach (SSO/OIDC vs. other) is an open question (§8 Q2).
 
-### §5.3 RBAC
-Roles, permissions and role assignments for staff. Every `/api/v1` endpoint declares the permission it needs. A bootstrap super-admin exists.
+### §5.3 Authorization — multi-app RBAC (owner, 2026-11-11; [ADR-0001](adr/0001-multi-app-authorization.md))
+One model for every mmlabs app, the admin API included (app `admin`). Apps are registered; each app declares namespaced permissions (`<app>:<resource>:<action>`) and its own roles; users get roles per app, optionally limited to one organization. Every admin `/api/v1` endpoint declares the `admin:*` permission it needs. A bootstrap super-admin (`admin:*`) exists. Business rules on an app's own data stay in that app.
 
 ### §5.4 Audit log
 Append-only record of every mutating admin action: actor, action, target type/id, before/after (or diff), timestamp, request id. Read-only, filterable listing for auditors.
 
-### §5.5 Products registry
-List of mmlabs products/services (key, name, status, base URL).
+### §5.5 Products registry — merged into the apps registry of §5.3 (2026-11-11)
+The list of mmlabs products is the `apps` table of §5.3 (key, name, status).
 
 ### §5.6 Org product entitlements
 Which org can use which product, with plan and limits; enable/disable per org. Readable by mmlabs services (service-to-service auth, §8 Q4).
+
+### §5.8 mmlabs Identity — ecosystem users and authentication (owner, 2026-11-11)
+One account per person across all mmlabs apps. This service stores the users and their credentials (**email + password, managed here**, no external IdP) and issues tokens that any mmlabs app verifies on its own.
+
+- **Users:** email (unique, case-insensitive), password, status (`active` / `disabled`), email verified flag, timestamps. Staff are users too; what they may do in the admin API is RBAC (§5.3).
+- **Passwords:** hashed with Argon2id; never logged or returned; minimum length and a breached/common-password check per the plan.
+- **Login:** email + password → short-lived **access token** (JWT, signed with an asymmetric key) + long-lived **refresh token** (opaque, stored hashed, rotated on every use, reuse revokes the session). Logout revokes the refresh token.
+- **Per-app access tokens:** an app exchanges the user's refresh token for its own access token (`POST /api/v1/auth/token {"audience": "<app>"}`), carrying only that app's roles; refused if the user has no role there (§5.3, ADR-0001).
+- **Verification by apps:** public keys at `/.well-known/jwks.json`; apps verify signature, `iss`, `aud` and expiry locally, without calling this service on every request. Claims: `sub` (user id), `email`, `email_verified`, `aud`, `roles`, `org` (if scoped), `iat`, `exp`.
+- **Abuse protection:** rate limit and temporary lockout on login, the same error for "unknown email" and "wrong password" (no account enumeration).
+- **Email flows:** email verification and password reset by one-time, expiring links (needs an email provider, §8 Q8).
+- **Admin:** staff can list, look up, disable/enable users, manage their roles per app and revoke their sessions (audited, §5.4).
 
 ### §5.7 Later (not v1)
 Org members view, per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
@@ -70,10 +84,14 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 ## §8 Open questions (owner)
 
 - [ ] Q1. Which mmlabs products are in scope first?
-- [ ] Q2. Staff login: Google Workspace SSO, the mmlabs "Authen" service, another IdP, or email/password + 2FA?
+- [x] Q2. Staff login — **answered 2026-11-11:** email + password managed by this service (§5.8); staff are §5.8 users with RBAC roles. 2FA for staff: see Q10.
 - [ ] Q3. Is this API the **source of truth** for orgs/users, or does it aggregate data owned by each product?
 - [ ] Q4. How do products consume admin decisions — pull (API with service keys), push (webhooks/events), or both?
 - [x] Q5. Deployment target — **answered 2026-11-10:** same Mac self-hosted runner as stoktok, Docker Compose, Cloudflare Tunnel; Postgres runs as a service in the same compose stack on that Mac. Hostname `api.mmlabs.online` (renamed from `api-admin.mmlabs.online` on 2026-11-11).
 - [ ] Q6. Compliance needs (audit retention period, PII handling)?
+- [ ] Q7. Sign-up: can anyone create an account (open self sign-up), or only by invite / created by staff? Per app?
+- [ ] Q8. Email provider for verification and password reset (Resend, Amazon SES, SMTP of an existing mailbox…), and the sender address?
+- [ ] Q9. Apps already on Supabase Auth (stoktok, calechip): stay there, or migrate to mmlabs Identity later?
+- [ ] Q10. 2FA (TOTP) required for staff accounts in v1?
 
 Answers go here with date, and into the relevant ticket's "Notes / answers from owner".
