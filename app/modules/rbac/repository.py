@@ -1,7 +1,8 @@
 import uuid
 from collections.abc import Iterable
 
-from sqlalchemy import ColumnElement, Select, and_, delete, func, insert, or_, select
+from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
@@ -14,12 +15,68 @@ class RbacRepository:
     async def get_app_by_key(self, key: str) -> App | None:
         return await self.session.scalar(select(App).where(App.key == key))
 
+    async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
+        total = await self.session.scalar(select(func.count()).select_from(App))
+        result = await self.session.scalars(
+            select(App).order_by(App.key).limit(limit).offset(offset)
+        )
+        return list(result), total or 0
+
+    async def add_app(self, app: App) -> App:
+        """Insert in a savepoint so a unique violation leaves the outer transaction usable."""
+        async with self.session.begin_nested():
+            self.session.add(app)
+            await self.session.flush()
+        await self.session.refresh(app)
+        return app
+
+    async def save(self) -> None:
+        """Flush pending changes in a savepoint (an `IntegrityError` keeps the session usable)."""
+        async with self.session.begin_nested():
+            await self.session.flush()
+
+    async def delete_app(self, app: App) -> None:
+        """Delete in a savepoint; the database cascades the app's roles and permissions."""
+        async with self.session.begin_nested():
+            await self.session.delete(app)
+            await self.session.flush()
+
+    async def app_has_assignments(self, app_id: uuid.UUID) -> bool:
+        stmt = select(
+            exists().where(RoleAssignment.role_id == Role.id).where(Role.app_id == app_id)
+        )
+        return bool(await self.session.scalar(stmt))
+
+    async def set_default_role_if_null(self, app_id: uuid.UUID, role_id: uuid.UUID) -> None:
+        """Conditional update: never overwrites a default set concurrently (no lost update)."""
+        await self.session.execute(
+            update(App)
+            .where(App.id == app_id, App.default_role_id.is_(None))
+            .values(default_role_id=role_id)
+            .execution_options(synchronize_session=False)
+        )
+
+    async def get_role(self, app_id: uuid.UUID, role_id: uuid.UUID) -> Role | None:
+        return await self.session.scalar(
+            select(Role).where(Role.app_id == app_id, Role.id == role_id)
+        )
+
     async def get_role_by_key(self, app_id: uuid.UUID, key: str) -> Role | None:
         return await self.session.scalar(select(Role).where(Role.app_id == app_id, Role.key == key))
 
+    async def role_has_admin_permission(self, role_id: uuid.UUID) -> bool:
+        stmt = select(
+            exists()
+            .where(RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role_id, Permission.is_admin.is_(True))
+        )
+        return bool(await self.session.scalar(stmt))
+
     async def add_role(self, role: Role) -> Role:
-        self.session.add(role)
-        await self.session.flush()
+        """Insert in a savepoint so a unique violation leaves the outer transaction usable."""
+        async with self.session.begin_nested():
+            self.session.add(role)
+            await self.session.flush()
         await self.session.refresh(role)
         return role
 
@@ -44,7 +101,9 @@ class RbacRepository:
     ) -> None:
         rows = [{"role_id": role_id, "permission_id": p, "app_id": app_id} for p in permission_ids]
         if rows:
-            await self.session.execute(insert(RolePermission), rows)
+            await self.session.execute(
+                pg_insert(RolePermission).values(rows).on_conflict_do_nothing()
+            )
 
     async def remove_role_permissions(
         self, role_id: uuid.UUID, permission_ids: Iterable[uuid.UUID]

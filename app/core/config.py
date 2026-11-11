@@ -49,6 +49,8 @@ class Settings(BaseSettings):
 
     # Temporary: exposes user PII and a disable action without auth. Removed by ADM-002.
     admin_users_api_enabled: bool = False
+    # Temporary: privilege-changing RBAC endpoints without auth. Removed by ADM-002.
+    admin_rbac_api_enabled: bool = False
 
     @field_validator("trusted_proxy_cidrs")
     @classmethod
@@ -67,11 +69,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _admin_users_api_not_public(self) -> Self:
-        if self.admin_users_api_enabled and self.app_env in {"staging", "production"}:
-            raise ValueError(
-                "ADMIN_USERS_API_ENABLED must not be set in staging/production before ADM-002"
-            )
+    def _admin_apis_gate(self) -> Self:
+        flags = {
+            "ADMIN_USERS_API_ENABLED": self.admin_users_api_enabled,
+            "ADMIN_RBAC_API_ENABLED": self.admin_rbac_api_enabled,
+        }
+        for name, on in flags.items():
+            if on and self.app_env in {"staging", "production"}:
+                raise ValueError(f"{name} must not be set in staging/production before ADM-002")
+        # `env_ignore_empty=True`: an empty `APP_ENV=` counts as unset.
+        if any(flags.values()) and "app_env" not in self.model_fields_set:
+            raise ValueError("APP_ENV must be set explicitly when an admin API flag is on")
         return self
 
 

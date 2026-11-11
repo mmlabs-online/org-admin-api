@@ -1,9 +1,12 @@
+import uuid
+
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.modules.rbac.models import App, Permission, Role, RolePermission
+from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import RoleCatalogService
 from tests.rbac_factories import make_app, make_permission, make_role
 
@@ -105,3 +108,46 @@ async def test_new_permission_not_added_until_rebuild(db_session: AsyncSession) 
     await RoleCatalogService(db_session).build_default_role("stoktok")
     await make_permission(db_session, app, "stoktok:news:read")
     assert "stoktok:news:read" not in await _held(db_session, "stoktok:member")
+
+
+async def test_build_refuses_admin_app(db_session: AsyncSession) -> None:
+    with pytest.raises(ConflictError):
+        await RoleCatalogService(db_session).build_default_role("admin")
+    assert await db_session.scalar(select(Role).where(Role.key == "admin:member")) is None
+    admin = await db_session.scalar(select(App).where(App.key == "admin"))
+    assert admin is not None and admin.default_role_id is None
+
+
+async def test_build_role_insert_race_is_409(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = await _setup(db_session)
+    await make_role(db_session, app, "stoktok:member")  # "created by a concurrent request"
+
+    async def _missing(self: RbacRepository, app_id: uuid.UUID, key: str) -> Role | None:
+        return None
+
+    monkeypatch.setattr(RbacRepository, "get_role_by_key", _missing)
+    with pytest.raises(ConflictError):
+        await RoleCatalogService(db_session).build_default_role("stoktok")
+    # The savepoint kept the session usable.
+    assert await db_session.scalar(select(func.count()).select_from(App)) is not None
+
+
+async def test_build_does_not_overwrite_concurrent_default(db_session: AsyncSession) -> None:
+    app = await _setup(db_session)
+    other = await make_role(db_session, app, "stoktok:viewer")
+    assert app.default_role_id is None
+    # A concurrent PATCH sets the default; the loaded `app` object is now stale.
+    await db_session.execute(
+        update(App)
+        .where(App.id == app.id)
+        .values(default_role_id=other.id)
+        .execution_options(synchronize_session=False)
+    )
+    assert app.default_role_id is None
+
+    await RoleCatalogService(db_session).build_default_role("stoktok")
+
+    await db_session.refresh(app)
+    assert app.default_role_id == other.id

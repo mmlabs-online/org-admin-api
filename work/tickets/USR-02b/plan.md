@@ -100,8 +100,10 @@ Notes: API tests use a `rbac_client` fixture = `make_client(admin_rbac_api_enabl
 ## Approach
 1. **Config (AC 1; R5).** In `Settings`: `admin_rbac_api_enabled: bool = False` with the comment "Temporary: privilege-changing RBAC endpoints without auth. Removed by ADM-002." Replace `_admin_users_api_not_public` by one `@model_validator(mode="after") _admin_apis_gate`:
    ```python
-   flags = {"ADMIN_USERS_API_ENABLED": self.admin_users_api_enabled,
-            "ADMIN_RBAC_API_ENABLED": self.admin_rbac_api_enabled}
+   flags = {
+       "ADMIN_USERS_API_ENABLED": self.admin_users_api_enabled,
+       "ADMIN_RBAC_API_ENABLED": self.admin_rbac_api_enabled,
+   }
    for name, on in flags.items():
        if on and self.app_env in {"staging", "production"}:
            raise ValueError(f"{name} must not be set in staging/production before ADM-002")
