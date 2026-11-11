@@ -22,7 +22,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 
 Order of work (dependencies): USR-01 → USR-02 → USR-03 → USR-03b → ADM-002 → ADM-004 → USR-04 → USR-06 → USR-05.
 Hard dependencies: USR-02 ← USR-01 · USR-03 ← USR-01, USR-02 · USR-03b ← USR-03 · ADM-002 ← USR-02, USR-03 · ADM-004 ← ADM-002 · USR-04 ← USR-01, USR-03 · USR-06 ← USR-03b, ADM-004, USR-04 · USR-05 ← USR-02, USR-03b · ADM-006 ← USR-02.
-Note: joining an app needs a verified email (D2), which only works after USR-04 — see USR-03 notes.
+Note (D16): joining an app or getting any token needs a verified email, which only works after USR-04. Release ADM-002 together with or after USR-04.
 Plan and decisions: `docs/identity-architecture.md` (decision log D1–D12, 2026-11-11).
 
 ### Renamed / merged (2026-11-11)

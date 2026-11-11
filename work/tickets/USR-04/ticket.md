@@ -23,8 +23,8 @@ Users verify their email and reset a forgotten password through one-time, expiri
 - [ ] Sending is async (not in the request path) with retry and backoff; failures logged without the token or full address
 - [ ] Verification and reset tokens: random, single-use, expiring, stored hashed (R11)
 - [ ] Resend limit per email: 1/min and 5/day for verification and for reset → 429 beyond
-- [ ] `POST /auth/password/forgot` always 202 (no enumeration), Turnstile required; `POST /auth/password/reset` sets the new password (policy from USR-01) and revokes **all** account sessions of that user
-- [ ] Verifying sets `email_verified_at`; afterwards `/auth/token` and join work (USR-03/03b)
+- [ ] `POST /api/v1/auth/password/forgot` always 202 (no enumeration), Turnstile required; `POST /api/v1/auth/password/reset` sets the new password (policy from USR-01) and revokes **all** account sessions of that user
+- [ ] Verifying sets `email_verified_at`; afterwards `/api/v1/auth/token` and join work (USR-03/03b)
 - [ ] Runbook note: Gmail daily sending limits and what to do when hit; how to switch provider
 - [ ] Tests with the fake sender: verify flow, expired/used token, resend limits, reset flow + sessions revoked, retry on transient SMTP error
 
@@ -32,4 +32,4 @@ Users verify their email and reset a forgotten password through one-time, expiri
 USR-01, USR-03.
 
 ## Notes / answers from owner
-- 2026-11-11: renamed from ADM-010; provider decided (D3, was Q8). Priority raised to P1 because a verified email is required to join any app (D2) — see report U1.
+- 2026-11-11: renamed from ADM-010; provider decided (D3, was Q8). Priority P1: a verified email is required to join any app or get any token (D2), and there is no interim path (D16).

@@ -15,15 +15,16 @@ Scope source of truth: `docs/spec-v1.md` §5.3, §5.8. Earlier decision: [ADR-00
  │  localStorage mm_account_id   localStorage mm_account_id    localStorage mm_account_id│
  │        └──────── @mmlabs/auth-client (TS, framework-agnostic; Angular/React wrappers) ─┘
  │                 fetch(..., credentials:"include", headers {X-MM-App: <key>})          │
- │                 cookie mm_device (HttpOnly, Secure, Lax, Path=/auth, host-only)        │
+ │                 cookie mm_device (HttpOnly, Secure, Lax, Path=/api/v1/auth, host-only)│
  └───────────────────────────────────────┬───────────────────────────────────────────────┘
                                          │ credentials go straight to the API, never via an app backend
  ┌───────────────────────────────────────▼───────────────── api.mmlabs.online ───────────┐
  │ mmlabs Identity                                            │ Admin API (app `admin`)   │
  │ users · device_sessions · account_sessions                 │ audit log, entitlements…  │
  │ apps (join_policy, org_mode, origins) · roles · permissions│ requires aud=admin token  │
- │ role_assignments · organizations                           │ + require_permission()    │
- │ /auth/* (cookie)  /.well-known/jwks.json  /apps/{key}/roles│                           │
+ │ role_assignments · organizations                           │                           │
+ │ /api/v1/auth/* (cookie) · /.well-known/jwks.json           │ + require_permission()    │
+ │ /api/v1/apps/{key}/roles (ETag)                            │                           │
  └───────────────▲──────────────────────────────────────────────────────────▲────────────┘
                  │ Gmail SMTP (EmailSender)                                  │ JWKS + role catalog (ETag)
                                                        ┌────────────────────┴──────────┐
@@ -46,28 +47,28 @@ Scope source of truth: `docs/spec-v1.md` §5.3, §5.8. Earlier decision: [ADR-00
 
 ## 2. Main flows
 
-**Sign up** — `POST /auth/signup` (Turnstile + per-IP limit) → user created unverified → verification
+**Sign up** — `POST /api/v1/auth/signup` (Turnstile + per-IP limit) → user created unverified → verification
 email (USR-04). The user may log in, but cannot join an app or get an app token until verified.
 
 **Log in (in app B, with app A already signed in as another account)**
-1. App B posts email + password to `POST /auth/login` (header `X-MM-App: B`, Origin checked).
+1. App B posts email + password to `POST /api/v1/auth/login` (header `X-MM-App: B`, Origin checked).
 2. API ensures a `device_session` for the `mm_device` cookie (creates one if missing), rotates the
    cookie (D6), creates an `account_session` for that user on the device, returns `{account_id, …}`.
 3. App B stores `mm_account_id` in **its own** localStorage. App A's `mm_account_id` is untouched, so
    A keeps using its account (D5).
 
-**Get an app token** — `POST /auth/token {audience:"B", account_id, org_id?}` with the cookie →
+**Get an app token** — `POST /api/v1/auth/token {audience:"B", account_id, org_id?}` with the cookie →
 checks the account session belongs to this device and is not revoked, the email is verified, the user
 is a member of B (else `403 not_member` with `join_available`), the org (if any) → returns the JWT.
 
-**Join** — UI shows "Continue as <account>" (= consent) → `POST /auth/apps/B/join {account_id}` →
+**Join** — UI shows "Continue as <account>" (= consent) → `POST /api/v1/auth/apps/B/join {account_id}` →
 applies `join_policy`; `open` assigns B's default role at app scope (`org_id NULL`) and writes an audit
-entry → app retries `/auth/token`.
+entry → app retries `/api/v1/auth/token`.
 
-**Switch / list accounts** — `GET /auth/accounts` lists the device's non-revoked account sessions
+**Switch / list accounts** — `GET /api/v1/auth/accounts` lists the device's non-revoked account sessions
 (id, email, display info). Switching only changes the app's `mm_account_id`.
 
-**Log out** — `POST /auth/logout {account_id}` revokes one account session (all apps using it on this
+**Log out** — `POST /api/v1/auth/logout {account_id}` revokes one account session (all apps using it on this
 device lose it at their next token request); `{all:true}` revokes the device session.
 
 ## 3. Data model
@@ -95,7 +96,8 @@ roles              (id, app_id, key, name, is_system)                           
 role_permissions   (role_id, permission_id)
 role_assignments   (id, user_id, role_id, org_id → organizations NULL, granted_by NULL,
                     expires_at NULL, created_at)   org_id NULL = app scope; never 0
-organizations      (id uuid, name, slug unique, created_by → users, created_at)   [Identity module]
+organizations      (id uuid, name, slug unique, description NULL, status active|suspended,
+                    created_by → users NULL, created_at, updated_at)   [Identity module; existing table moved, D15]
 join_requests      (id, app_id, user_id, status pending|approved|rejected, created_at, decided_by NULL)
                     — only needed for join_policy = approval (USR-03b)
 email_tokens       (id, user_id, purpose verify|reset, token_hash, expires_at, used_at NULL)  (USR-04)
@@ -110,32 +112,32 @@ Notes
 - The 60 s grace (D6) needs the previous hash: `prev_token_hash` + `prev_valid_until`.
 - Default role content is data: `<app>:member` = all permissions of the app with `is_admin = false`
   (D9). Tightening later = editing `role_permissions` / `apps.join_policy`, no code change.
-- `organizations` already exists in the Admin module (ADM-001) with different columns — see
-  §10 C3 / USR-06.
+- `organizations` already exists in the Admin module (ADM-001); USR-06 moves it to the Identity module and
+  adds `created_by` (nullable for existing rows), keeping `description` and `status` (D15).
 - OQ1: organizations are platform-wide for now; adding `organizations.app_key` later is additive.
 
 ## 4. API surface
 
-Cookie-authenticated endpoints live under **`/auth`** (cookie `Path=/auth`, D5). Paths for the rest
-follow the existing API prefix. (Path prefix vs R9: see §10 C1.)
+All identity endpoints live under **`/api/v1/auth`**; the cookie is scoped to it (`Path=/api/v1/auth`, D5 as amended
+by D13). The only endpoint outside `/api/v1` is `/.well-known/jwks.json` (standard location, public).
 
 | Method & path | Auth | Purpose | Ticket |
 |---|---|---|---|
-| `POST /auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit | create unverified user; send verification email | USR-01 (+USR-04 email) |
-| `POST /auth/login` `{email, password, turnstile_token?}` | public; Turnstile after 3 failures | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
-| `GET /auth/accounts` | cookie | accounts signed in on this device | USR-03b |
-| `POST /auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03 |
-| `POST /auth/apps/{key}/join` `{account_id}` | cookie + `X-MM-App` | apply join policy, assign default role, audit | USR-03b |
-| `POST /auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
-| `POST /auth/verify-email` `{token}`; `POST /auth/verify-email/resend` `{account_id}` | public / cookie | email verification | USR-04 |
-| `POST /auth/password/forgot` `{email, turnstile_token}` → always 202 | public | send reset link | USR-04 |
-| `POST /auth/password/reset` `{token, new_password}` | public | set password, revoke all sessions of the user | USR-04 |
+| `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit | create unverified user; send verification email | USR-01 (+USR-04 email) |
+| `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public; Turnstile after 3 failures | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
+| `GET /api/v1/auth/accounts` | cookie | accounts signed in on this device | USR-03b |
+| `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03 |
+| `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + `X-MM-App` | apply join policy, assign default role, audit | USR-03b |
+| `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
+| `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification | USR-04 |
+| `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public | send reset link | USR-04 |
+| `POST /api/v1/auth/password/reset` `{token, new_password}` | public | set password, revoke all sessions of the user | USR-04 |
 | `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03 |
 | `GET /api/v1/apps/{key}/roles` (ETag / 304) | app credential (USR-05) or public read (decide in plan) | role → permissions catalog | USR-02 (read), USR-05 |
 | `PUT /api/v1/apps/{key}/manifest` | app credential | app pushes its permissions + default role | USR-05 |
-| `POST /auth/orgs` `{account_id, name, slug}` | cookie; needs `<app>:org:create` | create org, creator gets the app's org owner role | USR-06 |
-| `GET /auth/orgs?account_id=&app=` | cookie | the account's orgs for an org-scoped app | USR-06 |
-| `POST /auth/orgs/{id}/invitations` `{email, role}` · `POST /auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06 |
+| `POST /api/v1/auth/orgs` `{account_id, name, slug}` | cookie; needs `<app>:org:create` | create org, creator gets the app's org owner role | USR-06 |
+| `GET /api/v1/auth/orgs?account_id=&app=` | cookie | the account's orgs for an org-scoped app | USR-06 |
+| `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06 |
 | Admin: `/api/v1/users`, `/api/v1/apps`, roles, assignments, sessions revoke | Bearer, `aud=admin` + `admin:*` | staff management | USR-01/02, ADM-002 |
 
 Token (D7): JWT, asymmetric (EdDSA or RS256, chosen in USR-03 plan), ~15 min, header `kid`.
@@ -145,7 +147,7 @@ Claims `iss=https://api.mmlabs.online`, `aud=<app key>`, `sub`, `email`, `email_
 ## 5. Security rules (complements R11 in CLAUDE.md)
 
 - **S1 Cookie (D5):** `mm_device` = opaque random (≥ 256 bit), `HttpOnly; Secure; SameSite=Lax;
-  Path=/auth`, no `Domain` (host-only on `api.mmlabs.online`); only its hash is stored.
+  Path=/api/v1/auth`, no `Domain` (host-only on `api.mmlabs.online`); only its hash is stored.
 - **S2 Rotation (D6):** rotate on login and at most every ~24 h; the previous value stays valid for
   60 s. Presenting an old value after the grace window = reuse → revoke the whole device session.
 - **S3 Brute force (D11):** no hard lockout. Per-email exponential backoff after 5 failures (1, 2, 4 …
@@ -202,6 +204,15 @@ Claims `iss=https://api.mmlabs.online`, `aud=<app key>`, `sub`, `email`, `email_
 | D11 | No hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP ~20/min, Turnstile after 3 failures; identical error for wrong email or password. |
 | D12 | CORS echoes only `apps.origins` with credentials; every cookie-authenticated POST checks Origin and requires `X-MM-App: <key>`. |
 
+Follow-up decisions (owner, 2026-11-11, resolving §10):
+
+| # | Decision |
+|---|---|
+| D13 | **Path prefix (C1 = option B):** all identity endpoints are under `/api/v1/auth/*` and the cookie is `Path=/api/v1/auth` (amends D5, D7, D8 paths). Only `/.well-known/jwks.json` stays at the root. R9 needs no exception. |
+| D14 | **R3 reworded (C2):** three endpoint classes — Bearer (admin, `aud=admin` + permission), cookie-authenticated identity endpoints, and public endpoints. Refresh tokens are gone. |
+| D15 | **Organizations (C3):** the existing `organizations` table (ADM-001) moves to the Identity module and gains `created_by`; `description` and `status` are kept. One concept, used per app through `apps.org_mode`. |
+| D16 | **Email verification ordering (U1):** no interim "mark verified" path. Joining an app and getting an app token stay blocked until USR-04 ships; backlog order unchanged. |
+
 ## 9. Open questions
 
 - **OQ1** Organizations platform-wide or per app? Working assumption: platform-wide + `apps.org_mode`;
@@ -209,18 +220,11 @@ Claims `iss=https://api.mmlabs.online`, `aud=<app key>`, `sub`, `email`, `email_
 - **OQ2** (was Q9) No migration from Supabase Auth; working assumption: existing users re-register.
 - **OQ3** (was Q10) Is 2FA mandatory for staff (admin app)? Open.
 
-## 10. Pending owner decisions (conflicts with existing rules/spec — existing text kept)
+## 10. Conflicts with earlier rules/spec — resolved 2026-11-11
 
-- **C1 — Path prefix.** D5 sets the cookie `Path=/auth`, so cookie-authenticated endpoints are planned
-  under `/auth/*`. R9 (CLAUDE.md) says `/api/v1/<plural-noun>`, and earlier spec text used
-  `/api/v1/auth/…`. Options: (a) add an R9 exception for `/auth/*` and `/.well-known/*`;
-  (b) move them to `/api/v1/auth/*` and set `Path=/api/v1/auth`.
-- **C2 — R3 categories.** R3 knows two kinds of endpoint: authenticated `/api/v1` endpoints and a public
-  list that still names "refresh". The plan adds a third kind — **cookie-authenticated** `/auth/*`
-  endpoints (accounts, token, join, logout) — and drops refresh tokens. R3 needs rewording.
-- **C3 — Organizations ownership.** D10 puts `organizations (id, name, slug, created_by, created_at)`
-  in the Identity module. An `organizations` table already exists in the Admin module (ADM-001, spec
-  §5.1) with `description`, `status`, `updated_at` and no `created_by`. Options: move the existing
-  table to the Identity module and add `created_by` (keep `description`/`status`), or keep two
-  concepts (customer orgs vs app orgs). Decide before USR-06.
-
+- **C1 — Path prefix** → D13: `/api/v1/auth/*`, cookie `Path=/api/v1/auth`.
+- **C2 — R3 categories** → D14: R3 in CLAUDE.md reworded.
+- **C3 — Organizations ownership** → D15: one `organizations` table, moved to Identity, `created_by` added.
+- **U1 — Verified email before USR-04** → D16: wait for USR-04. Consequence: between the ADM-002 and USR-04
+  releases nobody (staff included) can obtain an app token, so the admin endpoints would be unusable in
+  production — release ADM-002 together with or after USR-04 (see ADM-002 notes).

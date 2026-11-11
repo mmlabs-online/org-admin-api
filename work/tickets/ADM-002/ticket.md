@@ -22,11 +22,12 @@ FastAPI dependencies `current_user` (Bearer JWT, `aud=admin`) and `require_permi
 - [ ] No token, invalid/expired token, or token with another `aud` → 401 in the error envelope
 - [ ] Missing permission → 403; `admin:*` grants everything
 - [ ] Every existing admin endpoint declares a permission (e.g. `admin:organizations:read|write`, `admin:users:read|write`, `admin:apps:*`, `admin:roles:manage`); a test enumerates routes and fails if one has no declared permission (except the public allow-list)
-- [ ] `/healthz`, `/readyz`, `/.well-known/jwks.json`, and the public `/auth/*` endpoints stay reachable without a Bearer token
+- [ ] `/healthz`, `/readyz`, `/.well-known/jwks.json`, and the public `/api/v1/auth/*` endpoints stay reachable without a Bearer token
 - [ ] Tests: missing, invalid, expired, wrong-audience, valid token; 403 for a missing permission
 
 ## Dependencies
-USR-02, USR-03 (staff get an `aud=admin` token via `/auth/token`; admin join policy is `closed`, so roles are granted by staff/bootstrap).
+USR-02, USR-03 (staff get an `aud=admin` token via `/api/v1/auth/token`; admin join policy is `closed`, so roles are granted by staff/bootstrap).
 
 ## Notes / answers from owner
 - 2026-11-11: consumes USR-02 (roles) and USR-03 (tokens); generic RBAC moved to USR-02 (former ADM-003). 2FA for staff: OQ3.
+- 2026-11-11 (D16): staff need a verified email to get an `aud=admin` token, which is only possible after USR-04. **Release this ticket together with or after USR-04**, otherwise the admin endpoints are locked for everyone in production.
