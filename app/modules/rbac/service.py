@@ -6,9 +6,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, UnprocessableError
-from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus, JoinPolicy, Role
+from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus, JoinPolicy, Permission, Role
 from app.modules.rbac.repository import RbacRepository
-from app.modules.rbac.schemas import AppCreate, AppUpdate
+from app.modules.rbac.schemas import (
+    AppCreate,
+    AppUpdate,
+    PermissionCreate,
+    PermissionUpdate,
+    RoleCreate,
+    RolePermissionsReplace,
+    RoleRead,
+    RoleUpdate,
+)
+
+ADMIN_WILDCARD = f"{ADMIN_APP_KEY}:*"
+SUPER_ADMIN_ROLE = f"{ADMIN_APP_KEY}:super-admin"
 
 
 @dataclass(frozen=True)
@@ -17,6 +29,46 @@ class DefaultRoleResult:
     created: bool
     added: list[str]
     removed: list[str]
+
+
+async def _set_role_permissions(
+    repo: RbacRepository, role: Role, target: dict[uuid.UUID, str]
+) -> tuple[list[str], list[str]]:
+    """Make `role` hold exactly `target` ({permission id: key}); returns (added, removed) keys.
+
+    Shared by the default-role builder and the role PUT. No write when nothing changes; the diff
+    is applied in one savepoint and a racing change (e.g. a permission deleted meanwhile) is a 409.
+    """
+    current = await repo.role_permission_keys(role.id)
+    to_add = target.keys() - current.keys()
+    to_remove = current.keys() - target.keys()
+    if to_add or to_remove:
+        try:
+            await repo.apply_role_permission_diff(role.id, role.app_id, to_add, to_remove)
+        except IntegrityError as exc:
+            raise ConflictError("Role permissions changed concurrently") from exc
+    return sorted(target[p] for p in to_add), sorted(current[p] for p in to_remove)
+
+
+def _prefix_mismatch() -> UnprocessableError:
+    return UnprocessableError(
+        "Key prefix must be the app key",
+        details=[{"field": "key", "reason": "prefix_mismatch"}],
+    )
+
+
+def _wildcard_must_be_admin() -> UnprocessableError:
+    return UnprocessableError(
+        "The app wildcard permission must be is_admin",
+        details=[{"field": "is_admin", "reason": "wildcard_must_be_admin"}],
+    )
+
+
+async def _locked_app(repo: RbacRepository, key: str) -> App:
+    app = await repo.lock_app(key)
+    if app is None:
+        raise NotFoundError("App not found")
+    return app
 
 
 class RoleCatalogService:
@@ -33,12 +85,10 @@ class RoleCatalogService:
         content is data). `<app>:*` is never included (the CHECK forces it to `is_admin`). Sets
         `apps.default_role_id` only when it is NULL. Idempotent. Refuses the `admin` app (409).
         """
-        app = await self.repo.get_app_by_key(app_key)
-        if app is None:
-            raise NotFoundError("App not found")
-        return await self._build_for_app(app)
+        return await self._build_for_app(await _locked_app(self.repo, app_key))
 
     async def _build_for_app(self, app: App) -> DefaultRoleResult:
+        """The caller holds the app lock (`lock_app`) or owns the uncommitted new app row."""
         # R4: audit entry once ADM-004 lands.
         if app.key == ADMIN_APP_KEY:
             raise ConflictError("The admin app has no member role")
@@ -55,21 +105,12 @@ class RoleCatalogService:
                 raise ConflictError("Member role was created concurrently") from exc
 
         target = {p.id: p.key for p in await self.repo.list_permissions(app.id, is_admin=False)}
-        current = await self.repo.role_permission_keys(role.id)
-        to_add = target.keys() - current.keys()
-        to_remove = current.keys() - target.keys()
-        await self.repo.add_role_permissions(role.id, app.id, to_add)
-        await self.repo.remove_role_permissions(role.id, to_remove)
+        added, removed = await _set_role_permissions(self.repo, role, target)
 
         await self.repo.set_default_role_if_null(app.id, role.id)
         await self.repo.session.refresh(app)
 
-        return DefaultRoleResult(
-            role_key=key,
-            created=created,
-            added=sorted(target[p] for p in to_add),
-            removed=sorted(current[p] for p in to_remove),
-        )
+        return DefaultRoleResult(role_key=key, created=created, added=added, removed=removed)
 
 
 class AppService:
@@ -77,7 +118,7 @@ class AppService:
         self.repo = RbacRepository(session)
         self.catalog = RoleCatalogService(session)
 
-    async def list(self, *, limit: int, offset: int) -> tuple[list[App], int]:
+    async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
         return await self.repo.list_apps(limit=limit, offset=offset)
 
     async def get(self, key: str) -> App:
@@ -107,7 +148,7 @@ class AppService:
         return app
 
     async def update(self, key: str, data: AppUpdate, actor: uuid.UUID | None = None) -> App:
-        app = await self.get(key)
+        app = await _locked_app(self.repo, key)
         fields = data.model_fields_set
 
         if app.key == ADMIN_APP_KEY and (
@@ -150,7 +191,7 @@ class AppService:
         return app
 
     async def delete(self, key: str, actor: uuid.UUID | None = None) -> None:
-        app = await self.get(key)
+        app = await _locked_app(self.repo, key)
         if app.key == ADMIN_APP_KEY:
             raise ConflictError("The admin app cannot be deleted")
         if await self.repo.app_has_assignments(app.id):
@@ -160,3 +201,218 @@ class AppService:
             await self.repo.delete_app(app)
         except IntegrityError as exc:  # an assignment was added concurrently
             raise ConflictError("App has role assignments; disable it instead") from exc
+
+
+class PermissionService:
+    """Every mutation locks the app row first and decides every guard after it (ADR-0003 §10)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = RbacRepository(session)
+
+    async def list_permissions(
+        self, key: str, *, limit: int, offset: int
+    ) -> tuple[list[Permission], int]:
+        app = await self.repo.get_app_by_key(key)
+        if app is None:
+            raise NotFoundError("App not found")
+        return await self.repo.page_permissions(app.id, limit=limit, offset=offset)
+
+    async def _get(self, app: App, permission_id: uuid.UUID) -> Permission:
+        perm = await self.repo.get_permission(app.id, permission_id)
+        if perm is None:
+            raise NotFoundError("Permission not found")
+        return perm
+
+    async def create(
+        self, key: str, data: PermissionCreate, actor: uuid.UUID | None = None
+    ) -> Permission:
+        app = await _locked_app(self.repo, key)
+        if data.key.split(":", 1)[0] != app.key:
+            raise _prefix_mismatch()
+        if data.key == f"{app.key}:*":
+            if data.is_admin is False:
+                raise _wildcard_must_be_admin()
+            is_admin = True
+        else:
+            is_admin = bool(data.is_admin)
+        # ADM-002 guard: creating an is_admin or <app>:* permission, or any admin-app
+        # permission, requires admin:*.
+        if await self.repo.get_permission_by_key(app.id, data.key) is not None:
+            raise ConflictError("Permission key is already taken")
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        try:
+            return await self.repo.add_permission(
+                Permission(
+                    app_id=app.id, key=data.key, description=data.description, is_admin=is_admin
+                )
+            )
+        except IntegrityError as exc:  # concurrent insert with the same key
+            raise ConflictError("Permission key is already taken") from exc
+
+    async def update(
+        self,
+        key: str,
+        permission_id: uuid.UUID,
+        data: PermissionUpdate,
+        actor: uuid.UUID | None = None,
+    ) -> Permission:
+        app = await _locked_app(self.repo, key)
+        perm = await self._get(app, permission_id)
+        fields = data.model_fields_set
+
+        if "is_admin" in fields and data.is_admin is False and perm.key.endswith(":*"):
+            raise _wildcard_must_be_admin()
+        if (
+            "is_admin" in fields
+            and data.is_admin is True
+            and not perm.is_admin
+            and app.default_role_id is not None
+            and await self.repo.role_holds_permission(app.default_role_id, perm.id)
+        ):
+            raise ConflictError("The app's default role holds this permission")
+
+        # ADM-002 guard: changing is_admin requires admin:* (true -> false makes a permission
+        # eligible for the default role).
+        changed = False
+        for field in fields:
+            value = getattr(data, field)
+            if getattr(perm, field) != value:
+                setattr(perm, field, value)
+                changed = True
+        if not changed:
+            return perm
+
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        try:
+            await self.repo.save()
+        except IntegrityError as exc:
+            raise ConflictError("Permission was changed concurrently") from exc
+        await self.repo.session.refresh(perm)
+        return perm
+
+    async def delete(
+        self, key: str, permission_id: uuid.UUID, actor: uuid.UUID | None = None
+    ) -> None:
+        app = await _locked_app(self.repo, key)
+        perm = await self._get(app, permission_id)
+        if app.key == ADMIN_APP_KEY and perm.key == ADMIN_WILDCARD:
+            raise ConflictError("The admin wildcard permission cannot be deleted")
+        if await self.repo.permission_held_by_any_role(perm.id):
+            raise ConflictError("Permission is held by a role; remove it from the roles first")
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        try:
+            await self.repo.delete_permission(perm)
+        except IntegrityError as exc:
+            raise ConflictError("Permission was changed concurrently") from exc
+
+
+class RoleService:
+    """Every mutation locks the app row first and decides every guard after it (ADR-0003 §10)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = RbacRepository(session)
+
+    async def _get(self, app: App, role_id: uuid.UUID) -> Role:
+        role = await self.repo.get_role(app.id, role_id)
+        if role is None:
+            raise NotFoundError("Role not found")
+        return role
+
+    async def _read(self, role: Role) -> RoleRead:
+        keys = await self.repo.role_permission_keys(role.id)
+        return RoleRead(
+            id=role.id,
+            key=role.key,
+            name=role.name,
+            is_system=role.is_system,
+            permissions=sorted(keys.values()),
+        )
+
+    async def create(self, key: str, data: RoleCreate, actor: uuid.UUID | None = None) -> RoleRead:
+        app = await _locked_app(self.repo, key)
+        if data.key.split(":", 1)[0] != app.key:
+            raise _prefix_mismatch()
+        # ADM-002 guard: creating an admin-app role requires admin:*.
+        if await self.repo.get_role_by_key(app.id, data.key) is not None:
+            raise ConflictError("Role key is already taken")
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        try:
+            role = await self.repo.add_role(
+                Role(app_id=app.id, key=data.key, name=data.name, is_system=False)
+            )
+        except IntegrityError as exc:  # concurrent insert with the same key
+            raise ConflictError("Role key is already taken") from exc
+        return RoleRead(
+            id=role.id, key=role.key, name=role.name, is_system=role.is_system, permissions=[]
+        )
+
+    async def update(
+        self, key: str, role_id: uuid.UUID, data: RoleUpdate, actor: uuid.UUID | None = None
+    ) -> RoleRead:
+        app = await _locked_app(self.repo, key)
+        role = await self._get(app, role_id)
+        # ADM-002 guard: editing an admin-app role requires admin:*.
+        if data.name is not None and data.name != role.name:
+            role.name = data.name
+            # R4: audit entry in the same transaction once ADM-004 lands.
+            try:
+                await self.repo.save()
+            except IntegrityError as exc:
+                raise ConflictError("Role was changed concurrently") from exc
+            await self.repo.session.refresh(role)
+        return await self._read(role)
+
+    async def delete(self, key: str, role_id: uuid.UUID, actor: uuid.UUID | None = None) -> None:
+        app = await _locked_app(self.repo, key)
+        role = await self._get(app, role_id)
+        if role.is_system:
+            raise ConflictError("System roles cannot be deleted")
+        if role.id == app.default_role_id:
+            raise ConflictError("The app's default role cannot be deleted")
+        if await self.repo.role_has_assignments(role.id):
+            raise ConflictError("Role has assignments")
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        try:
+            await self.repo.delete_role(role)
+        except IntegrityError as exc:  # an assignment or default was added concurrently
+            raise ConflictError("Role was changed concurrently") from exc
+
+    async def replace_permissions(
+        self,
+        key: str,
+        role_id: uuid.UUID,
+        data: RolePermissionsReplace,
+        actor: uuid.UUID | None = None,
+    ) -> RoleRead:
+        app = await _locked_app(self.repo, key)
+        role = await self._get(app, role_id)
+        keys = list(dict.fromkeys(data.permission_keys))
+        found = {p.key: p for p in await self.repo.permissions_by_keys(app.id, keys)}
+        missing = sorted(set(keys) - found.keys())
+        if missing:
+            raise UnprocessableError(
+                "Unknown permissions for this app",
+                details=[
+                    {"field": "permission_keys", "reason": "unknown_permission", "key": k}
+                    for k in missing
+                ],
+            )
+        if role.id == app.default_role_id and any(p.is_admin for p in found.values()):
+            raise ConflictError("A default role must not hold admin permissions")
+        if (
+            app.key == ADMIN_APP_KEY
+            and role.key == SUPER_ADMIN_ROLE
+            and ADMIN_WILDCARD not in found
+        ):
+            raise ConflictError("admin:super-admin must keep admin:*")
+        # ADM-002 guard: granting <app>:* or any is_admin permission, and any admin-app role
+        # edit, requires admin:*.
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        await _set_role_permissions(self.repo, role, {p.id: p.key for p in found.values()})
+        return RoleRead(
+            id=role.id,
+            key=role.key,
+            name=role.name,
+            is_system=role.is_system,
+            permissions=sorted(found),
+        )

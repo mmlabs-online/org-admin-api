@@ -13,7 +13,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-01b | Staff user management endpoints (list, get, enable/disable) | DONE | P1 | api, security | 1 | 2026-11-11 |
 | USR-02 | Apps registry and per-app RBAC (join policy, org mode, origins, default role) | DONE | P1 | architecture, db, api, auth, security | 1 | 2026-11-11 |
 | USR-02b | Apps registry staff API (flag-gated) and role catalog | DONE | P1 | api, auth, security | 1 | 2026-11-11 |
-| USR-02d | Permissions and roles staff API (flag-gated) | BACKLOG | P1 | api, auth, security | 0 | 2026-11-11 |
+| USR-02d | Permissions and roles staff API (flag-gated) | DONE | P1 | api, auth, security | 1 | 2026-11-11 |
 | USR-02e | Role catalog with ETag (flag-gated) | BACKLOG | P1 | api, security | 0 | 2026-11-11 |
 | USR-02c | Role assignments staff API (flag-gated) and bootstrap super-admin CLI | BACKLOG | P1 | api, auth, security | 0 | 2026-11-11 |
 | USR-03 | Device sessions (multi-account), login/logout, per-app token, JWKS, CORS/CSRF | BACKLOG | P1 | architecture, auth, security, db, api | 0 | 2026-11-11 |

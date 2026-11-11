@@ -25,3 +25,4 @@ Apps (and staff) can fetch an app's role → permissions catalog cheaply with ET
 - 2026-11-11 (owner): **Q1 yes** — the catalog is public (D17). **Q2 yes** — `{key}` in paths and a non-`Page` document are R9 exceptions (D18).
 - 2026-11-11: created by the orchestrator from the USR-02b planner's split (slice 02b-3). Can merge into USR-02d if Q1 (public catalog) is answered first.
 - Depends on USR-02d.
+- Carry-over from the USR-02d security review: catalog uses its own minimal schema (not `RoleRead`); before role names go public, extend `_NO_CONTROL` to reject C1 (`\x80-\x9f`), bidi overrides/isolates (`\u202a-\u202e`, `\u2066-\u2069`) and `\u2028/\u2029`, and apply it to `AppCreate.name`/`AppUpdate.name` too (NUL currently → 500); optionally refuse origins under `.api.mmlabs.online`.

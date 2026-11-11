@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | api, auth, security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/13 |
 
 ## Goal
 Staff can manage an app's permissions and roles, including replacing a role's permission set, behind the `ADMIN_RBAC_API_ENABLED` gate, with the remaining escalation guards.

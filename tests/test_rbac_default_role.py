@@ -151,3 +151,22 @@ async def test_build_does_not_overwrite_concurrent_default(db_session: AsyncSess
 
     await db_session.refresh(app)
     assert app.default_role_id == other.id
+
+
+async def test_build_permission_fk_race_is_409(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = await _setup(db_session)
+    # "Deleted by a concurrent request": a permission the builder read but the DB no longer has.
+    ghost = Permission(id=uuid.uuid4(), app_id=app.id, key="stoktok:x:y")
+
+    async def _ghost(
+        self: RbacRepository, app_id: uuid.UUID, *, is_admin: bool | None = None
+    ) -> list[Permission]:
+        return [ghost]
+
+    monkeypatch.setattr(RbacRepository, "list_permissions", _ghost)
+    with pytest.raises(ConflictError):
+        await RoleCatalogService(db_session).build_default_role("stoktok")
+    # The savepoint kept the session usable.
+    assert await db_session.scalar(select(func.count()).select_from(App)) == 2

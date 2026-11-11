@@ -4,22 +4,25 @@ import pytest
 
 from app.modules.rbac.origins import normalize_origin, normalize_origins
 
-GENERIC = re.escape("origin must be https://host[:port], or http on localhost")
+GENERIC = re.escape(
+    "origin must be https://mmlabs.online or one of its subdomains, or http(s) on localhost"
+)
 
 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("https://App.Example.com", "https://app.example.com"),
-        ("https://example.com/", "https://example.com"),
-        ("https://example.com:443", "https://example.com"),
-        ("https://example.com:8443", "https://example.com:8443"),
+        ("https://mmlabs.online", "https://mmlabs.online"),
+        ("https://Stoktok.MMLabs.online/", "https://stoktok.mmlabs.online"),
+        ("https://stoktok.mmlabs.online:443", "https://stoktok.mmlabs.online"),
+        ("https://a.b.mmlabs.online", "https://a.b.mmlabs.online"),
+        ("https://xn--abc.mmlabs.online", "https://xn--abc.mmlabs.online"),
         ("http://localhost:3000", "http://localhost:3000"),
         ("http://127.0.0.1:5173", "http://127.0.0.1:5173"),
         ("http://[::1]:8080", "http://[::1]:8080"),
         ("http://localhost:80", "http://localhost"),
         ("https://localhost:3000", "https://localhost:3000"),
-        ("https://xn--bcher-kva.example", "https://xn--bcher-kva.example"),
+        ("https://127.0.0.1:8443", "https://127.0.0.1:8443"),
     ],
 )
 def test_normalize_origin_accepts(value: str, expected: str) -> None:
@@ -52,6 +55,21 @@ def test_normalize_origin_accepts(value: str, expected: str) -> None:
         "https://example.com\\@evil.com",
         "https://-bad.example",
         "https://a..b",
+        "https://example.com",
+        "https://app.example.com:8443",
+        "https://evilmmlabs.online",
+        "https://mmlabs.online.attacker.com",
+        "https://mmlabs.online.",
+        "https://x.mmlabs.online:8443",
+        "https://mmlabs.online:80",
+        "http://mmlabs.online",
+        "http://x.mmlabs.online",
+        "https://api.mmlabs.online",
+        "https://API.mmlabs.online:443",
+        "https://0x7f.1",
+        "https://a.123",
+        "https://127.0.0.2",
+        "https://xn--mmlabs-online.com",
     ],
 )
 def test_normalize_origin_rejects(value: str) -> None:
@@ -60,9 +78,13 @@ def test_normalize_origin_rejects(value: str) -> None:
 
 
 def test_normalize_origins_dedupes_and_limits() -> None:
-    assert normalize_origins(["https://A.io", "https://a.io/"]) == ["https://a.io"]
+    assert normalize_origins(["https://A.mmlabs.online", "https://a.mmlabs.online/"]) == [
+        "https://a.mmlabs.online"
+    ]
     assert normalize_origins([]) == []
     with pytest.raises(ValueError):
-        normalize_origins([f"https://a{i}.io" for i in range(21)])
+        normalize_origins([f"https://a{i}.mmlabs.online" for i in range(21)])
+    long_origin = "https://" + ".".join(["a" * 60] * 4) + ".mmlabs.online"
+    assert len(long_origin) > 255
     with pytest.raises(ValueError):
-        normalize_origins(["https://" + ".".join(["a" * 60] * 4) + ".abcd"])  # 256 chars
+        normalize_origins([long_origin])

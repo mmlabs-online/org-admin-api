@@ -36,7 +36,11 @@ class ConflictError(AppError):
 
 
 class UnprocessableError(AppError):
-    """A well-formed request the data refuses; `details` = `[{"field", "reason"}]`, no values."""
+    """A well-formed request the data refuses; `details` = `[{"field", "reason"}]`, no values.
+
+    Exception: a detail may carry a catalog `key` that already passed format validation (the
+    unknown permission keys of a role PUT); never a free-form or secret value.
+    """
 
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "unprocessable"
