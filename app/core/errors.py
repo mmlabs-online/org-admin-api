@@ -35,6 +35,13 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class UnprocessableError(AppError):
+    """A well-formed request the data refuses; `details` = `[{"field", "reason"}]`, no values."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = "unprocessable"
+
+
 class PermissionDeniedError(AppError):
     status_code = status.HTTP_403_FORBIDDEN
     code = "permission_denied"

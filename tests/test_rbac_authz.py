@@ -1,5 +1,6 @@
 import uuid
-from collections.abc import Collection
+from collections.abc import Sequence
+from collections.abc import Set as AbstractSet
 from datetime import UTC, datetime
 
 import pytest
@@ -155,7 +156,29 @@ async def test_effective_permissions_drop_foreign_prefix(db_session: AsyncSessio
         ({"a:*"}, "a:*", True),
         ({"a:*"}, "nocolon", False),
         (set(), "a:x:read", False),
+        ({"adm:*"}, "admin:x:y", False),
+        ({"admin:*"}, "adm:x:y", False),
+        ({"a:*"}, "a:", False),
+        ({"a:*"}, ":x:y", False),
+        ({"A:*"}, "a:x:y", False),
+        (["a:x:read"], "a:x:read", True),
     ],
 )
-def test_permits(granted: Collection[str], required: str, expected: bool) -> None:
+def test_permits(granted: AbstractSet[str] | Sequence[str], required: str, expected: bool) -> None:
     assert permits(granted, required) is expected
+
+
+def test_permits_rejects_str_granted() -> None:
+    with pytest.raises(TypeError):
+        permits("a:x:read-all", "a:x:read")
+
+
+async def test_effective_roles_drop_foreign_prefix(db_session: AsyncSession) -> None:
+    app = await make_app(db_session)
+    user = await make_user(db_session)
+    # The CHECK allows a foreign prefix; the service-level rule comes with USR-02d.
+    await assign(db_session, user, await make_role(db_session, app, "admin:x"))
+    await assign(db_session, user, await make_role(db_session, app, "stoktok:viewer"))
+    authz = AuthzService(db_session)
+    assert await authz.effective_roles(user.id, "stoktok") == ["stoktok:viewer"]
+    assert await authz.effective_roles(user.id, "admin") == []

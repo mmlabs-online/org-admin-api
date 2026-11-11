@@ -8,6 +8,7 @@ from app.core.rate_limit import InMemoryRateLimiter
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.auth.turnstile import CloudflareTurnstileVerifier
 from app.modules.health.router import router as health_router
+from app.modules.rbac.router import router as rbac_router
 from app.modules.users.router import router as users_router
 
 
@@ -36,6 +37,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_router, prefix=settings.api_prefix)
     if settings.admin_users_api_enabled:  # unauthenticated until ADM-002 (see Settings)
         app.include_router(users_router, prefix=settings.api_prefix)
+    if settings.admin_rbac_api_enabled:  # unauthenticated until ADM-002 (see Settings)
+        app.include_router(rbac_router, prefix=settings.api_prefix)
     return app
 
 

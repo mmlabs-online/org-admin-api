@@ -24,4 +24,4 @@ Staff can assign, revoke and list a user's roles per app (optionally per org), a
 
 ## Notes / answers from owner
 - 2026-11-11: created by the orchestrator from the USR-02 planner's split.
-- Depends on USR-02 and USR-02b (shared flag).
+- Depends on USR-02, USR-02b (shared flag) and USR-02d (roles API).

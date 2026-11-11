@@ -28,6 +28,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPkMixin
 
+ADMIN_APP_KEY = "admin"  # the admin API itself (ADR-0003 §8)
+
 APP_KEY_RE = r"^[a-z][a-z0-9-]{1,31}$"
 PERMISSION_KEY_RE = r"^[a-z][a-z0-9-]{1,31}:([a-z][a-z0-9-]{0,47}:[a-z][a-z0-9-]{0,47}|\*)$"
 ROLE_KEY_RE = r"^[a-z][a-z0-9-]{1,31}:[a-z][a-z0-9-]{0,47}$"

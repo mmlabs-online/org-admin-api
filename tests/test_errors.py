@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.core.errors import RateLimitedError, register_error_handlers
+from app.core.errors import RateLimitedError, UnprocessableError, register_error_handlers
 
 
 async def test_validation_error_details_have_no_input_or_ctx(client: AsyncClient) -> None:
@@ -33,5 +33,25 @@ async def test_app_error_headers_are_passed_through() -> None:
             "code": "rate_limited",
             "message": "Too many requests",
             "details": {"retry_after": 7},
+        }
+    }
+
+
+async def test_unprocessable_error_envelope() -> None:
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/refused")
+    async def refused() -> None:
+        raise UnprocessableError("x", details=[{"field": "f", "reason": "r"}])
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get("/refused")
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "error": {
+            "code": "unprocessable",
+            "message": "x",
+            "details": [{"field": "f", "reason": "r"}],
         }
     }
