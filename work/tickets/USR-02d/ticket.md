@@ -25,3 +25,4 @@ Staff can manage an app's permissions and roles, including replacing a role's pe
 ## Notes / answers from owner
 - 2026-11-11: created by the orchestrator from the USR-02b planner's split (slice 02b-2).
 - Depends on USR-02b.
+- Carry-over from the USR-02b reviews: (1) TOCTOU — role/permission edits must refuse adding an `is_admin` permission to any role that is some app's `default_role_id`, in the same transaction (lock the role row or check in the insert); (2) rename `AppService.list` (shadows builtin `list` for later annotations in the class); (3) wrap `_build_for_app`'s role_permissions insert/delete in a savepoint and map `IntegrityError` → 409; (4) optional: reject origins whose last label is numeric/hex (`https://0x7f.1`).
