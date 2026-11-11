@@ -1,4 +1,4 @@
-# USR-05: App catalog registration and cached role catalog for apps
+# USR-05: Apps self-register their permission manifest
 
 | Field | Value |
 |---|---|
@@ -10,16 +10,24 @@
 | PR | — |
 
 ## Goal
-Each mmlabs app declares its own permissions and default roles, and can fetch its role → permission catalog to check tokens locally.
+Each mmlabs app declares its own permissions (with `is_admin` flags) and default role through a manifest, so adding or changing an app's permissions is a deploy of that app, not a change here.
+
+## Scope
+App credential (type decided in the plan: API key vs client credentials); `PUT /api/v1/apps/{key}/manifest`; idempotent sync; default-role rebuild per D9; `mmlabs-auth` / docs support for pushing the manifest at deploy time.
 
 ## Spec reference
-§5.3 Authorization; ADR-0001 §5–§6
+§5.3; ADR-0001 §6; identity-architecture.md §4; decision D9
 
 ## Acceptance criteria
-- [ ] An app pushes its catalog (permissions + default roles) idempotently with an app credential; only its own `<app>:` namespace is accepted; removed permissions are reported, not silently deleted from assigned roles
-- [ ] `GET /api/v1/apps/{key}/roles` returns role → permissions with an `ETag`; `If-None-Match` → 304
-- [ ] `docs/auth-integration.md` gains a section: register the app, push the catalog, verify tokens (`aud`), map roles to permissions, cache with ETag
-- [ ] Tests: namespace enforcement, idempotent re-push, ETag/304, unknown app 404
+- [ ] App credential issued/rotated by staff; stored hashed; only accepted for its own app
+- [ ] Manifest = permissions (key, description, is_admin) + optional extra roles; only the app's `<app>:` namespace accepted (422 otherwise)
+- [ ] Idempotent push; new permissions added; `<app>:member` rebuilt as "all non-`is_admin`" unless the app overrides it; removed permissions reported (not silently dropped from roles that hold them)
+- [ ] Role catalog `ETag` changes when the manifest changes
+- [ ] `docs/auth-integration.md`: manifest format and pushing it at deploy time
+- [ ] Tests: namespace enforcement, idempotency, is_admin excluded from member role, ETag change, wrong app credential → 403
+
+## Dependencies
+USR-02, USR-03b.
 
 ## Notes / answers from owner
-- Depends on USR-02 and USR-03. App credential type (API key vs client credentials) decided in the plan.
+- 2026-11-11: until this lands, app permissions are seeded by staff through USR-02 endpoints.

@@ -1,4 +1,4 @@
-# USR-01: Ecosystem users and password credentials
+# USR-01: Users, passwords (Argon2id) and sign-up with Turnstile
 
 | Field | Value |
 |---|---|
@@ -10,20 +10,26 @@
 | PR | — |
 
 ## Goal
-Store mmlabs users with email + Argon2id-hashed passwords: the account model every mmlabs app will share.
+Store mmlabs users (one account for every app) with Argon2id passwords, and let anyone sign up, protected by Cloudflare Turnstile and a per-IP rate limit.
+
+## Scope
+`users` table and the Identity module skeleton; password hashing/policy; `POST /auth/signup`; Turnstile verification behind an interface; per-IP limiter; staff user endpoints. Out of scope: sessions/login (USR-03), sending the verification email (USR-04 — signup only records the user as unverified and calls an `on_signup` hook).
 
 ## Spec reference
-§5.8 mmlabs Identity (Users, Passwords, Admin); §8 Q7 (sign-up policy)
+§5.8 (Users, Sign-up, Passwords); identity-architecture.md §3, §4, §5 S3; decisions D1, D2, D11
 
 ## Acceptance criteria
-- [ ] `users` table + migration: UUID id, email (unique case-insensitive), password hash, status (`active`/`disabled`), `email_verified_at`, timestamps; downgrade works
-- [ ] Passwords hashed with Argon2id (parameters in config); minimum length and common-password rejection; hash never returned or logged
-- [ ] Account creation endpoint per the sign-up policy answered in §8 Q7 (open sign-up or staff-created/invite), returning 201 / 409 duplicate email / 422 weak password
-- [ ] Staff endpoints: list (paginated, filter by email/status), get, disable/enable a user
-- [ ] Tests: create, duplicate email in different case → 409, weak password → 422, hash is Argon2id and verifies, disabled user listed with status
+- [ ] `users` table + migration as in identity-architecture.md §3 (email citext unique, `email_verified_at` NULL, status `active|disabled`); downgrade works
+- [ ] Argon2id hashing (parameters in config); minimum length and common-password rejection; hash never returned or logged (R11)
+- [ ] `POST /auth/signup {email, password, turnstile_token}` → 201 (user unverified) · 409 duplicate email (any case) · 422 weak password / bad email · 400/403 invalid Turnstile · 429 over the per-IP limit; responses never reveal more than needed
+- [ ] Turnstile verification behind an interface with a test fake; secret key from env (`.env.example` lists the key, no value)
+- [ ] Per-IP rate limiter (shared component, reused by login/forgot later) with configurable limits
+- [ ] Staff endpoints: list (paginated, filter email/status), get, disable/enable a user — note the `admin:users:*` permission each needs (R3)
+- [ ] Tests for every bullet above, including case-insensitive duplicate and Argon2id verification
+
+## Dependencies
+None (first identity ticket).
 
 ## Notes / answers from owner
-- 2026-11-11: renamed from ADM-008 (user tickets use the USR prefix).
-- 2026-11-11: users are ecosystem-wide (one account for all mmlabs apps), email + password managed by this service.
-- Open: §8 Q7 sign-up policy. If unanswered, the planner should BLOCK on it.
-- Staff endpoints are unauthenticated until ADM-002; note the `admin:users:*` permission each will need (R3, ADR-0001).
+- 2026-11-11: renamed from ADM-008. Open sign-up decided (D2, was Q7).
+- Path prefix `/auth/*` vs R9 `/api/v1/…`: pending owner decision (identity-architecture.md §10 C1); the planner must not guess — use what the owner decides, else BLOCK.

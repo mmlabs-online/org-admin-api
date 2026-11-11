@@ -3,7 +3,7 @@
 Admin API server for the whole **mmlabs** ecosystem: internal staff use it (via an admin web UI) to manage organizations, staff access, products and entitlements across mmlabs services. It is also **mmlabs Identity**: one user account (email + password) for every mmlabs app, with tokens apps verify via JWKS (spec §5.8). Other mmlabs services may call it too.
 
 - Product spec: [docs/spec-v1.md](docs/spec-v1.md) — source of truth for scope. If this file, a ticket and the spec disagree on scope, the spec wins; flag the conflict.
-- Decisions: [docs/adr/](docs/adr/) — notably [ADR-0001 multi-app authorization](docs/adr/0001-multi-app-authorization.md).
+- Decisions: [docs/adr/](docs/adr/) — notably [ADR-0001 multi-app authorization](docs/adr/0001-multi-app-authorization.md). Identity plan, data model, API and decision log D1–D12: [docs/identity-architecture.md](docs/identity-architecture.md).
 - Workflow (tickets, agents, commands): see **Workflow** below.
 
 ---
@@ -60,7 +60,7 @@ tests/                  # API tests against a real Postgres test DB, rolled back
 | R8 | **No PASS without green `make check`.** Every new endpoint has tests: happy path, 404, validation/conflict, and 401/403 once auth exists. |
 | R9 | **API conventions:** `/api/v1/<plural-noun>`, `PATCH` for partial updates, lists return `Page[T]` (`limit` ≤ 100, `offset`), UUID ids, `timestamptz`. No breaking changes inside v1. |
 | R10 | **Non-goals are hard limits** (spec §3): no billing, no social login / full OIDC provider / hosted login UI in v1. End-user identity *is* in scope (spec §5.8). |
-| R11 | **Credentials and tokens:** Argon2id for passwords; refresh tokens, reset and verification tokens stored only as hashes; signing keys from env, never in the repo; never log passwords, tokens or full emails in errors. |
+| R11 | **Credentials, sessions and tokens** (details: `docs/identity-architecture.md` §5): Argon2id for passwords; device-session, reset and verification tokens stored only as hashes; signing keys from env, never in the repo, with `kid`; never log passwords, tokens or full emails in errors. **Cookie** `mm_device`: opaque, `HttpOnly; Secure; SameSite=Lax; Path=/auth`, host-only (no `Domain`). **Rotation:** on login and at most every ~24 h, 60 s grace for the previous value; reuse after the grace revokes the whole device session. **Brute force:** no hard lockout — per-email exponential backoff after 5 failures (cap 15 min), per-IP ~20/min, Turnstile after 3 failures (always on sign-up/forgot), identical error for unknown email and wrong password. **CORS/CSRF:** allow-origin echoes only `apps.origins` (with credentials); every cookie-authenticated POST checks `Origin` and requires `X-MM-App: <key>`. **Verified email** is required to join an app or get any app token. |
 
 ---
 
