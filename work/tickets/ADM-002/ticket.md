@@ -26,7 +26,7 @@ FastAPI dependencies `current_user` (Bearer JWT, `aud=admin`) and `require_permi
 - [ ] Tests: missing, invalid, expired, wrong-audience, valid token; 403 for a missing permission
 
 ## Dependencies
-USR-02, USR-03 (staff get an `aud=admin` token via `/api/v1/auth/token`; admin join policy is `closed`, so roles are granted by staff/bootstrap).
+USR-02, USR-02b, USR-02c, USR-03 (staff get an `aud=admin` token via `/api/v1/auth/token`; admin join policy is `closed`, so roles are granted by staff/bootstrap).
 
 ## Notes / answers from owner
 - 2026-11-11: consumes USR-02 (roles) and USR-03 (tokens); generic RBAC moved to USR-02 (former ADM-003). 2FA for staff: OQ3.

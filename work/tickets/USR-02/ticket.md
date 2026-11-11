@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | architecture, db, api, auth, security |
 | Attempts | 0 |
@@ -32,5 +32,6 @@ Tables `apps` (+ `join_policy`, `default_role_id`, `org_mode`, `origins`), `perm
 USR-01.
 
 ## Notes / answers from owner
+- 2026-11-11: split by the planner into three slices — this ticket is the RBAC core (USR-02a in plan.md: schema, seed, authz, member-role builder; no HTTP routes). Staff API + catalog → **USR-02b**; assignments + bootstrap CLI → **USR-02c**.
 - 2026-11-11: merges former ADM-003 and ADM-005. Join policy defaults per D9 (open; admin closed).
 - `GET /apps/{key}/roles` auth (public read vs app credential): decide in the plan or in USR-05; not a secret by design.
