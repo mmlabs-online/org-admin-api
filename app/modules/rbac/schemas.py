@@ -14,6 +14,12 @@ from app.modules.rbac.models import (
 )
 from app.modules.rbac.origins import MAX_ORIGINS, normalize_origins
 
+# Display text: no C0/DEL/C1 controls, no bidi embeddings/overrides/isolates, no zero-width,
+# line/paragraph separators or BOM (NUL is refused by Postgres `text` -> would be a 500).
+_NO_CONTROL = r"^[^\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]*$"
+
+AppName = Annotated[str, Field(min_length=1, max_length=255, pattern=_NO_CONTROL)]
+
 
 class AppCreate(BaseModel):
     """New apps are `active`; their default role is the built `<key>:member` (no input for it)."""
@@ -21,7 +27,7 @@ class AppCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str = Field(pattern=APP_KEY_RE, max_length=32)
-    name: str = Field(min_length=1, max_length=255)
+    name: AppName
     join_policy: JoinPolicy = JoinPolicy.OPEN
     org_mode: OrgMode = OrgMode.NONE
     origins: list[str] = Field(default_factory=list, max_length=MAX_ORIGINS)
@@ -37,7 +43,7 @@ class AppUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    name: AppName | None = None
     status: AppStatus | None = None
     join_policy: JoinPolicy | None = None
     org_mode: OrgMode | None = None
@@ -71,9 +77,6 @@ class AppRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-
-# No control characters (NUL is refused by Postgres `text` and would surface as a 500).
-_NO_CONTROL = r"^[^\x00-\x1f\x7f]*$"
 
 PermissionKey = Annotated[str, Field(pattern=PERMISSION_KEY_RE, max_length=160)]
 Description = Annotated[str, Field(max_length=500, pattern=_NO_CONTROL)]
@@ -151,3 +154,17 @@ class RolePermissionsReplace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     permission_keys: list[PermissionKey] = Field(max_length=200)
+
+
+class RoleCatalogEntry(BaseModel):
+    key: str
+    name: str
+    is_system: bool
+    permissions: list[str]  # sorted permission keys
+
+
+class RoleCatalog(BaseModel):
+    """Public role catalog (D17). Field order is part of the ETag; append-only."""
+
+    app: str
+    roles: list[RoleCatalogEntry]  # sorted by key

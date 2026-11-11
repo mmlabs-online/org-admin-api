@@ -141,6 +141,34 @@ async def test_create_role_validation_422(
     assert await _role(db_session, "stoktok:x") is None
 
 
+@pytest.mark.parametrize("char", ["\x00", "\x85", "\u202e", "\u2066", "\u2028", "\u200b", "\ufeff"])
+async def test_role_name_format_chars_422(
+    rbac_client: AsyncClient, db_session: AsyncSession, char: str
+) -> None:
+    _, role = await _setup(db_session)
+    name = f"Marker{char}Name"
+    resp = await rbac_client.post(URL, json={"key": "stoktok:x", "name": name})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "Marker" not in resp.text
+    assert await _role(db_session, "stoktok:x") is None
+
+    resp = await rbac_client.patch(f"{URL}/{role.id}", json={"name": name})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "Marker" not in resp.text
+
+
+async def test_vietnamese_names_accepted(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await make_app(db_session, "stoktok")
+    for key, name in (("stoktok:x", "Quản trị viên"), ("stoktok:y", "Qua\u0309n tri\u0323")):
+        resp = await rbac_client.post(URL, json={"key": key, "name": name})
+        assert resp.status_code == 201
+        assert resp.json()["name"] == name
+
+
 async def test_create_role_duplicate_409(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
 
     signup_rate_limit: int = Field(default=20, ge=1)
     signup_rate_window_seconds: int = Field(default=60, ge=1)
+    # Public role catalog (D17); app backends may share one egress IP.
+    role_catalog_rate_limit: int = Field(default=120, ge=1)
+    role_catalog_rate_window_seconds: int = Field(default=60, ge=1)
 
     password_min_length: int = Field(default=12, ge=8)
 

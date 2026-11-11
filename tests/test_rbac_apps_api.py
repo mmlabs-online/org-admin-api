@@ -66,6 +66,7 @@ def test_rbac_routes_declare_permissions() -> None:
         ("POST", "/api/v1/apps/{key}/permissions"): "admin:roles:manage",
         ("PATCH", "/api/v1/apps/{key}/permissions/{permission_id}"): "admin:roles:manage",
         ("DELETE", "/api/v1/apps/{key}/permissions/{permission_id}"): "admin:roles:manage",
+        ("GET", "/api/v1/apps/{key}/roles"): None,  # public role catalog (D17, USR-02e)
         ("POST", "/api/v1/apps/{key}/roles"): "admin:roles:manage",
         ("PATCH", "/api/v1/apps/{key}/roles/{role_id}"): "admin:roles:manage",
         ("DELETE", "/api/v1/apps/{key}/roles/{role_id}"): "admin:roles:manage",
@@ -78,6 +79,28 @@ def test_rbac_routes_declare_permissions() -> None:
         for method, operation in operations.items()
     }
     assert found == expected
+
+
+# Display-text filter (USR-02e): C0/C1 controls, bidi, zero-width, LS/PS, BOM.
+FORMAT_CHARS = ["\x00", "\x85", "\u202e", "\u2066", "\u2028", "\u200b", "\ufeff"]
+
+
+@pytest.mark.parametrize("char", FORMAT_CHARS)
+async def test_app_name_control_chars_422(
+    rbac_client: AsyncClient, db_session: AsyncSession, char: str
+) -> None:
+    name = f"Marker{char}Name"
+    resp = await rbac_client.post(BASE, json={"key": "stoktok", "name": name})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "Marker" not in resp.text
+    assert await _app_row(db_session, "stoktok") is None
+
+    await make_app(db_session, "calechip")
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"name": name})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "Marker" not in resp.text
 
 
 # --- list / get --------------------------------------------------------------

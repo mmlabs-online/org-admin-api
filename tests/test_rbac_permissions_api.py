@@ -185,6 +185,18 @@ async def test_create_permission_validation_422(
     assert await _count(db_session) == before
 
 
+@pytest.mark.parametrize("description", ["a\u202eb", "a\x85b"])
+async def test_description_format_chars_422(
+    rbac_client: AsyncClient, db_session: AsyncSession, description: str
+) -> None:
+    await make_app(db_session, "stoktok")
+    before = await _count(db_session)
+    resp = await rbac_client.post(URL, json={"key": "stoktok:x:y", "description": description})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert await _count(db_session) == before
+
+
 async def test_create_permission_duplicate_409(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:
