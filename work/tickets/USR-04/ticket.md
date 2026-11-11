@@ -1,4 +1,4 @@
-# ADM-010: Email verification and password reset
+# USR-04: Email verification and password reset
 
 | Field | Value |
 |---|---|
@@ -22,5 +22,6 @@ Users can verify their email and reset a forgotten password through one-time, ex
 - [ ] Tests with a fake email sender: verify flow, expired/used token, reset flow, sessions revoked after reset
 
 ## Notes / answers from owner
-- Depends on ADM-008 and ADM-009.
+- 2026-11-11: renamed from ADM-010.
+- Depends on USR-01 and USR-03.
 - Open: §8 Q8 email provider and sender address. If unanswered, the planner should BLOCK on it.

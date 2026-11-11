@@ -3,7 +3,7 @@
 Admin API server for the whole **mmlabs** ecosystem: internal staff use it (via an admin web UI) to manage organizations, staff access, products and entitlements across mmlabs services. It is also **mmlabs Identity**: one user account (email + password) for every mmlabs app, with tokens apps verify via JWKS (spec §5.8). Other mmlabs services may call it too.
 
 - Product spec: [docs/spec-v1.md](docs/spec-v1.md) — source of truth for scope. If this file, a ticket and the spec disagree on scope, the spec wins; flag the conflict.
-- Decisions: [docs/adr/](docs/adr/).
+- Decisions: [docs/adr/](docs/adr/) — notably [ADR-0001 multi-app authorization](docs/adr/0001-multi-app-authorization.md).
 - Workflow (tickets, agents, commands): see **Workflow** below.
 
 ---
@@ -52,7 +52,7 @@ tests/                  # API tests against a real Postgres test DB, rolled back
 |---|---|
 | R1 | **Layering.** router (HTTP only) → service (business rules, raises `AppError` subclasses) → repository (SQLAlchemy only). Routers never touch the ORM; services never raise `HTTPException`. |
 | R2 | **Every schema change ships with a hand-reviewed Alembic migration** with a working `downgrade()`. New models are imported in `app/db/models.py`. `alembic check` reports no drift. |
-| R3 | **Every `/api/v1` endpoint is authenticated and declares its permission** (once ADM-002/ADM-003 land). Until then, new endpoints note the permission they will need. Public by design: health endpoints, `/.well-known/jwks.json`, and the identity endpoints that cannot require a token (register, login, refresh, verify email, password reset). |
+| R3 | **Every `/api/v1` endpoint is authenticated and declares its permission** (once ADM-002 and USR-02/USR-03 land). Until then, new endpoints note the permission they will need. Public by design: health endpoints, `/.well-known/jwks.json`, and the identity endpoints that cannot require a token (register, login, refresh, verify email, password reset). |
 | R4 | **Every mutating admin action writes an audit entry** in the same transaction (once ADM-004 lands). |
 | R5 | **Config from env only** via `app/core/config.py`; keys listed in `.env.example` without values. No secrets, tokens or passwords in code, logs or error details. |
 | R6 | **One error shape**: `{"error": {"code", "message", "details"}}` via `app/core/errors.py`. Codes: 201 create, 204 delete, 401, 403, 404, 409, 422. |
@@ -71,20 +71,20 @@ One orchestrated loop per ticket. **The main session is the orchestrator** (suba
 ```
 /idea "..."     →  spec section + proposed tickets (optional, for new scope)
 /ticket "..."   →  BACKLOG
-/run [ADM-xxx]  →  CONSULT (specialists by area) → PLAN (= technical design) → IMPLEMENT → REVIEW ─PASS→ DONE → PR (owner merges)
+/run [ID]       →  CONSULT (specialists by area) → PLAN (= technical design) → IMPLEMENT → REVIEW ─PASS→ DONE → PR (owner merges)
                                                                                  ^                │
                                                                                  └──── REWORK ────┘  max 2 reworks → ESCALATED (stop, ask owner)
 ```
 
 - No human gate between PLAN and IMPLEMENT. The loop stops only when: the planner returns blocking questions (`BLOCKED`), reworks are exhausted (`ESCALATED`), or the ticket is `DONE`.
-- Each ticket runs on branch `ticket/ADM-xxx` (or the session's mandated branch in cloud sessions). On `DONE` the loop **opens a PR into `main`**. **The owner approves and merges** — agents never merge.
+- Each ticket runs on branch `ticket/<ID>` (or the session's mandated branch in cloud sessions). On `DONE` the loop **opens a PR into `main`**. **The owner approves and merges** — agents never merge.
 
 ### Commands (`.claude/commands/`)
 | Command | Purpose |
 |---|---|
 | `/idea <idea>` | Shape new scope into `docs/spec-v1.md` and propose tickets |
-| `/ticket <description> [P1-P3]` | Create `work/tickets/ADM-xxx/ticket.md` and a backlog row |
-| `/run [ADM-xxx]` | Run the full loop for a ticket (no ID = highest-priority BACKLOG ticket) |
+| `/ticket <description> [P1-P3]` | Create `work/tickets/<ID>/ticket.md` and a backlog row |
+| `/run [ID]` | Run the full loop for a ticket (no ID = highest-priority BACKLOG ticket whose dependencies are done) |
 | `/status` | Board summary from `work/backlog.md` |
 | `/solo <description>` | Small direct change outside the loop (still must pass checks; logged) |
 
@@ -112,7 +112,7 @@ Specialists (read-only; `/run` saves their output to the ticket folder):
 work/backlog.md                 board: one row per ticket
 work/solo-log.md                log of /solo changes
 work/templates/                 ticket, plan, impl-log, review, escalation
-work/tickets/ADM-xxx/
+work/tickets/<ID>/
   ticket.md                     goal, acceptance criteria, areas, state, attempts, PR
   consult-<agent>.md            specialist notes (optional)
   plan.md                       planner output (technical design)
@@ -129,7 +129,8 @@ Ticket states: `BACKLOG` → `PLANNING` → `IN_PROGRESS` → `REVIEW` → `DONE
 ## Conventions
 
 - Language: code, comments, docs, commit messages in English. Reports to the owner in Vietnamese.
-- Commits: `ADM-xxx: <imperative summary>` (or `solo: <summary>`).
+- Ticket IDs: **`USR-XX`** for users, identity and authorization (mmlabs Identity, spec §5.3/§5.8; ADR-0001); **`ADM-XXX`** for everything else.
+- Commits: `<ID>: <imperative summary>` (e.g. `USR-01: …`, `ADM-004: …`; or `solo: <summary>`).
 - Secrets: only in `.env` (git-ignored) and the deploy environment.
 - Third-party agent definitions come from msitarzewski/agency-agents (MIT) — see `THIRD_PARTY_NOTICES.md`.
 - ⚠️ Until ADM-002 is done, the API is unauthenticated. The owner accepted deploying it to `api.mmlabs.online` without a Cloudflare Access gate (2026-11-10, spec §6.1); keep ADM-002 high priority.

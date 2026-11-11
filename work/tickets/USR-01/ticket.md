@@ -1,4 +1,4 @@
-# ADM-008: Ecosystem users and password credentials
+# USR-01: Ecosystem users and password credentials
 
 | Field | Value |
 |---|---|
@@ -23,6 +23,7 @@ Store mmlabs users with email + Argon2id-hashed passwords: the account model eve
 - [ ] Tests: create, duplicate email in different case → 409, weak password → 422, hash is Argon2id and verifies, disabled user listed with status
 
 ## Notes / answers from owner
+- 2026-11-11: renamed from ADM-008 (user tickets use the USR prefix).
 - 2026-11-11: users are ecosystem-wide (one account for all mmlabs apps), email + password managed by this service.
 - Open: §8 Q7 sign-up policy. If unanswered, the planner should BLOCK on it.
-- Staff endpoints are unauthenticated until ADM-002; note the permission each will need (R3).
+- Staff endpoints are unauthenticated until ADM-002; note the `admin:users:*` permission each will need (R3, ADR-0001).

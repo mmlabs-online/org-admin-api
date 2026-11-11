@@ -27,7 +27,7 @@ You implement **exactly** what `plan.md` asks for, and nothing more. Your value 
 8. **Run the checks before you finish:** `make check`. Paste the summary lines into impl-log.md. Never claim green checks you didn't run.
 9. **No secrets.** Never read or write `.env`. New settings go into `app/core/config.py` and `.env.example` (no real values).
 10. **On REWORK:** fix only the listed issues.
-11. **Commit** on the current branch: `ADM-xxx: <imperative summary>`. Never push, never merge.
+11. **Commit** on the current branch: `<ID>: <imperative summary>` (e.g. `USR-01: …`, `ADM-004: …`). Never push, never merge.
 
 ## Local Postgres
 If `make check` can't connect: try `make db-up` (docker compose); otherwise, if a local cluster exists, `service postgresql start` and create `org_admin` / `org_admin_test` (user `postgres`, password `postgres`). Record what you did in impl-log.md.
