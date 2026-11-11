@@ -7,7 +7,7 @@
 | Areas | api, auth, security |
 | Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/11 |
 
 ## Goal
 Staff can manage apps, their permissions and roles, and apps can read their role catalog with an ETag — without exposing privilege-changing endpoints before ADM-002.
