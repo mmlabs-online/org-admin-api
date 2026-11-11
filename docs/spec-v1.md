@@ -36,7 +36,7 @@ mmlabs runs several products/services. Admin tasks (managing customer orgs, user
 
 ### §5.1 Organizations — *done (ADM-001)*
 CRUD for organizations (slug, name, description, status `active`/`suspended`). Paginated list.
-> 2026-11-11 (D10): organizations are to be owned by the Identity module and used per app (`apps.org_mode`); reconciling this existing Admin table with that design is open — see USR-06.
+> 2026-11-11 (D10, D15): this table moves to the Identity module (USR-06), gains `created_by`, keeps `description` and `status`; apps use it per `apps.org_mode`.
 
 ### §5.2 Staff authentication
 Only authenticated mmlabs staff can call `/api/v1/*`. Health endpoints stay public. Approach (SSO/OIDC vs. other) is an open question (§8 Q2).
@@ -66,7 +66,8 @@ One account per person across all mmlabs apps, **fully self-hosted here** (D1): 
 - **Verification by apps:** public keys at `/.well-known/jwks.json`; apps verify signature, `iss`, `aud` and expiry locally. Claims: `sub`, `email`, `email_verified`, `aud`, `roles`, `org` (if scoped), `iat`, `exp`. Backends use `mmlabs-auth` (Python) (D4).
 - **Abuse protection:** no hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP limit, Turnstile after 3 failures; the same error for unknown email and wrong password (D11). CORS only for registered app origins; cookie-authenticated POSTs check Origin and `X-MM-App` (D12).
 - **Email flows:** email verification and password reset by one-time, expiring links, sent through Gmail SMTP behind an `EmailSender` interface; resend at most 1/min and 5/day per email (D3).
-- **Organizations:** optional per app (`org_mode`); owned by this Identity module (D10, USR-06).
+- **Organizations:** optional per app (`org_mode`); one `organizations` table owned by this Identity module (D10, D15, USR-06).
+- **Endpoints:** all under `/api/v1/auth/*` (cookie `Path=/api/v1/auth`); JWKS at `/.well-known/jwks.json` (D13).
 - **Admin:** staff can list, look up, disable/enable users, manage their roles per app and revoke their sessions (audited, §5.4).
 
 ### §5.7 Later (not v1)
