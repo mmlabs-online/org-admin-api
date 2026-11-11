@@ -59,7 +59,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - No secrets in code or logs; config via env only.
 
 ### §6.1 Deployment
-- Public hostname: **`api-admin.mmlabs.online`** (owner, 2026-11-10).
+- Public hostname: **`api.mmlabs.online`** (owner, 2026-11-11; was `api-admin.mmlabs.online` from 2026-11-10).
 - Release/deploy follows the mmlabs deployment repo: branch `release/vX.Y.Z` from main (owner, 2026-11-10; the workflow creates the tag) → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the Mac self-hosted runner, exposed through Cloudflare Tunnel. Database: the shared mmlabs Postgres 17 (compose on the Mac runner), database `org_admin`, persistent `pgdata` volume with nightly and offsite backups (owner, 2026-11-10). Runbook: `docs/deploy.md`.
 - No Cloudflare Access gate is required before staff authentication (§5.2) ships (owner, 2026-11-10). Accepted risk: until ADM-002 lands, anyone who can reach the hostname can call the admin endpoints.
 
@@ -73,7 +73,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - [ ] Q2. Staff login: Google Workspace SSO, the mmlabs "Authen" service, another IdP, or email/password + 2FA?
 - [ ] Q3. Is this API the **source of truth** for orgs/users, or does it aggregate data owned by each product?
 - [ ] Q4. How do products consume admin decisions — pull (API with service keys), push (webhooks/events), or both?
-- [x] Q5. Deployment target — **answered 2026-11-10:** same Mac self-hosted runner as stoktok, Docker Compose, Cloudflare Tunnel; Postgres runs as a service in the same compose stack on that Mac. Hostname `api-admin.mmlabs.online`.
+- [x] Q5. Deployment target — **answered 2026-11-10:** same Mac self-hosted runner as stoktok, Docker Compose, Cloudflare Tunnel; Postgres runs as a service in the same compose stack on that Mac. Hostname `api.mmlabs.online` (renamed from `api-admin.mmlabs.online` on 2026-11-11).
 - [ ] Q6. Compliance needs (audit retention period, PII handling)?
 
 Answers go here with date, and into the relevant ticket's "Notes / answers from owner".
