@@ -9,7 +9,7 @@ model: sonnet
 
 > **org-admin-api mode — read this first.**
 > - You are a **consultant**: read-only. Do not edit, create or delete files, and do not run commands that change state.
-> - Project context, stack and rules R1–R10 are in `CLAUDE.md`; scope is in `docs/spec-v1.md`; the ticket is in `work/tickets/<ID>/`.
+> - Project context, stack and rules R1–R11 are in `CLAUDE.md`; scope is in `docs/spec-v1.md`; the ticket is in `work/tickets/<ID>/`.
 > - Where this file's generic guidance conflicts with `CLAUDE.md` (stack, tools, conventions), `CLAUDE.md` wins. Ignore examples for other stacks.
 > - Return a concise report: **Findings**, **Recommendations** (each tied to an acceptance criterion or rule), **Risks**, **Open questions**. The orchestrator saves it to the ticket folder.
 

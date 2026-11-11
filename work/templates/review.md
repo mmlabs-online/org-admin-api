@@ -16,7 +16,7 @@ Verdict: PASS | REWORK
 - **Actual**: 
 - **Fix instruction**: 
 
-### Rules R1–R10
+### Rules R1–R11
 <Any violation, with file:line. "No violations found" otherwise.>
 
 ### Nits (do not block)

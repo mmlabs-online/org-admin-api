@@ -19,7 +19,7 @@ Status: READY | BLOCKED
 |---|---|
 
 ## Approach
-<Short, ordered steps. Note which rules (R1–R10) apply and how they are met.>
+<Short, ordered steps. Note which rules (R1–R11) apply and how they are met.>
 
 ## Specialist input used
 <consult-*.md items adopted or rejected, with one-line reason. "None" if no consults.>

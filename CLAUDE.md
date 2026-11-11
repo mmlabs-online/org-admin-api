@@ -1,6 +1,6 @@
 # org-admin-api
 
-Admin API server for the whole **mmlabs** ecosystem: internal staff use it (via an admin web UI) to manage organizations, staff access, products and entitlements across mmlabs services. Other mmlabs services may call it too.
+Admin API server for the whole **mmlabs** ecosystem: internal staff use it (via an admin web UI) to manage organizations, staff access, products and entitlements across mmlabs services. It is also **mmlabs Identity**: one user account (email + password) for every mmlabs app, with tokens apps verify via JWKS (spec §5.8). Other mmlabs services may call it too.
 
 - Product spec: [docs/spec-v1.md](docs/spec-v1.md) — source of truth for scope. If this file, a ticket and the spec disagree on scope, the spec wins; flag the conflict.
 - Decisions: [docs/adr/](docs/adr/).
@@ -52,14 +52,15 @@ tests/                  # API tests against a real Postgres test DB, rolled back
 |---|---|
 | R1 | **Layering.** router (HTTP only) → service (business rules, raises `AppError` subclasses) → repository (SQLAlchemy only). Routers never touch the ORM; services never raise `HTTPException`. |
 | R2 | **Every schema change ships with a hand-reviewed Alembic migration** with a working `downgrade()`. New models are imported in `app/db/models.py`. `alembic check` reports no drift. |
-| R3 | **Every `/api/v1` endpoint is authenticated and declares its permission** (once ADM-002/ADM-003 land). Until then, new endpoints note the permission they will need. Health endpoints stay public. |
+| R3 | **Every `/api/v1` endpoint is authenticated and declares its permission** (once ADM-002/ADM-003 land). Until then, new endpoints note the permission they will need. Public by design: health endpoints, `/.well-known/jwks.json`, and the identity endpoints that cannot require a token (register, login, refresh, verify email, password reset). |
 | R4 | **Every mutating admin action writes an audit entry** in the same transaction (once ADM-004 lands). |
 | R5 | **Config from env only** via `app/core/config.py`; keys listed in `.env.example` without values. No secrets, tokens or passwords in code, logs or error details. |
 | R6 | **One error shape**: `{"error": {"code", "message", "details"}}` via `app/core/errors.py`. Codes: 201 create, 204 delete, 401, 403, 404, 409, 422. |
 | R7 | **Stay inside the ticket's plan.** Anything else found goes to the follow-ups list, not into the diff. |
 | R8 | **No PASS without green `make check`.** Every new endpoint has tests: happy path, 404, validation/conflict, and 401/403 once auth exists. |
 | R9 | **API conventions:** `/api/v1/<plural-noun>`, `PATCH` for partial updates, lists return `Page[T]` (`limit` ≤ 100, `offset`), UUID ids, `timestamptz`. No breaking changes inside v1. |
-| R10 | **Non-goals are hard limits** (spec §3): no end-user auth for products, no billing. |
+| R10 | **Non-goals are hard limits** (spec §3): no billing, no social login / full OIDC provider / hosted login UI in v1. End-user identity *is* in scope (spec §5.8). |
+| R11 | **Credentials and tokens:** Argon2id for passwords; refresh tokens, reset and verification tokens stored only as hashes; signing keys from env, never in the repo; never log passwords, tokens or full emails in errors. |
 
 ---
 
