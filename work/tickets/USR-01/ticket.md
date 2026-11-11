@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P1 |
 | Areas | architecture, db, api, auth, security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-11 |
 | PR | — |
 
