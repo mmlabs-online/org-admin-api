@@ -28,3 +28,4 @@ Staff can manage apps, their permissions and roles, and apps can read their role
 - 2026-11-11: created by the orchestrator from the USR-02 planner's split.
 - Open owner questions (defaults in place, non-blocking): **Q1** may the catalog be public (add to R3 class 3)? default: flag-gated. **Q2** accept an R9 exception for `{key}` in `/api/v1/apps/{key}/…` and a non-`Page` catalog document? **Q3** restrict origins to `*.mmlabs.online`? default: any https.
 - Depends on USR-02.
+- Carry-over from the USR-02 security review (🟡, fix in this ticket): (1) `permits()` must reject a `str` as `granted` (TypeError) — otherwise `in` does substring matching; add the edge-case tests listed there; (2) `effective_roles` must drop role keys whose prefix ≠ the app key, as `effective_permissions` does; (3) `build_default_role` must refuse the `admin` app (409). Also enforce key prefix == app key on create (422), and map `IntegrityError` races in `build_default_role` to 409.
