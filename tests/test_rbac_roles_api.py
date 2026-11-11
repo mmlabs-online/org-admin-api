@@ -1,3 +1,4 @@
+import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
@@ -166,7 +167,7 @@ async def test_vietnamese_names_accepted(
     for key, name in (("stoktok:x", "Quản trị viên"), ("stoktok:y", "Qua\u0309n tri\u0323")):
         resp = await rbac_client.post(URL, json={"key": key, "name": name})
         assert resp.status_code == 201
-        assert resp.json()["name"] == name
+        assert resp.json()["name"] == unicodedata.normalize("NFC", name)  # stored NFC (ADM-011)
 
 
 async def test_create_role_duplicate_409(

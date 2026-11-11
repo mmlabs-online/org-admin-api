@@ -12,6 +12,7 @@ def test_rbac_flag_refused_in_staging_and_production(app_env: str) -> None:
         Settings(
             app_env=app_env,  # type: ignore[arg-type]
             admin_rbac_api_enabled=True,
+            trusted_proxy_cidrs=["172.18.0.0/16"],
             argon2_memory_kib=65536,  # meet the Argon2 floor so only the flag fails
             argon2_time_cost=3,
         )
@@ -49,3 +50,51 @@ def test_flags_with_explicit_app_env_ok(monkeypatch: pytest.MonkeyPatch) -> None
         admin_rbac_api_enabled=True,
     )
     assert from_kwarg.app_env == "local"
+
+
+# --- TRUSTED_PROXY_CIDRS gate (ADM-011) --------------------------------------
+
+_PROD_ARGON2 = {"argon2_memory_kib": 65536, "argon2_time_cost": 3}
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_trusted_proxy_cidrs_required_in_staging_and_production(app_env: str) -> None:
+    with pytest.raises(ValidationError, match="TRUSTED_PROXY_CIDRS"):
+        Settings(app_env=app_env, trusted_proxy_cidrs=[], **_PROD_ARGON2)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+@pytest.mark.parametrize(
+    "cidrs", [["0.0.0.0/0"], ["::/0"], ["8.8.8.0/24"], ["10.0.0.0/7"], ["fd00::/40"]]
+)
+def test_trusted_proxy_cidrs_rules_in_staging_and_production(
+    app_env: str, cidrs: list[str]
+) -> None:
+    with pytest.raises(ValidationError, match="TRUSTED_PROXY_CIDRS"):
+        Settings(app_env=app_env, trusted_proxy_cidrs=cidrs, **_PROD_ARGON2)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("cidrs", [["172.18.0.0/16"], ["172.31.250.2/32"], ["fd00:1::/64"]])
+def test_trusted_proxy_cidrs_valid_in_production(cidrs: list[str]) -> None:
+    settings = Settings(app_env="production", trusted_proxy_cidrs=cidrs, **_PROD_ARGON2)  # type: ignore[arg-type]
+    assert settings.trusted_proxy_cidrs == cidrs
+
+
+@pytest.mark.parametrize("app_env", ["local", "test"])
+@pytest.mark.parametrize("cidrs", [[], ["0.0.0.0/0"]])
+def test_trusted_proxy_cidrs_optional_in_local_and_test(app_env: str, cidrs: list[str]) -> None:
+    settings = Settings(app_env=app_env, trusted_proxy_cidrs=cidrs)  # type: ignore[arg-type]
+    assert settings.trusted_proxy_cidrs == cidrs
+
+
+def test_settings_errors_do_not_echo_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    marker = "Sup3rS3cretMarker"
+    monkeypatch.setenv("DATABASE_URL", f"postgresql+asyncpg://u:{marker}@db:5432/org_admin")
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("ARGON2_MEMORY_KIB", "65536")
+    monkeypatch.setenv("ARGON2_TIME_COST", "3")
+    monkeypatch.delenv("TRUSTED_PROXY_CIDRS", raising=False)
+    with pytest.raises(ValidationError) as exc:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "TRUSTED_PROXY_CIDRS" in str(exc.value)
+    assert marker not in str(exc.value)

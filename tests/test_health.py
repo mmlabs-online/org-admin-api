@@ -30,6 +30,7 @@ def test_docs_enabled_in_production() -> None:
 
     settings = Settings(
         app_env="production",
+        trusted_proxy_cidrs=["172.18.0.0/16"],
         argon2_memory_kib=65536,  # meet the production Argon2 floor
         argon2_time_cost=3,
     )

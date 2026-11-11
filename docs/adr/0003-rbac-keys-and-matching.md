@@ -4,6 +4,7 @@ Status: Accepted (USR-02 plan, slice USR-02a, 2026-11-11)
 Amended 2026-11-11 (USR-02b): §1, §3, §4, §7, §8, new §9.
 Amended 2026-11-11 (USR-02d): §1, §7, §9, new §10.
 Amended 2026-11-11 (USR-02e): new §11.
+Amended 2026-11-11 (ADM-011): §11.
 Date: 2026-11-11
 
 ## Context
@@ -114,10 +115,15 @@ library apps use (USR-03b).
       ignored; `*` inside a list and headers over 2048 characters never match (→ 200).
     - 404 `not_found` with one message and no details for unknown, disabled and `admin` apps and
       for keys that fail the app key grammar (no DB query).
-    - Display text (app names, role names, permission descriptions) rejects C0/DEL/C1 controls,
-      U+061C, U+200B–200F, U+2028–202E, U+2060–2069 and U+FEFF (422, value not echoed).
-      Consumers render names as plain text and authorize from token claims; the catalog is for
-      display and role → permission mapping only.
+    - Display text (app names, role names, permission descriptions; input only) is
+      NFC-normalized, then length-checked, then refused if any code point has Unicode category
+      Cc, Cf, Zl, Zp, Co, Cs or Cn (Python's Unicode database: 15.0 on Python 3.12, so newly
+      assigned characters are refused until Python is upgraded). This is a superset of the
+      USR-02e list. ZWJ (U+200D) is refused, so emoji ZWJ sequences are not allowed; variation
+      selectors are allowed. 422 `validation_error`, error type `display_text`, value not echoed.
+      Stored values are NFC; read paths return stored values unchanged. Consumers render names
+      as plain text and authorize from token claims; the catalog is for display and role →
+      permission mapping only.
 
 ## Consequences
 - USR-03 uses `effective_roles` for the token `roles` claim; ADM-002 uses `permits`.

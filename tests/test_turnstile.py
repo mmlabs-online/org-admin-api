@@ -75,6 +75,7 @@ async def test_cloudflare_test_secret_rejected_in_production() -> None:
         httpx.MockTransport(record),
         turnstile_secret_key=test_secret,
         app_env="production",
+        trusted_proxy_cidrs=["172.18.0.0/16"],
         argon2_memory_kib=19456,
         argon2_time_cost=2,
     )

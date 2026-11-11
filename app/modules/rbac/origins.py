@@ -1,9 +1,10 @@
 """Browser origins of an app, in one normal form (ADR-0003 §9; CORS echo in USR-03).
 
 Only mmlabs origins are allowed (D19): `https://mmlabs.online` and `https://*.mmlabs.online` on
-the default port (never the API's own host), and loopback (`localhost`, `127.0.0.1`, `[::1]`) on
-http or https, any port. Pure functions, no dependencies. Non-ASCII hosts are rejected (no IDNA
-conversion): register the punycode form. Error messages never echo the submitted value.
+the default port (never the API's host or its subdomains), and loopback (`localhost`,
+`127.0.0.1`, `[::1]`) on http or https, any port. Pure functions, no dependencies. Non-ASCII
+hosts are rejected (no IDNA conversion): register the punycode form. Error messages never echo
+the submitted value.
 """
 
 import re
@@ -36,7 +37,11 @@ def normalize_origin(value: str) -> str:
             raise ValueError(_MESSAGE)  # IP literals other than loopback
     mmlabs = host == _MMLABS_HOST or host.endswith("." + _MMLABS_HOST)
     if host not in _LOOPBACK_HOSTS and (
-        scheme != "https" or not mmlabs or host == _API_HOST or port not in (None, "443")
+        scheme != "https"
+        or not mmlabs
+        or host == _API_HOST
+        or host.endswith("." + _API_HOST)
+        or port not in (None, "443")
     ):
         raise ValueError(_MESSAGE)  # D19: mmlabs hosts on https and the default port only
 

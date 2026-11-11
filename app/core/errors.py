@@ -4,12 +4,15 @@ Services raise `AppError` subclasses; the handlers below turn them into
 `{"error": {"code": ..., "message": ..., "details": ...}}` responses.
 """
 
+from http import HTTPStatus
 from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 
 
 class AppError(Exception):
@@ -93,6 +96,38 @@ async def _validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
     )
 
 
+_HTTP_CODES = {
+    400: "bad_request",
+    401: "unauthorized",
+    403: "permission_denied",
+    404: "not_found",
+    405: "method_not_allowed",
+    406: "not_acceptable",
+    413: "payload_too_large",
+    415: "unsupported_media_type",
+    429: "rate_limited",
+}
+
+
+async def _http_exception_handler(_: Request, exc: Exception) -> Response:
+    """Framework errors (unknown path, 405, ...) in the R6 envelope; never echoes `exc.detail`."""
+    if not isinstance(exc, StarletteHTTPException):  # pragma: no cover
+        raise exc
+    status_code = exc.status_code
+    if status_code in {204, 304}:
+        return Response(status_code=status_code, headers=exc.headers)
+    try:
+        message = HTTPStatus(status_code).phrase
+    except ValueError:
+        message = "HTTP error"
+    return JSONResponse(
+        status_code=status_code,
+        content=_envelope(_HTTP_CODES.get(status_code, "http_error"), message, None),
+        headers=exc.headers,
+    )
+
+
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AppError, _app_error_handler)
     app.add_exception_handler(RequestValidationError, _validation_error_handler)
+    app.add_exception_handler(StarletteHTTPException, _http_exception_handler)

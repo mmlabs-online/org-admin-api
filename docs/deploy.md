@@ -47,6 +47,20 @@ than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates 
 - The password is committed in the (private) deployment repo at `postgres/secrets/apps/org_admin.password`,
   as for every app there. The deploy turns it into `DATABASE_URL` on the host; it never appears in logs.
 
+## Required runtime config
+
+- **`TRUSTED_PROXY_CIDRS`** (ADM-011): the CIDR(s) of the Docker network cloudflared reaches the
+  API on (`web`). Without it every client shares one rate-limit bucket, so in staging/production
+  **both `migrate` and the API refuse to start** when it is empty or unsafe (deploy step 5 fails,
+  the old API keeps running).
+  - Set it in `apps/org-admin-api/compose.yml` → `x-app.environment` (read by `migrate` and the
+    API). It is not a secret. Not in the env file: the deploy rewrites that file on every run.
+  - Format: a **JSON list in a quoted string**, e.g. `TRUSTED_PROXY_CIDRS: '["172.18.0.0/16"]'`.
+    A bare `172.18.0.0/16` fails to parse.
+  - Rules: private networks only, no `/0`, IPv4 prefix ≥ /8, IPv6 prefix ≥ /48.
+  - Find the subnet: `docker network inspect web -f '{{(index .IPAM.Config 0).Subnet}}'`. Better:
+    pin the `web` subnet, give cloudflared a fixed IP and trust that `/32`.
+
 ## Migration rules
 
 A rollback restarts the **previous image on the new schema** (it never migrates down). So every

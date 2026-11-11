@@ -1,7 +1,8 @@
+import pytest
 from starlette.requests import Request
 
 from app.core.client_ip import client_ip, ip_key
-from app.core.rate_limit import InMemoryRateLimiter, RateLimit
+from app.core.rate_limit import InMemoryRateLimiter, RateLimit, rate_limit
 
 
 class FakeClock:
@@ -50,19 +51,56 @@ def test_scopes_and_keys_are_independent() -> None:
     assert limiter.hit("login", "ip-a", LIMIT) is None
 
 
-def test_evicts_expired_and_caps_keys() -> None:
+def _exhaust(limiter: InMemoryRateLimiter, scope: str, key: str) -> None:
+    for _ in range(LIMIT.limit):
+        limiter.hit(scope, key, LIMIT)
+    assert limiter.hit(scope, key, LIMIT) is not None
+
+
+def test_evicts_expired_then_oldest_within_scope() -> None:
     clock = FakeClock()
-    limiter = InMemoryRateLimiter(clock=clock, max_keys=3)
+    limiter = InMemoryRateLimiter(clock=clock, max_keys_per_scope=3)
     for key in ("a", "b", "c"):
-        limiter.hit("s", key, LIMIT)
-    clock.now += 61  # all expired
-    limiter.hit("s", "d", LIMIT)
-    assert set(limiter._windows) == {("s", "d")}
-    for key in ("e", "f", "g"):
+        _exhaust(limiter, "signup", key)
+    clock.now += 61  # all expired: dropped on the next insert
+    _exhaust(limiter, "signup", "d")
+    for key in ("e", "f"):
         clock.now += 1
-        limiter.hit("s", key, LIMIT)
-    assert len(limiter._windows) == 3
-    assert ("s", "d") not in limiter._windows  # oldest dropped
+        _exhaust(limiter, "signup", key)
+    assert limiter.hit("signup", "d", LIMIT) is not None  # d, e, f fill the cap
+    clock.now += 1
+    limiter.hit("signup", "g", LIMIT)  # over the cap: oldest (d) evicted
+    assert limiter.hit("signup", "d", LIMIT) is None  # fresh window
+    assert limiter.hit("signup", "f", LIMIT) is not None  # f is still live and blocked
+
+
+def test_restarted_window_is_not_oldest() -> None:
+    clock = FakeClock()
+    limiter = InMemoryRateLimiter(clock=clock, max_keys_per_scope=3)
+    _exhaust(limiter, "signup", "a")
+    clock.now += 30
+    _exhaust(limiter, "signup", "b")
+    clock.now += 31  # a expired, b live
+    _exhaust(limiter, "signup", "a")  # a restarts its window and moves to the back
+    clock.now += 1
+    _exhaust(limiter, "signup", "c")
+    clock.now += 1
+    limiter.hit("signup", "d", LIMIT)  # over the cap: oldest is b, not a
+    assert limiter.hit("signup", "a", LIMIT) is not None
+    assert limiter.hit("signup", "b", LIMIT) is None
+
+
+def test_flooding_one_scope_never_evicts_another() -> None:
+    limiter = InMemoryRateLimiter(clock=FakeClock(), max_keys_per_scope=10)
+    _exhaust(limiter, "signup", "ip")
+    for i in range(1_000):
+        limiter.hit("role_catalog", f"k{i}", LIMIT)
+    assert limiter.hit("signup", "ip", LIMIT) is not None
+
+
+def test_unknown_scope_refused_at_build() -> None:
+    with pytest.raises(ValueError, match="unknown rate-limit scope"):
+        rate_limit("nope")  # type: ignore[arg-type]
 
 
 def _request(peer: str, headers: dict[str, str] | None = None) -> Request:

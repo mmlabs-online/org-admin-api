@@ -2,8 +2,17 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
+from app.core.text import nfc_if_str, reject_disallowed_categories
 from app.modules.rbac.models import (
     APP_KEY_RE,
     PERMISSION_KEY_RE,
@@ -14,11 +23,13 @@ from app.modules.rbac.models import (
 )
 from app.modules.rbac.origins import MAX_ORIGINS, normalize_origins
 
-# Display text: no C0/DEL/C1 controls, no bidi embeddings/overrides/isolates, no zero-width,
-# line/paragraph separators or BOM (NUL is refused by Postgres `text` -> would be a 500).
-_NO_CONTROL = r"^[^\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]*$"
-
-AppName = Annotated[str, Field(min_length=1, max_length=255, pattern=_NO_CONTROL)]
+# Display text (input only): NFC, then length, then Unicode category check (ADR-0003 §11).
+AppName = Annotated[
+    str,
+    BeforeValidator(nfc_if_str),
+    Field(min_length=1, max_length=255),
+    AfterValidator(reject_disallowed_categories),
+]
 
 
 class AppCreate(BaseModel):
@@ -79,8 +90,18 @@ class AppRead(BaseModel):
 
 
 PermissionKey = Annotated[str, Field(pattern=PERMISSION_KEY_RE, max_length=160)]
-Description = Annotated[str, Field(max_length=500, pattern=_NO_CONTROL)]
-RoleName = Annotated[str, Field(min_length=1, max_length=255, pattern=_NO_CONTROL)]
+Description = Annotated[
+    str,
+    BeforeValidator(nfc_if_str),
+    Field(max_length=500),
+    AfterValidator(reject_disallowed_categories),
+]
+RoleName = Annotated[
+    str,
+    BeforeValidator(nfc_if_str),
+    Field(min_length=1, max_length=255),
+    AfterValidator(reject_disallowed_categories),
+]
 
 
 class PermissionCreate(BaseModel):
