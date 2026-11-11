@@ -44,7 +44,7 @@ Only authenticated mmlabs staff can call `/api/v1/*`. Health endpoints stay publ
 ### §5.3 Authorization — multi-app RBAC (owner, 2026-11-11; [ADR-0001](adr/0001-multi-app-authorization.md))
 One model for every mmlabs app, the admin API included (app `admin`). Apps are registered; each app declares namespaced permissions (`<app>:<resource>:<action>`) and its own roles; users get roles per app, optionally limited to one organization. Every admin `/api/v1` endpoint declares the `admin:*` permission it needs. A bootstrap super-admin (`admin:*`) exists. Business rules on an app's own data stay in that app.
 
-Membership (2026-11-11, D8–D10; details in [`identity-architecture.md`](identity-architecture.md)): each app has a `join_policy` (`open` | `approval` | `closed`; default `open`, `admin` = `closed`), a default role `<app>:member` holding all its permissions except those flagged `is_admin`, an `org_mode` (`none` | `required`; calechip = `required`) and its allowed browser `origins`. Joining assigns the default role at app scope (`org_id NULL`). Policy and role contents are data.
+Membership (2026-11-11, D8–D10; details in [`identity-architecture.md`](identity-architecture.md)): each app has a `join_policy` (`open` | `approval` | `closed`; default `open`, `admin` = `closed`), a default role `<app>:member` holding all its permissions except those flagged `is_admin`, an `org_mode` (`none` | `required`; calechip = `required`) and its allowed browser `origins`. Joining assigns the default role at app scope (`org_id NULL`). Policy and role contents are data. The role catalog `GET /api/v1/apps/{key}/roles` is public (D17); app origins are limited to `mmlabs.online`, its subdomains and localhost (D19).
 
 ### §5.4 Audit log
 Append-only record of every mutating admin action: actor, action, target type/id, before/after (or diff), timestamp, request id. Read-only, filterable listing for auditors.
@@ -82,6 +82,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 ### §6.1 Deployment
 - Public hostname: **`api.mmlabs.online`** (owner, 2026-11-11; was `api-admin.mmlabs.online` from 2026-11-10).
 - Release/deploy follows the mmlabs deployment repo: branch `release/vX.Y.Z` from main (owner, 2026-11-10; the workflow creates the tag) → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the Mac self-hosted runner, exposed through Cloudflare Tunnel. Database: the shared mmlabs Postgres 17 (compose on the Mac runner), database `org_admin`, persistent `pgdata` volume with nightly and offsite backups (owner, 2026-11-10). Runbook: `docs/deploy.md`.
+- API docs: Swagger UI at `/docs` and `/openapi.json` are public in production too (owner, 2026-11-11; temporary — revisit when ADM-002 mounts the admin routes).
 - No Cloudflare Access gate is required before staff authentication (§5.2) ships (owner, 2026-11-10). Accepted risk: until ADM-002 lands, anyone who can reach the hostname can call the admin endpoints.
 
 ## §7 Success metrics

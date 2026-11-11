@@ -17,7 +17,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        docs_url="/docs" if settings.app_env != "production" else None,
+        # Swagger UI is public in every environment, production included (owner, 2026-11-11;
+        # temporary). Gated admin routes are not mounted in production, so they are not listed.
+        docs_url="/docs",
         redoc_url=None,
     )
     if settings.cors_origins:
