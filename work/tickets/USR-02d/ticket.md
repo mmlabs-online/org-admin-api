@@ -1,0 +1,27 @@
+# USR-02d: Permissions and roles staff API (flag-gated)
+
+| Field | Value |
+|---|---|
+| State | BACKLOG |
+| Priority | P1 |
+| Areas | api, auth, security |
+| Attempts | 0 |
+| Created | 2026-11-11 |
+| PR | — |
+
+## Goal
+Staff can manage an app's permissions and roles, including replacing a role's permission set, behind the `ADMIN_RBAC_API_ENABLED` gate, with the remaining escalation guards.
+
+## Spec reference
+§5.3; ADR-0001, ADR-0003; split from USR-02b (`work/tickets/USR-02b/plan.md` → "Split proposal" → slice 02b-2, which holds the contract)
+
+## Acceptance criteria
+- [ ] 8 routes: permissions list/create/patch/delete, roles create/patch/delete, `PUT /api/v1/apps/{key}/roles/{role_id}/permissions`; permissions `admin:apps:read` / `admin:roles:manage`, declared per route with a route→permission test
+- [ ] Key prefix == app key (422); `<app>:*` forced `is_admin` (`false` → 422); `is_system` and `key` never accepted as input
+- [ ] PUT dedupes, lists every unknown/other-app key in 422 details, shares diff logic with the member-role builder; idempotent
+- [ ] Guards (409): delete `admin:*` or a permission held by any role; delete a system role, the app's default role, or a role with assignments; PUT leaving `admin:super-admin` without `admin:*`; PUT adding an `is_admin` permission to the default role; PATCH `is_admin=true` on a permission the default role holds
+- [ ] Tests per the 02b-2 contract
+
+## Notes / answers from owner
+- 2026-11-11: created by the orchestrator from the USR-02b planner's split (slice 02b-2).
+- Depends on USR-02b.

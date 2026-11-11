@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | api, auth, security |
 | Attempts | 0 |
@@ -25,6 +25,7 @@ Staff can manage apps, their permissions and roles, and apps can read their role
 - [ ] Tests listed in the USR-02 plan for 02b
 
 ## Notes / answers from owner
+- 2026-11-11: split by the planner — this ticket is slice 02b-1 (flag + APP_ENV rule + UnprocessableError + USR-02 carry-over fixes + apps CRUD + origins + admin-app locks). Permissions/roles CRUD → **USR-02d**; catalog → **USR-02e**.
 - 2026-11-11: created by the orchestrator from the USR-02 planner's split.
 - Open owner questions (defaults in place, non-blocking): **Q1** may the catalog be public (add to R3 class 3)? default: flag-gated. **Q2** accept an R9 exception for `{key}` in `/api/v1/apps/{key}/…` and a non-`Page` catalog document? **Q3** restrict origins to `*.mmlabs.online`? default: any https.
 - Depends on USR-02.
