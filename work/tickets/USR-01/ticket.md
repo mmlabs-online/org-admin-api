@@ -7,7 +7,7 @@
 | Areas | architecture, db, api, auth, security |
 | Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/8 |
 
 ## Goal
 Store mmlabs users (one account for every app) with Argon2id passwords, and let anyone sign up, protected by Cloudflare Turnstile and a per-IP rate limit.
