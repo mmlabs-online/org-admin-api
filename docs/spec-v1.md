@@ -82,6 +82,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 ### §6.1 Deployment
 - Public hostname: **`api.mmlabs.online`** (owner, 2026-11-11; was `api-admin.mmlabs.online` from 2026-11-10).
 - Release/deploy follows the mmlabs deployment repo: branch `release/vX.Y.Z` from main (owner, 2026-11-10; the workflow creates the tag) → image on Docker Hub → PR on `mmlabs-online/deployment` → owner merges → deploy on the Mac self-hosted runner, exposed through Cloudflare Tunnel. Database: the shared mmlabs Postgres 17 (compose on the Mac runner), database `org_admin`, persistent `pgdata` volume with nightly and offsite backups (owner, 2026-11-10). Runbook: `docs/deploy.md`.
+- API docs: Swagger UI at `/docs` and `/openapi.json` are public in production too (owner, 2026-11-11; temporary — revisit when ADM-002 mounts the admin routes).
 - No Cloudflare Access gate is required before staff authentication (§5.2) ships (owner, 2026-11-10). Accepted risk: until ADM-002 lands, anyone who can reach the hostname can call the admin endpoints.
 
 ## §7 Success metrics
