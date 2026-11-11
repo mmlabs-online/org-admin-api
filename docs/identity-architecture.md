@@ -133,7 +133,7 @@ by D13). The only endpoint outside `/api/v1` is `/.well-known/jwks.json` (standa
 | `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public | send reset link | USR-04 |
 | `POST /api/v1/auth/password/reset` `{token, new_password}` | public | set password, revoke all sessions of the user | USR-04 |
 | `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03 |
-| `GET /api/v1/apps/{key}/roles` (ETag / 304) | app credential (USR-05) or public read (decide in plan) | role → permissions catalog | USR-02 (read), USR-05 |
+| `GET /api/v1/apps/{key}/roles` (ETag / 304) | public (D17), per-IP limit | role → permissions catalog | USR-02e |
 | `PUT /api/v1/apps/{key}/manifest` | app credential | app pushes its permissions + default role | USR-05 |
 | `POST /api/v1/auth/orgs` `{account_id, name, slug}` | cookie; needs `<app>:org:create` | create org, creator gets the app's org owner role | USR-06 |
 | `GET /api/v1/auth/orgs?account_id=&app=` | cookie | the account's orgs for an org-scoped app | USR-06 |

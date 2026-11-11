@@ -62,6 +62,9 @@ class InMemoryRateLimiter:
 def _limit_for(scope: str, settings: Settings) -> RateLimit:
     limits = {
         "signup": RateLimit(settings.signup_rate_limit, settings.signup_rate_window_seconds),
+        "role_catalog": RateLimit(
+            settings.role_catalog_rate_limit, settings.role_catalog_rate_window_seconds
+        ),
     }
     return limits[scope]
 

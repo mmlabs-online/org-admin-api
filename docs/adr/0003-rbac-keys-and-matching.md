@@ -3,6 +3,7 @@
 Status: Accepted (USR-02 plan, slice USR-02a, 2026-11-11)
 Amended 2026-11-11 (USR-02b): §1, §3, §4, §7, §8, new §9.
 Amended 2026-11-11 (USR-02d): §1, §7, §9, new §10.
+Amended 2026-11-11 (USR-02e): new §11.
 Date: 2026-11-11
 
 ## Context
@@ -98,6 +99,25 @@ library apps use (USR-03b).
     - System rows: `admin:*` cannot be deleted; `admin:super-admin` keeps `admin:*`; `is_system`
       roles accept PUT and name changes but cannot be deleted; `key` and `is_system` are never
       input.
+11. **Public role catalog (USR-02e, D17).** `GET /api/v1/apps/{key}/roles` is public (R3 class 3),
+    always mounted, rate-limited per IP (scope `role_catalog`, `ROLE_CATALOG_RATE_LIMIT` per
+    `ROLE_CATALOG_RATE_WINDOW_SECONDS`, default 120/60 s; 304 and 404 responses count; over the
+    limit → 429 `rate_limited` with `Retry-After`).
+    - Document: `{"app": <key>, "roles": [{"key", "name", "is_system", "permissions": [<key>]}]}`,
+      compact UTF-8 JSON (non-ASCII not escaped), roles sorted by key and permission keys sorted
+      (code-point order, done in the service, never by DB collation). Nothing else (no ids,
+      `is_admin`, descriptions, app fields or timestamps). Fields are append-only.
+    - `ETag`: strong, `"` + first 32 hex chars (128 bits) of SHA-256 of the exact response bytes +
+      `"`; `Cache-Control: no-cache` on 200 and 304.
+    - `If-None-Match` (weak comparison, RFC 9110): exact tag, `W/` tag, a list containing the tag,
+      or `*` → 304 with an empty body, the same `ETag` and `Cache-Control`. Malformed entries are
+      ignored; `*` inside a list and headers over 2048 characters never match (→ 200).
+    - 404 `not_found` with one message and no details for unknown, disabled and `admin` apps and
+      for keys that fail the app key grammar (no DB query).
+    - Display text (app names, role names, permission descriptions) rejects C0/DEL/C1 controls,
+      U+061C, U+200B–200F, U+2028–202E, U+2060–2069 and U+FEFF (422, value not echoed).
+      Consumers render names as plain text and authorize from token claims; the catalog is for
+      display and role → permission mapping only.
 
 ## Consequences
 - USR-03 uses `effective_roles` for the token `roles` claim; ADM-002 uses `permits`.

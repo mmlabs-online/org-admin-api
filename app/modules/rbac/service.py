@@ -1,3 +1,4 @@
+import re
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
@@ -6,13 +7,23 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, UnprocessableError
-from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus, JoinPolicy, Permission, Role
+from app.modules.rbac.models import (
+    ADMIN_APP_KEY,
+    APP_KEY_RE,
+    App,
+    AppStatus,
+    JoinPolicy,
+    Permission,
+    Role,
+)
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.schemas import (
     AppCreate,
     AppUpdate,
     PermissionCreate,
     PermissionUpdate,
+    RoleCatalog,
+    RoleCatalogEntry,
     RoleCreate,
     RolePermissionsReplace,
     RoleRead,
@@ -74,6 +85,28 @@ async def _locked_app(repo: RbacRepository, key: str) -> App:
 class RoleCatalogService:
     def __init__(self, session: AsyncSession) -> None:
         self.repo = RbacRepository(session)
+
+    async def read_catalog(self, app_key: str) -> RoleCatalog:
+        """Public catalog (D17): unknown, disabled, `admin` and malformed keys are one 404."""
+        if re.fullmatch(APP_KEY_RE, app_key) is None:
+            raise NotFoundError("App not found")
+        app = await self.repo.get_app_by_key(app_key)
+        if app is None or app.status != AppStatus.ACTIVE or app.key == ADMIN_APP_KEY:
+            raise NotFoundError("App not found")
+
+        roles: dict[str, tuple[str, bool, set[str]]] = {}
+        prefix = f"{app.key}:"
+        for role_key, name, is_system, perm_key in await self.repo.catalog_rows(app.id):
+            entry = roles.setdefault(role_key, (name, is_system, set()))
+            if perm_key is not None and perm_key.startswith(prefix):  # ADR-0003 §4
+                entry[2].add(perm_key)
+        return RoleCatalog(
+            app=app.key,
+            roles=[
+                RoleCatalogEntry(key=key, name=name, is_system=is_system, permissions=sorted(perms))
+                for key, (name, is_system, perms) in sorted(roles.items())
+            ],
+        )
 
     async def build_default_role(
         self, app_key: str, actor: uuid.UUID | None = None

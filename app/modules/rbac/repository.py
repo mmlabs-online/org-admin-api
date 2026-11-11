@@ -70,6 +70,20 @@ class RbacRepository:
             .execution_options(synchronize_session=False)
         )
 
+    async def catalog_rows(self, app_id: uuid.UUID) -> list[tuple[str, str, bool, str | None]]:
+        """(role key, name, is_system, permission key or None) for every role of the app.
+
+        One query; unordered (the service sorts, so bytes never depend on DB collation).
+        """
+        result = await self.session.execute(
+            select(Role.key, Role.name, Role.is_system, Permission.key)
+            .select_from(Role)
+            .outerjoin(RolePermission, RolePermission.role_id == Role.id)
+            .outerjoin(Permission, Permission.id == RolePermission.permission_id)
+            .where(Role.app_id == app_id)
+        )
+        return [(r[0], r[1], r[2], r[3]) for r in result.all()]
+
     async def get_role(self, app_id: uuid.UUID, role_id: uuid.UUID) -> Role | None:
         return await self.session.scalar(
             select(Role).where(Role.app_id == app_id, Role.id == role_id)
