@@ -1,6 +1,6 @@
 # ADR-0001: Multi-app authorization (app-scoped RBAC, per-app tokens)
 
-Status: Accepted (owner, 2026-11-11)
+Status: Accepted (owner, 2026-11-11). **§5 (token flow) is superseded** by the 2026-11-11 decision log D5–D8 in [`docs/identity-architecture.md`](../identity-architecture.md): device/account sessions replace refresh tokens; RBAC (§1–§4, §6) still applies, extended with `join_policy`, `default_role_id`, `org_mode`, `origins` and `permissions.is_admin`.
 Date: 2026-11-11
 
 ## Context
@@ -29,7 +29,7 @@ without changing this service's code. The admin API itself needs staff permissio
    ```
    A role and its permissions must belong to the same app. A user can use an app if they hold at least
    one non-expired role in it.
-5. **Per-app access tokens.** Login gives a refresh token (identity). An app gets its own access token
+5. **Per-app access tokens.** *(Superseded — see identity-architecture.md D5–D8.)* Login gives a refresh token (identity). An app gets its own access token
    with `POST /api/v1/auth/token {"audience": "<app>"}`: `aud=<app>`, `sub`, `roles` (only that app's),
    `org` when scoped. Refused if the user has no role in that app. Apps verify locally via JWKS and map
    roles to permissions from a cached catalog (`GET /api/v1/apps/{key}/roles`, with ETag). A token for
