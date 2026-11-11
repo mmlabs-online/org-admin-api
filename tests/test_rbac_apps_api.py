@@ -62,6 +62,14 @@ def test_rbac_routes_declare_permissions() -> None:
         ("GET", "/api/v1/apps/{key}"): "admin:apps:read",
         ("PATCH", "/api/v1/apps/{key}"): "admin:apps:write",
         ("DELETE", "/api/v1/apps/{key}"): "admin:apps:write",
+        ("GET", "/api/v1/apps/{key}/permissions"): "admin:apps:read",
+        ("POST", "/api/v1/apps/{key}/permissions"): "admin:roles:manage",
+        ("PATCH", "/api/v1/apps/{key}/permissions/{permission_id}"): "admin:roles:manage",
+        ("DELETE", "/api/v1/apps/{key}/permissions/{permission_id}"): "admin:roles:manage",
+        ("POST", "/api/v1/apps/{key}/roles"): "admin:roles:manage",
+        ("PATCH", "/api/v1/apps/{key}/roles/{role_id}"): "admin:roles:manage",
+        ("DELETE", "/api/v1/apps/{key}/roles/{role_id}"): "admin:roles:manage",
+        ("PUT", "/api/v1/apps/{key}/roles/{role_id}/permissions"): "admin:roles:manage",
     }
     found = {
         (method.upper(), path): operation.get("x-permission")
@@ -250,6 +258,18 @@ async def test_patch_app_bad_origin_422(rbac_client: AsyncClient, db_session: As
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "validation_error"
     assert "example.com" not in resp.text
+
+
+async def test_patch_app_non_mmlabs_origin_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await make_app(db_session, "stoktok", origins=["https://stoktok.mmlabs.online"])
+    resp = await rbac_client.patch(f"{BASE}/stoktok", json={"origins": ["https://example.com"]})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "example.com" not in resp.text
+    app = await _app_row(db_session, "stoktok")
+    assert app is not None and app.origins == ["https://stoktok.mmlabs.online"]
 
 
 async def test_patch_unknown_app_404(rbac_client: AsyncClient) -> None:

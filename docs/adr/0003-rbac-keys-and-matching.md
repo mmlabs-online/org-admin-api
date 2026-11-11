@@ -2,6 +2,7 @@
 
 Status: Accepted (USR-02 plan, slice USR-02a, 2026-11-11)
 Amended 2026-11-11 (USR-02b): §1, §3, §4, §7, §8, new §9.
+Amended 2026-11-11 (USR-02d): §1, §7, §9, new §10.
 Date: 2026-11-11
 
 ## Context
@@ -20,9 +21,12 @@ library apps use (USR-03b).
      Rejected: bare `*`, uppercase, `_`, extra segments, and `<app>:<resource>:*`. The ADM-002 ticket
      example `admin:apps:*` is therefore not allowed; use `admin:apps:read` / `admin:apps:write`;
    - role key: namespaced `<app>:<name>` (e.g. `stoktok:member`, `admin:super-admin`).
-   - "prefix == owning app key" is enforced in the service (422 `unprocessable`) by the
-     permission/role endpoints (USR-02d); the read path drops foreign prefixes (§4).
+   - "prefix == owning app key" is enforced in the service (422 `unprocessable`,
+     `reason: prefix_mismatch`) by the permission/role endpoints (USR-02d); the read path drops
+     foreign prefixes (§4).
 2. **Wildcard.** `<app>:*` is a stored permission row and must have `is_admin = true` (CHECK).
+   Through the API, creating `<app>:*` with `is_admin` absent or null stores `true`; `is_admin =
+   false` on create or PATCH is a 422 `unprocessable` (`reason: wildcard_must_be_admin`).
    It is returned unexpanded by `effective_permissions` and covers every `<app>:…` key, including keys
    registered later.
 3. **One matcher**, `permits(granted, required)`: true when `required` is in `granted` or
@@ -56,7 +60,10 @@ library apps use (USR-03b).
    `UPDATE … WHERE default_role_id IS NULL` (a concurrent change is never overwritten); the
    `role_permissions` insert is idempotent (`ON CONFLICT DO NOTHING`); a concurrent creation of the
    member role, or any racing insert/update/delete in the apps API, is a 409 (savepoint, the request
-   session stays usable).
+   session stays usable). The builder and the role PUT (USR-02d) share one diff helper
+   (`_set_role_permissions`): no write when nothing changes, the diff applied in one savepoint, a
+   race (e.g. a permission deleted meanwhile) a 409. A manual PUT on `<app>:member` is allowed
+   (content is data) and is overwritten by the next explicit rebuild.
 8. **The `admin` app has no member role.** It is `closed`; `default_role_id` stays NULL and roles
    come only from grants. Seed: `admin`, `admin:*` (`is_admin`), `admin:super-admin` (`is_system`).
    `build_default_role("admin")` is refused (409). Through the API the `admin` app cannot be
@@ -66,10 +73,31 @@ library apps use (USR-03b).
    that holds any `is_admin` permission is refused (422 `unprocessable`), as is a role of another
    app or an unknown role. **Origins** (`apps.origins`, the future CORS echo) are stored in one
    normal form: lowercase `scheme://host[:port]`, no path, query, fragment, userinfo or trailing
-   dot; default ports (`:443`, `:80`) dropped; `https` for any LDH host (ASCII only; register the
-   punycode form), `http` only for `localhost`, `127.0.0.1` and `[::1]`; no other IP literals;
-   at most 20 entries of at most 255 characters, deduplicated. Invalid entries are a 422 that
-   does not echo the value.
+   dot; default ports (`:443`, `:80`) dropped. Only mmlabs origins (D19): `https://mmlabs.online`
+   and `https://<sub>.mmlabs.online` (ASCII only; register the punycode form) on the default port,
+   never `https://api.mmlabs.online` (the API itself); loopback (`localhost`, `127.0.0.1`,
+   `[::1]`) on `http` or `https`, any port; no other hosts or IP literals; at most 20 entries of
+   at most 255 characters, deduplicated. Invalid entries are a 422 that does not echo the value.
+   The "default role never holds `is_admin`" invariant is enforced on every path that can break
+   it (app PATCH of `default_role_id`, role PUT, permission PATCH of `is_admin`), each under the
+   per-app lock (§10).
+10. **Writers lock the app row first (USR-02d).** Every RBAC mutation (permission and role
+    endpoints, app PATCH/DELETE, `build_default_role`) starts with
+    `SELECT … FROM apps WHERE key = … FOR NO KEY UPDATE` and decides every guard after it. Roles,
+    permissions, `role_permissions` and `apps.default_role_id` are bound to one app by the
+    composite FKs, so one lock serializes them; the order is always app → rows (no deadlocks);
+    FK checks take `KEY SHARE`, which this lock does not block. Guard catalogue:
+    - 409 `conflict`: delete `admin:*`; delete a permission held by any role; delete a system
+      role, the app's default role, or a role with assignments; PUT leaving `admin:super-admin`
+      without `admin:*`; PUT with any `is_admin` permission on the app's default role; PATCH
+      `is_admin = true` on a permission the default role holds; any racing write
+      (`IntegrityError`).
+    - 422 `unprocessable`: key prefix ≠ app key; `<app>:*` with `is_admin = false`; PUT with
+      unknown or other-app keys (every one listed in `details` with its `key`: format-valid
+      catalog keys, never free-form values).
+    - System rows: `admin:*` cannot be deleted; `admin:super-admin` keeps `admin:*`; `is_system`
+      roles accept PUT and name changes but cannot be deleted; `key` and `is_system` are never
+      input.
 
 ## Consequences
 - USR-03 uses `effective_roles` for the token `roles` claim; ADM-002 uses `permits`.

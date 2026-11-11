@@ -1,10 +1,17 @@
 import uuid
 from datetime import datetime
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.modules.rbac.models import APP_KEY_RE, AppStatus, JoinPolicy, OrgMode
+from app.modules.rbac.models import (
+    APP_KEY_RE,
+    PERMISSION_KEY_RE,
+    ROLE_KEY_RE,
+    AppStatus,
+    JoinPolicy,
+    OrgMode,
+)
 from app.modules.rbac.origins import MAX_ORIGINS, normalize_origins
 
 
@@ -63,3 +70,84 @@ class AppRead(BaseModel):
     default_role_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+# No control characters (NUL is refused by Postgres `text` and would surface as a 500).
+_NO_CONTROL = r"^[^\x00-\x1f\x7f]*$"
+
+PermissionKey = Annotated[str, Field(pattern=PERMISSION_KEY_RE, max_length=160)]
+Description = Annotated[str, Field(max_length=500, pattern=_NO_CONTROL)]
+RoleName = Annotated[str, Field(min_length=1, max_length=255, pattern=_NO_CONTROL)]
+
+
+class PermissionCreate(BaseModel):
+    """`is_admin` absent or null: false, except `<app>:*` which is always stored `true`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: PermissionKey
+    description: Description | None = None
+    is_admin: bool | None = None
+
+
+class PermissionUpdate(BaseModel):
+    """Partial update; `key` is immutable. Explicit null is accepted only for `description`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: Description | None = None
+    is_admin: bool | None = None
+
+    @model_validator(mode="after")
+    def _non_null(self) -> Self:
+        if "is_admin" in self.model_fields_set and self.is_admin is None:
+            raise ValueError("is_admin must not be null")
+        return self
+
+
+class PermissionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    key: str
+    description: str | None
+    is_admin: bool
+
+
+class RoleCreate(BaseModel):
+    """New roles are never `is_system` and hold no permissions (use the PUT)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=ROLE_KEY_RE, max_length=160)
+    name: RoleName
+
+
+class RoleUpdate(BaseModel):
+    """Partial update of the display name; `key` and `is_system` are immutable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: RoleName | None = None
+
+    @model_validator(mode="after")
+    def _non_null(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name must not be null")
+        return self
+
+
+class RoleRead(BaseModel):
+    id: uuid.UUID
+    key: str
+    name: str
+    is_system: bool
+    permissions: list[str]  # sorted permission keys
+
+
+class RolePermissionsReplace(BaseModel):
+    """The role's full permission set; duplicates are ignored, `[]` empties the role."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    permission_keys: list[PermissionKey] = Field(max_length=200)

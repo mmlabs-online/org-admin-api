@@ -15,6 +15,20 @@ class RbacRepository:
     async def get_app_by_key(self, key: str) -> App | None:
         return await self.session.scalar(select(App).where(App.key == key))
 
+    async def lock_app(self, key: str) -> App | None:
+        """Lock the app row (`FOR NO KEY UPDATE`) until the transaction ends.
+
+        Every RBAC writer must call this first (ADR-0003 §9/§10): roles, permissions,
+        `role_permissions` and `apps.default_role_id` of one app are then changed one request at
+        a time. FK checks (`KEY SHARE`) are not blocked.
+        """
+        return await self.session.scalar(
+            select(App)
+            .where(App.key == key)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+
     async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
         total = await self.session.scalar(select(func.count()).select_from(App))
         result = await self.session.scalars(
@@ -80,6 +94,78 @@ class RbacRepository:
         await self.session.refresh(role)
         return role
 
+    async def delete_role(self, role: Role) -> None:
+        """Delete in a savepoint; the database cascades the role's `role_permissions`."""
+        async with self.session.begin_nested():
+            await self.session.delete(role)
+            await self.session.flush()
+
+    async def role_has_assignments(self, role_id: uuid.UUID) -> bool:
+        stmt = select(exists().where(RoleAssignment.role_id == role_id))
+        return bool(await self.session.scalar(stmt))
+
+    async def page_permissions(
+        self, app_id: uuid.UUID, *, limit: int, offset: int
+    ) -> tuple[list[Permission], int]:
+        total = await self.session.scalar(
+            select(func.count()).select_from(Permission).where(Permission.app_id == app_id)
+        )
+        result = await self.session.scalars(
+            select(Permission)
+            .where(Permission.app_id == app_id)
+            .order_by(Permission.key)
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result), total or 0
+
+    async def get_permission(
+        self, app_id: uuid.UUID, permission_id: uuid.UUID
+    ) -> Permission | None:
+        return await self.session.scalar(
+            select(Permission).where(Permission.app_id == app_id, Permission.id == permission_id)
+        )
+
+    async def get_permission_by_key(self, app_id: uuid.UUID, key: str) -> Permission | None:
+        return await self.session.scalar(
+            select(Permission).where(Permission.app_id == app_id, Permission.key == key)
+        )
+
+    async def permissions_by_keys(self, app_id: uuid.UUID, keys: list[str]) -> list[Permission]:
+        if not keys:
+            return []
+        return list(
+            await self.session.scalars(
+                select(Permission).where(Permission.app_id == app_id, Permission.key.in_(keys))
+            )
+        )
+
+    async def add_permission(self, permission: Permission) -> Permission:
+        """Insert in a savepoint so a unique violation leaves the outer transaction usable."""
+        async with self.session.begin_nested():
+            self.session.add(permission)
+            await self.session.flush()
+        await self.session.refresh(permission)
+        return permission
+
+    async def delete_permission(self, permission: Permission) -> None:
+        """Delete in a savepoint; the database cascades its `role_permissions`."""
+        async with self.session.begin_nested():
+            await self.session.delete(permission)
+            await self.session.flush()
+
+    async def permission_held_by_any_role(self, permission_id: uuid.UUID) -> bool:
+        stmt = select(exists().where(RolePermission.permission_id == permission_id))
+        return bool(await self.session.scalar(stmt))
+
+    async def role_holds_permission(self, role_id: uuid.UUID, permission_id: uuid.UUID) -> bool:
+        stmt = select(
+            exists().where(
+                RolePermission.role_id == role_id, RolePermission.permission_id == permission_id
+            )
+        )
+        return bool(await self.session.scalar(stmt))
+
     async def list_permissions(
         self, app_id: uuid.UUID, *, is_admin: bool | None = None
     ) -> list[Permission]:
@@ -115,6 +201,18 @@ class RbacRepository:
                     RolePermission.role_id == role_id, RolePermission.permission_id.in_(ids)
                 )
             )
+
+    async def apply_role_permission_diff(
+        self,
+        role_id: uuid.UUID,
+        app_id: uuid.UUID,
+        add: Iterable[uuid.UUID],
+        remove: Iterable[uuid.UUID],
+    ) -> None:
+        """Apply the diff in one savepoint (an `IntegrityError` keeps the session usable)."""
+        async with self.session.begin_nested():
+            await self.add_role_permissions(role_id, app_id, add)
+            await self.remove_role_permissions(role_id, remove)
 
     @staticmethod
     def _active_assignments(
