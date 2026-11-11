@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | architecture, db, api, auth, security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/8 |
 
 ## Goal
 Store mmlabs users (one account for every app) with Argon2id passwords, and let anyone sign up, protected by Cloudflare Turnstile and a per-IP rate limit.
@@ -31,5 +31,6 @@ Store mmlabs users (one account for every app) with Argon2id passwords, and let 
 None (first identity ticket).
 
 ## Notes / answers from owner
+- 2026-11-11: split by the planner — the staff endpoints (AC 6) moved to **USR-01b**; this ticket covers the rest (plan.md "Split proposal").
 - 2026-11-11: renamed from ADM-008. Open sign-up decided (D2, was Q7).
 - 2026-11-11 (D13): endpoints under `/api/v1/auth/*`.

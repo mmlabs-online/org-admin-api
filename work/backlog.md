@@ -9,7 +9,8 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 |---|---|---|---|---|---|---|
 | ADM-001 | Scaffold FastAPI + PostgreSQL service, tooling and CI | DONE | P1 | architecture, db | 1 | 2026-11-10 |
 | ADM-007 | Release and deploy pipeline to api.mmlabs.online | IN_PROGRESS | P1 | architecture, security | 0 | 2026-11-10 |
-| USR-01 | Users, passwords (Argon2id) and sign-up with Turnstile | BACKLOG | P1 | architecture, db, api, auth, security | 0 | 2026-11-11 |
+| USR-01 | Users, passwords (Argon2id) and sign-up with Turnstile | DONE | P1 | architecture, db, api, auth, security | 1 | 2026-11-11 |
+| USR-01b | Staff user management endpoints (list, get, enable/disable) | BACKLOG | P1 | api, security | 0 | 2026-11-11 |
 | USR-02 | Apps registry and per-app RBAC (join policy, org mode, origins, default role) | BACKLOG | P1 | architecture, db, api, auth, security | 0 | 2026-11-11 |
 | USR-03 | Device sessions (multi-account), login/logout, per-app token, JWKS, CORS/CSRF | BACKLOG | P1 | architecture, auth, security, db, api | 0 | 2026-11-11 |
 | USR-03b | Accounts list, join flow, @mmlabs/auth-client and mmlabs-auth | BACKLOG | P1 | architecture, api, auth, security | 0 | 2026-11-11 |
@@ -20,8 +21,8 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-05 | Apps self-register their permission manifest | BACKLOG | P2 | api, auth, security | 0 | 2026-11-11 |
 | ADM-006 | Org product entitlements | BACKLOG | P2 | architecture, db, api | 0 | 2026-11-10 |
 
-Order of work (dependencies): USR-01 → USR-02 → USR-03 → USR-03b → ADM-002 → ADM-004 → USR-04 → USR-06 → USR-05.
-Hard dependencies: USR-02 ← USR-01 · USR-03 ← USR-01, USR-02 · USR-03b ← USR-03 · ADM-002 ← USR-02, USR-03 · ADM-004 ← ADM-002 · USR-04 ← USR-01, USR-03 · USR-06 ← USR-03b, ADM-004, USR-04 · USR-05 ← USR-02, USR-03b · ADM-006 ← USR-02.
+Order of work (dependencies): USR-01 → USR-01b → USR-02 → USR-03 → USR-03b → ADM-002 → ADM-004 → USR-04 → USR-06 → USR-05.
+Hard dependencies: USR-01b ← USR-01 · USR-02 ← USR-01 · USR-03 ← USR-01, USR-02 · USR-03b ← USR-03 · ADM-002 ← USR-02, USR-03 · ADM-004 ← ADM-002 · USR-04 ← USR-01, USR-03 · USR-06 ← USR-03b, ADM-004, USR-04 · USR-05 ← USR-02, USR-03b · ADM-006 ← USR-02.
 Note (D16): joining an app or getting any token needs a verified email, which only works after USR-04. Release ADM-002 together with or after USR-04.
 Plan and decisions: `docs/identity-architecture.md` (decision log D1–D12, 2026-11-11).
 
