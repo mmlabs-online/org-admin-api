@@ -12,7 +12,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-01 | Users, passwords (Argon2id) and sign-up with Turnstile | DONE | P1 | architecture, db, api, auth, security | 1 | 2026-11-11 |
 | USR-01b | Staff user management endpoints (list, get, enable/disable) | DONE | P1 | api, security | 1 | 2026-11-11 |
 | USR-02 | Apps registry and per-app RBAC (join policy, org mode, origins, default role) | DONE | P1 | architecture, db, api, auth, security | 1 | 2026-11-11 |
-| USR-02b | Apps registry staff API (flag-gated) and role catalog | IN_PROGRESS | P1 | api, auth, security | 0 | 2026-11-11 |
+| USR-02b | Apps registry staff API (flag-gated) and role catalog | REVIEW | P1 | api, auth, security | 0 | 2026-11-11 |
 | USR-02d | Permissions and roles staff API (flag-gated) | BACKLOG | P1 | api, auth, security | 0 | 2026-11-11 |
 | USR-02e | Role catalog with ETag (flag-gated) | BACKLOG | P1 | api, security | 0 | 2026-11-11 |
 | USR-02c | Role assignments staff API (flag-gated) and bootstrap super-admin CLI | BACKLOG | P1 | api, auth, security | 0 | 2026-11-11 |
