@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, model_validator
 
 PASSWORD_MAX_LENGTH = 128
 
@@ -19,3 +20,37 @@ class SignupResponse(BaseModel):
     email: str
     email_verified: bool
     created_at: datetime
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    password: SecretStr = Field(max_length=PASSWORD_MAX_LENGTH)
+    turnstile_token: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+class LoginUser(BaseModel):
+    id: uuid.UUID
+    email: str
+    email_verified: bool
+
+
+class LoginResponse(BaseModel):
+    account_id: uuid.UUID
+    user: LoginUser
+
+
+class LogoutRequest(BaseModel):
+    """Exactly one of `{account_id}` (that account) or `{all: true}` (the whole device)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: uuid.UUID | None = None
+    all: Literal[True] | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> Self:
+        if (self.account_id is None) == (self.all is None):
+            raise ValueError("exactly one of account_id or all is required")
+        return self

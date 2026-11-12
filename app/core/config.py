@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # OWASP Password Storage Cheat Sheet minimum for Argon2id (m=19 MiB, t=2).
 _ARGON2_MIN_MEMORY_KIB = 19456
 _ARGON2_MIN_TIME_COST = 2
+_IDENTITY_HMAC_KEY_MIN_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -46,6 +47,15 @@ class Settings(BaseSettings):
     # Public role catalog (D17); app backends may share one egress IP.
     role_catalog_rate_limit: int = Field(default=120, ge=1)
     role_catalog_rate_window_seconds: int = Field(default=60, ge=1)
+    login_rate_limit: int = Field(default=20, ge=1)
+    login_rate_window_seconds: int = Field(default=60, ge=1)
+
+    # Device sessions (ADR-0004): idle timeout (= cookie Max-Age) and absolute lifetime.
+    device_session_idle_days: int = Field(default=30, ge=1)
+    device_session_max_days: int = Field(default=365, ge=1)
+    # Keys the per-email login failure counters (HMAC-SHA256, ADR-0002 §5). Required in
+    # staging/production; local/test fall back to a random per-process key.
+    identity_hmac_key: SecretStr | None = None
 
     password_min_length: int = Field(default=12, ge=8)
 
@@ -58,6 +68,14 @@ class Settings(BaseSettings):
     admin_users_api_enabled: bool = False
     # Temporary: privilege-changing RBAC endpoints without auth. Removed by ADM-002.
     admin_rbac_api_enabled: bool = False
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _no_wildcard_origin(cls, value: list[str]) -> list[str]:
+        # With credentials, Starlette would echo any Origin for "*".
+        if "*" in value:
+            raise ValueError("CORS_ORIGINS must not contain '*'")
+        return value
 
     @field_validator("trusted_proxy_cidrs")
     @classmethod
@@ -106,6 +124,15 @@ class Settings(BaseSettings):
         # `env_ignore_empty=True`: an empty `APP_ENV=` counts as unset.
         if any(flags.values()) and "app_env" not in self.model_fields_set:
             raise ValueError("APP_ENV must be set explicitly when an admin API flag is on")
+        return self
+
+    @model_validator(mode="after")
+    def _identity_hmac_key_gate(self) -> Self:
+        key = self.identity_hmac_key.get_secret_value() if self.identity_hmac_key else ""
+        if key and len(key) < _IDENTITY_HMAC_KEY_MIN_LENGTH:
+            raise ValueError("IDENTITY_HMAC_KEY must be at least 32 characters")
+        if not key and self.app_env in {"staging", "production"}:
+            raise ValueError("IDENTITY_HMAC_KEY must be set in staging/production")
         return self
 
 

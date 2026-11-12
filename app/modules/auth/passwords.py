@@ -1,6 +1,7 @@
 """Password normalisation, policy and Argon2id hashing (R11)."""
 
 import gzip
+import secrets
 import unicodedata
 from functools import cache
 from pathlib import Path
@@ -58,6 +59,7 @@ class PasswordHasher:
         )
         self._max_concurrency = settings.argon2_max_concurrency
         self._limiter: anyio.CapacityLimiter | None = None
+        self._dummy_hash: str | None = None
 
     def _capacity(self) -> anyio.CapacityLimiter:
         if self._limiter is None:  # created lazily inside the running event loop
@@ -77,6 +79,12 @@ class PasswordHasher:
                 return False
 
         return await anyio.to_thread.run_sync(_verify, limiter=self._capacity())
+
+    async def verify_dummy(self, password: str) -> None:
+        """Same work as `verify` for an unknown email, so timing does not reveal it (D11)."""
+        if self._dummy_hash is None:  # current parameters, created once per process
+            self._dummy_hash = await self.hash(secrets.token_urlsafe(16))
+        await self.verify(self._dummy_hash, password)
 
     def needs_rehash(self, password_hash: str) -> bool:
         return self._hasher.check_needs_rehash(password_hash)

@@ -68,13 +68,14 @@ class InMemoryRateLimiter:
             store.popitem(last=False)
 
 
-Scope = Literal["signup", "role_catalog"]
+Scope = Literal["signup", "role_catalog", "login"]
 
 _LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
     "signup": lambda s: RateLimit(s.signup_rate_limit, s.signup_rate_window_seconds),
     "role_catalog": lambda s: RateLimit(
         s.role_catalog_rate_limit, s.role_catalog_rate_window_seconds
     ),
+    "login": lambda s: RateLimit(s.login_rate_limit, s.login_rate_window_seconds),
 }
 
 

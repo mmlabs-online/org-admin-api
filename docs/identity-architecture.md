@@ -84,6 +84,9 @@ device_sessions    (id uuid, token_hash unique, prev_token_hash NULL, prev_valid
 account_sessions   (id uuid, device_session_id → device_sessions, user_id → users,
                     created_at, last_used_at, revoked_at NULL)
                     unique (device_session_id, user_id) where revoked_at is null
+                    account_id (API) = account_sessions.id (per device, opaque; USR-03, ADR-0004)
+login_failures     (email_hmac bytea PK = HMAC-SHA256(IDENTITY_HMAC_KEY, normalized email),
+                    failures, last_failed_at, blocked_until NULL)   — D11 backoff (ADR-0002 §5)
 
 apps               (id, key unique, name, status,
                     join_policy  open|approval|closed   default 'open'   (admin = 'closed'),
@@ -124,7 +127,7 @@ by D13). The only endpoint outside `/api/v1` is `/.well-known/jwks.json` (standa
 | Method & path | Auth | Purpose | Ticket |
 |---|---|---|---|
 | `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit | create unverified user; send verification email | USR-01 (+USR-04 email) |
-| `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public; Turnstile after 3 failures | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
+| `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
 | `GET /api/v1/auth/accounts` | cookie | accounts signed in on this device | USR-03b |
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03 |
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + `X-MM-App` | apply join policy, assign default role, audit | USR-03b |

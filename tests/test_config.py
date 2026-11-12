@@ -98,3 +98,37 @@ def test_settings_errors_do_not_echo_input(monkeypatch: pytest.MonkeyPatch) -> N
         Settings(_env_file=None)  # type: ignore[call-arg]
     assert "TRUSTED_PROXY_CIDRS" in str(exc.value)
     assert marker not in str(exc.value)
+
+
+# --- IDENTITY_HMAC_KEY and CORS_ORIGINS (USR-03) -----------------------------
+
+_PROD = {"trusted_proxy_cidrs": ["172.18.0.0/16"], **_PROD_ARGON2}
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_identity_hmac_key_required_in_production(
+    monkeypatch: pytest.MonkeyPatch, app_env: str
+) -> None:
+    monkeypatch.delenv("IDENTITY_HMAC_KEY", raising=False)
+    with pytest.raises(ValidationError, match="IDENTITY_HMAC_KEY"):
+        Settings(_env_file=None, app_env=app_env, **_PROD)  # type: ignore[call-arg, arg-type]
+    ok = Settings(_env_file=None, app_env=app_env, identity_hmac_key="k" * 32, **_PROD)  # type: ignore[call-arg, arg-type]
+    assert ok.identity_hmac_key is not None
+
+
+@pytest.mark.parametrize("app_env", ["local", "production"])
+def test_identity_hmac_key_too_short(app_env: str) -> None:
+    with pytest.raises(ValidationError, match="IDENTITY_HMAC_KEY") as exc:
+        Settings(app_env=app_env, identity_hmac_key="k" * 31, **_PROD)  # type: ignore[arg-type]
+    assert "k" * 31 not in str(exc.value)
+
+
+def test_identity_hmac_key_optional_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("IDENTITY_HMAC_KEY", raising=False)
+    assert Settings(_env_file=None, app_env="local").identity_hmac_key is None  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("origins", [["*"], ["http://localhost:3000", "*"]])
+def test_cors_origins_wildcard_refused(origins: list[str]) -> None:
+    with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+        Settings(cors_origins=origins)
