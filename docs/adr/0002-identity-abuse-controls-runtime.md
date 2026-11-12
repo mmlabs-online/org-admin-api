@@ -1,6 +1,7 @@
 # ADR-0002: Identity abuse controls at runtime (rate limit, client IP, Turnstile, Argon2)
 
 Status: Accepted (USR-01 plan, 2026-11-11)
+Amended 2026-11-11 (ADM-011): §1, §2, Consequences.
 Date: 2026-11-11
 
 ## Context
@@ -12,13 +13,22 @@ Cloudflare Tunnel (`cloudflared`), on a small Intel Mac.
 ## Decision
 1. **In-process rate limiter.** `app/core/rate_limit.py`: fixed window per `(scope, ip_key)`, limits
    from settings, `rate_limit("<scope>")` route dependency, 429 `rate_limited` + `Retry-After`.
-   Expired keys are evicted and the key count is capped (10 000). Counters reset on restart.
+   Each scope has its own store, in window-end order, capped at 10 000 keys
+   (`max_keys_per_scope`); eviction is O(1) amortised (expired entries, then the oldest, popped
+   from the front), so flooding one scope never evicts another scope's buckets. Within one scope
+   an attacker with many keys (e.g. rotating IPv6 /64s) can still evict live buckets (fail-open)
+   until a shared store exists. Scopes are a fixed `Literal`; an unknown scope fails when the
+   route dependency is built. Counters reset on restart.
    This is only correct for a single process: **before running more than one worker or replica,
    replace it with a shared store** (Postgres UNLOGGED table or Redis) behind the same `RateLimiter`
    protocol.
 2. **Client IP.** The peer address, or `CF-Connecting-IP` only when the peer is inside
    `TRUSTED_PROXY_CIDRS` (cloudflared's Docker network). `X-Forwarded-For` is never read. IPv6 is
-   bucketed by /64. With `TRUSTED_PROXY_CIDRS` unset in production, every client shares one bucket.
+   bucketed by /64. With `TRUSTED_PROXY_CIDRS` unset in production, every client would share one
+   bucket, so staging/production refuse to start (API and `migrate`) when it is empty or holds a
+   non-private network, a `/0`, an IPv4 prefix shorter than /8 or an IPv6 prefix shorter than /48
+   (ADM-011). Settings errors never print input values. uvicorn runs with `--no-proxy-headers`,
+   so it never rewrites the peer address from `X-Forwarded-*`.
 3. **Turnstile fails closed.** Missing secret, Cloudflare test secret in production, network error,
    timeout (5 s), non-200 or non-JSON → verification fails (403 `turnstile_failed`). A missing secret
    does not stop the app from starting. Only error codes are logged — never the token or secret.
@@ -29,6 +39,7 @@ Cloudflare Tunnel (`cloudflared`), on a small Intel Mac.
 
 ## Consequences
 - USR-03/USR-04 reuse the limiter (new scopes), client-IP resolution and the hasher.
-- The deployment must set `TRUSTED_PROXY_CIDRS`, `TURNSTILE_SECRET_KEY` and
+- The deployment must set `TRUSTED_PROXY_CIDRS` (the app refuses to start without it in
+  staging/production, see `docs/deploy.md`), `TURNSTILE_SECRET_KEY` and
   `TURNSTILE_ALLOWED_HOSTNAMES` before sign-up is released.
 - Scaling out requires the shared limiter first.

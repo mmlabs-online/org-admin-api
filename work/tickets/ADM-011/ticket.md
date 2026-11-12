@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | security, api |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/15 |
 
 ## Goal
 Make the public endpoints (signup, role catalog) robust in production: correct per-client rate limiting, isolated limiter scopes, one error shape everywhere, and safer public display text.

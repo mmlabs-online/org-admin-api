@@ -223,6 +223,17 @@ async def test_post_roles_flag_off_is_405(client: AsyncClient, db_session: Async
     await make_app(db_session, "stoktok")
     resp = await client.post(URL, json={"key": "stoktok:editor", "name": "Editor"})
     assert resp.status_code == 405
+    assert resp.json() == {
+        "error": {"code": "method_not_allowed", "message": "Method Not Allowed", "details": None}
+    }
+    assert "GET" in resp.headers["Allow"]
+
+
+async def test_encoded_slash_key_404_envelope(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/apps/a%2Fb/roles")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"
+    assert "detail" not in resp.json()
 
 
 def test_only_catalog_route_listed_by_default() -> None:

@@ -3,6 +3,7 @@
 import uuid
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
@@ -65,3 +66,10 @@ async def assign(
     session.add(ra)
     await session.flush()
     return ra
+
+
+async def super_admin_role(session: AsyncSession) -> Role:
+    """The seeded `admin:super-admin` role (committed by the migration)."""
+    role = await session.scalar(select(Role).where(Role.key == "admin:super-admin"))
+    assert role is not None
+    return role

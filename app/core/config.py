@@ -12,7 +12,11 @@ _ARGON2_MIN_TIME_COST = 2
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_ignore_empty=True,
+        hide_input_in_errors=True,  # never print env values (e.g. DATABASE_URL) in errors (R5)
     )
 
     app_name: str = "mmlabs org-admin-api"
@@ -61,6 +65,25 @@ class Settings(BaseSettings):
         for cidr in value:
             ipaddress.ip_network(cidr, strict=False)
         return value
+
+    @model_validator(mode="after")
+    def _trusted_proxy_gate(self) -> Self:
+        if self.app_env not in {"staging", "production"}:
+            return self
+        if not self.trusted_proxy_cidrs:
+            raise ValueError(
+                "TRUSTED_PROXY_CIDRS must be set in staging/production (JSON list of the "
+                "cloudflared network CIDRs, see docs/deploy.md)"
+            )
+        for cidr in self.trusted_proxy_cidrs:
+            net = ipaddress.ip_network(cidr, strict=False)
+            min_prefix = 8 if net.version == 4 else 48
+            if net.prefixlen == 0 or not net.is_private or net.prefixlen < min_prefix:
+                raise ValueError(
+                    "TRUSTED_PROXY_CIDRS entries must be private networks of at most /8 (IPv4) "
+                    "or /48 (IPv6) in staging/production"
+                )
+        return self
 
     @model_validator(mode="after")
     def _argon2_floor(self) -> Self:

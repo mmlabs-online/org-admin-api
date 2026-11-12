@@ -29,6 +29,8 @@ FastAPI dependencies `current_user` (Bearer JWT, `aud=admin`) and `require_permi
 USR-02, USR-02b, USR-02c, USR-02d, USR-02e, USR-03 (staff get an `aud=admin` token via `/api/v1/auth/token`; admin join policy is `closed`, so roles are granted by staff/bootstrap).
 
 ## Notes / answers from owner
+- 2026-11-12 (USR-02c security review): S1/F1 — refuse org-scoped assignments on the `admin` app and pin `admin` `org_mode = none` in `AppService.update`; F2 — last-super-admin guard on user disable/delete under `lock_app("admin")`; enforce the `# ADM-002 guard` markers (no self-grant of admin roles, `admin:*` for admin/`is_admin` grants); F3 — audit admin-app assignments written while the flag was on.
+- 2026-11-12: also depends on USR-02f (bootstrap super-admin CLI, split from USR-02c).
 - From the USR-02d security review: escalation via the member role — staff can clear `default_role_id` then PUT `<app>:*` onto `<app>:member`, escalating every member. Require `admin:*` for granting `is_admin`/`<app>:*` (covers it) and consider 409 for an `is_admin` grant on any role with assignments. Before removing the flag: `admin:*` on every `# ADM-002 guard` site; consider restricting `admin:*` to `admin:super-admin`; review `admin:`-prefixed rows created while the flag was on.
 - 2026-11-11: consumes USR-02 (roles) and USR-03 (tokens); generic RBAC moved to USR-02 (former ADM-003). 2FA for staff: OQ3.
 - 2026-11-11 (D16): staff need a verified email to get an `aud=admin` token, which is only possible after USR-04. **Release this ticket together with or after USR-04**, otherwise the admin endpoints are locked for everyone in production.

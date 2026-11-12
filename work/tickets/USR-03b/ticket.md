@@ -31,6 +31,7 @@ Apps can list the accounts signed in on the device, let a user join the app ("Co
 USR-03 (and USR-02).
 
 ## Notes / answers from owner
+- 2026-11-12 (USR-02c security review F4): the join flow writes `role_assignments`, so it must take `lock_app` first.
 - New ticket (2026-11-11).
 - From the USR-02d security review: the join must read `apps.default_role_id` under `FOR SHARE`/`FOR KEY SHARE` on the app row (or a single `INSERT … SELECT default_role_id FROM apps …`), otherwise a concurrent default-role switch + PUT can grant admin permissions through join. Where the libraries live (this repo `clients/` vs separate repos) and how they are published (npm/PyPI private?) — decide in the plan; may need the owner (BLOCK if it changes repo layout).
 - This ticket is large; the planner should propose a split (e.g. API part / TS client / Python package) if over ~400 lines.

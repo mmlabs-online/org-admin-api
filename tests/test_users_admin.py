@@ -72,6 +72,7 @@ def test_users_api_flag_refused_in_staging_and_production(app_env: str) -> None:
         Settings(
             app_env=app_env,  # type: ignore[arg-type]
             admin_users_api_enabled=True,
+            trusted_proxy_cidrs=["172.18.0.0/16"],
             argon2_memory_kib=65536,  # meet the Argon2 floor so only the flag fails
             argon2_time_cost=3,
         )

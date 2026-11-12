@@ -1,11 +1,17 @@
 import uuid
 from collections.abc import Iterable
+from datetime import datetime
 
 from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
+from app.modules.users.models import User, UserStatus
+
+# (assignment, app key, role key, active) — `active` is computed with the database clock.
+AssignmentRow = tuple[RoleAssignment, str, str, bool]
 
 
 class RbacRepository:
@@ -279,3 +285,126 @@ class RbacRepository:
         return list(
             await self.session.scalars(self._active_assignments(stmt, user_id, app_key, org_id))
         )
+
+    # --- role assignments ---------------------------------------------------
+
+    async def user_exists(self, user_id: uuid.UUID) -> bool:
+        return bool(await self.session.scalar(select(exists().where(User.id == user_id))))
+
+    async def role_with_app(self, role_id: uuid.UUID) -> tuple[Role, App] | None:
+        """Unlocked read: tells the caller which app to lock."""
+        row = (
+            await self.session.execute(
+                select(Role, App).join(App, App.id == Role.app_id).where(Role.id == role_id)
+            )
+        ).first()
+        return None if row is None else (row[0], row[1])
+
+    async def org_exists_key_share(self, org_id: uuid.UUID) -> bool:
+        """`FOR KEY SHARE`: the organization cannot be deleted before this transaction ends."""
+        found = await self.session.scalar(
+            select(Organization.id)
+            .where(Organization.id == org_id)
+            .with_for_update(read=True, key_share=True)
+        )
+        return found is not None
+
+    async def db_now(self) -> datetime:
+        return (await self.session.execute(select(func.now()))).scalar_one()
+
+    @staticmethod
+    def _assignment_rows() -> Select[RoleAssignment, str, str, bool]:
+        active = or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now())
+        return (
+            select(RoleAssignment, App.key, Role.key, active.label("active"))
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(App, App.id == Role.app_id)
+        )
+
+    async def page_assignments(
+        self, user_id: uuid.UUID, *, app_key: str | None, limit: int, offset: int
+    ) -> tuple[list[AssignmentRow], int]:
+        count = (
+            select(func.count())
+            .select_from(RoleAssignment)
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(App, App.id == Role.app_id)
+            .where(RoleAssignment.user_id == user_id)
+        )
+        rows = self._assignment_rows().where(RoleAssignment.user_id == user_id)
+        if app_key is not None:
+            count = count.where(App.key == app_key)
+            rows = rows.where(App.key == app_key)
+        total = await self.session.scalar(count)
+        result = await self.session.execute(
+            rows.order_by(RoleAssignment.created_at.desc(), RoleAssignment.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return [(r[0], r[1], r[2], r[3]) for r in result.all()], total or 0
+
+    async def get_assignment_row(
+        self, user_id: uuid.UUID, assignment_id: uuid.UUID
+    ) -> AssignmentRow | None:
+        """Scoped to `user_id`: another user's assignment is not found (no leak)."""
+        row = (
+            await self.session.execute(
+                self._assignment_rows()
+                .where(RoleAssignment.id == assignment_id, RoleAssignment.user_id == user_id)
+                .execution_options(populate_existing=True)
+            )
+        ).first()
+        return None if row is None else (row[0], row[1], row[2], row[3])
+
+    async def find_assignment(
+        self, user_id: uuid.UUID, role_id: uuid.UUID, org_id: uuid.UUID | None
+    ) -> RoleAssignment | None:
+        return await self.session.scalar(
+            select(RoleAssignment)
+            .where(
+                RoleAssignment.user_id == user_id,
+                RoleAssignment.role_id == role_id,
+                RoleAssignment.org_id.is_not_distinct_from(org_id),
+            )
+            .execution_options(populate_existing=True)
+        )
+
+    async def add_assignment(self, ra: RoleAssignment) -> RoleAssignment:
+        """Insert in a savepoint so a unique or FK violation leaves the transaction usable."""
+        async with self.session.begin_nested():
+            self.session.add(ra)
+            await self.session.flush()
+        return ra
+
+    async def delete_assignment(self, ra: RoleAssignment) -> None:
+        async with self.session.begin_nested():
+            await self.session.delete(ra)
+            await self.session.flush()
+
+    @staticmethod
+    def _counting_super_admin(role_id: uuid.UUID) -> ColumnElement[bool]:
+        """App scope, not expired (database clock), held by an `active` user."""
+        return and_(
+            RoleAssignment.role_id == role_id,
+            RoleAssignment.org_id.is_(None),
+            or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
+            User.id == RoleAssignment.user_id,
+            User.status == UserStatus.ACTIVE.value,
+        )
+
+    async def count_other_active_super_admins(
+        self, role_id: uuid.UUID, exclude_id: uuid.UUID
+    ) -> int:
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(RoleAssignment)
+            .join(User, User.id == RoleAssignment.user_id)
+            .where(self._counting_super_admin(role_id), RoleAssignment.id != exclude_id)
+        )
+        return total or 0
+
+    async def is_counting_super_admin(self, role_id: uuid.UUID, assignment_id: uuid.UUID) -> bool:
+        stmt = select(
+            exists().where(self._counting_super_admin(role_id), RoleAssignment.id == assignment_id)
+        )
+        return bool(await self.session.scalar(stmt))

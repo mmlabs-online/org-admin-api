@@ -1,3 +1,4 @@
+import unicodedata
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -81,8 +82,22 @@ def test_rbac_routes_declare_permissions() -> None:
     assert found == expected
 
 
-# Display-text filter (USR-02e): C0/C1 controls, bidi, zero-width, LS/PS, BOM.
-FORMAT_CHARS = ["\x00", "\x85", "\u202e", "\u2066", "\u2028", "\u200b", "\ufeff"]
+# Display-text filter (ADR-0003 §11): categories Cc, Cf, Zl, Zp, Co, Cn.
+FORMAT_CHARS = [
+    "\x00",
+    "\x85",
+    "\u202e",
+    "\u2066",
+    "\u2028",
+    "\u200b",
+    "\ufeff",
+    "\u00ad",
+    "\u200d",
+    "\U000e0041",
+    "\ue000",
+    "\u0378",
+    "\u180e",
+]
 
 
 @pytest.mark.parametrize("char", FORMAT_CHARS)
@@ -101,6 +116,23 @@ async def test_app_name_control_chars_422(
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "validation_error"
     assert "Marker" not in resp.text
+
+
+async def test_app_name_stored_nfc(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    nfd, nfc = unicodedata.normalize("NFD", "Quản trị"), "Quản trị"
+    assert nfd != nfc
+    resp = await rbac_client.post(BASE, json={"key": "stoktok", "name": nfd})
+    assert resp.status_code == 201
+    assert resp.json()["name"] == nfc
+    row = await _app_row(db_session, "stoktok")
+    assert row is not None and row.name == nfc
+
+    patched_nfd = unicodedata.normalize("NFD", "Chủ sở hữu")
+    resp = await rbac_client.patch(f"{BASE}/stoktok", json={"name": patched_nfd})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Chủ sở hữu"
+    row = await _app_row(db_session, "stoktok")
+    assert row is not None and row.name == "Chủ sở hữu"
 
 
 # --- list / get --------------------------------------------------------------
