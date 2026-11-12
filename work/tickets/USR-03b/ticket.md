@@ -28,7 +28,7 @@ Apps can list the accounts signed in on the device, let a user join the app ("Co
 - [ ] Tests: join per policy, idempotent join, unverified → 403; TS client unit tests (account choice per origin, token refresh, error mapping); Python package tests (valid/expired/wrong-aud token, ETag cache)
 
 ## Dependencies
-USR-03 (and USR-02).
+USR-03, USR-03c (token, JWKS), USR-03e (browser CORS) and USR-02.
 
 ## Notes / answers from owner
 - 2026-11-12 (USR-02c security review F4): the join flow writes `role_assignments`, so it must take `lock_app` first.

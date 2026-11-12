@@ -29,7 +29,7 @@ Users verify their email and reset a forgotten password through one-time, expiri
 - [ ] Tests with the fake sender: verify flow, expired/used token, resend limits, reset flow + sessions revoked, retry on transient SMTP error
 
 ## Dependencies
-USR-01, USR-03.
+USR-01, USR-03, USR-03c (token for the AC "afterwards /api/v1/auth/token works").
 
 ## Notes / answers from owner
 - 2026-11-11: renamed from ADM-010; provider decided (D3, was Q8). Priority P1: a verified email is required to join any app or get any token (D2), and there is no interim path (D16).
