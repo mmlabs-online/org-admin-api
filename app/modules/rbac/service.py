@@ -1,6 +1,7 @@
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy.exc import IntegrityError
@@ -13,13 +14,17 @@ from app.modules.rbac.models import (
     App,
     AppStatus,
     JoinPolicy,
+    OrgMode,
     Permission,
     Role,
+    RoleAssignment,
 )
-from app.modules.rbac.repository import RbacRepository
+from app.modules.rbac.repository import AssignmentRow, RbacRepository
 from app.modules.rbac.schemas import (
     AppCreate,
     AppUpdate,
+    AssignmentCreate,
+    AssignmentRead,
     PermissionCreate,
     PermissionUpdate,
     RoleCatalog,
@@ -449,3 +454,151 @@ class RoleService:
             is_system=role.is_system,
             permissions=sorted(found),
         )
+
+
+def _assignment_unprocessable(message: str, field: str, reason: str) -> UnprocessableError:
+    return UnprocessableError(message, details=[{"field": field, "reason": reason}])
+
+
+def _assignment_read(row: AssignmentRow) -> AssignmentRead:
+    ra, app_key, role_key, active = row
+    return AssignmentRead(
+        id=ra.id,
+        app=app_key,
+        role_id=ra.role_id,
+        role_key=role_key,
+        org_id=ra.org_id,
+        granted_by=ra.granted_by,
+        expires_at=ra.expires_at,
+        active=active,
+        created_at=ra.created_at,
+    )
+
+
+def _is_super_admin(app: App, role: Role) -> bool:
+    return app.key == ADMIN_APP_KEY and role.key == SUPER_ADMIN_ROLE
+
+
+class AssignmentService:
+    """Writes lock the role's app first and decide every guard after it (ADR-0003 §10).
+
+    Revoking an `admin:super-admin` row therefore holds the `admin` lock, which serializes the
+    last-super-admin guard. The guard relies on READ COMMITTED (each statement sees commits made
+    before it ran).
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = RbacRepository(session)
+
+    async def list(
+        self, user_id: uuid.UUID, *, app_key: str | None, limit: int, offset: int
+    ) -> tuple[list[AssignmentRead], int]:
+        if not await self.repo.user_exists(user_id):
+            raise NotFoundError("User not found")
+        rows, total = await self.repo.page_assignments(
+            user_id, app_key=app_key, limit=limit, offset=offset
+        )
+        return [_assignment_read(r) for r in rows], total
+
+    async def assign(
+        self, user_id: uuid.UUID, data: AssignmentCreate, actor: uuid.UUID | None = None
+    ) -> AssignmentRead:
+        if not await self.repo.user_exists(user_id):
+            raise NotFoundError("User not found")
+        found = await self.repo.role_with_app(data.role_id)
+        if found is None:
+            raise _assignment_unprocessable("Unknown role", "role_id", "unknown_role")
+        app = await _locked_app(self.repo, found[1].key)
+        role = await self.repo.get_role(app.id, data.role_id)
+        if role is None:  # deleted between the read and the lock
+            raise _assignment_unprocessable("Unknown role", "role_id", "unknown_role")
+        ra, _ = await self._grant_locked(app, role, user_id, data.org_id, data.expires_at, actor)
+        row = await self.repo.get_assignment_row(user_id, ra.id)
+        if row is None:  # unreachable while the transaction holds the app lock
+            raise ConflictError("Assignment was changed concurrently")
+        return _assignment_read(row)
+
+    async def _grant_locked(
+        self,
+        app: App,
+        role: Role,
+        user_id: uuid.UUID,
+        org_id: uuid.UUID | None,
+        expires_at: datetime | None,
+        actor: uuid.UUID | None,
+    ) -> tuple[RoleAssignment, bool]:
+        """The caller holds `lock_app(app.key)`. Returns (assignment, created)."""
+        if org_id is not None:
+            if app.org_mode == OrgMode.NONE:
+                raise _assignment_unprocessable(
+                    "This app does not use organizations", "org_id", "org_id_not_allowed"
+                )
+            if not await self.repo.org_exists_key_share(org_id):
+                raise _assignment_unprocessable("Unknown organization", "org_id", "unknown_org")
+        if expires_at is not None:
+            if _is_super_admin(app, role):
+                raise _assignment_unprocessable(
+                    "admin:super-admin cannot expire", "expires_at", "expiry_not_allowed"
+                )
+            if expires_at <= await self.repo.db_now():
+                raise _assignment_unprocessable(
+                    "expires_at must be in the future", "expires_at", "expires_in_past"
+                )
+        # ADM-002 guard: granting an admin-app role, or a role holding any is_admin permission,
+        # requires admin:*; an actor may not grant themselves any admin-app role; an actor may
+        # not grant permissions they do not hold.
+
+        existing = await self.repo.find_assignment(user_id, role.id, org_id)
+        if existing is not None:
+            if existing.expires_at is None or existing.expires_at > await self.repo.db_now():
+                raise ConflictError("Role is already assigned")
+            # Expired duplicate: replaced in place (same id and created_at).
+            existing.expires_at = expires_at
+            existing.granted_by = actor
+            # R4: audit entry in the same transaction once ADM-004 lands.
+            try:
+                await self.repo.save()
+            except IntegrityError as exc:
+                raise ConflictError("Assignment was changed concurrently") from exc
+            return existing, False
+
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        try:
+            ra = await self.repo.add_assignment(
+                RoleAssignment(
+                    user_id=user_id,
+                    role_id=role.id,
+                    org_id=org_id,
+                    expires_at=expires_at,
+                    granted_by=actor,
+                )
+            )
+        except IntegrityError as exc:  # racing insert, or the user was deleted meanwhile
+            raise ConflictError("Role is already assigned") from exc
+        return ra, True
+
+    async def revoke(
+        self, user_id: uuid.UUID, assignment_id: uuid.UUID, actor: uuid.UUID | None = None
+    ) -> None:
+        row = await self.repo.get_assignment_row(user_id, assignment_id)
+        if row is None:
+            raise NotFoundError("Assignment not found")
+        app = await _locked_app(self.repo, row[1])
+        row = await self.repo.get_assignment_row(user_id, assignment_id)
+        if row is None:  # revoked between the read and the lock
+            raise NotFoundError("Assignment not found")
+        ra, _, role_key, _ = row
+        if (
+            app.key == ADMIN_APP_KEY
+            and role_key == SUPER_ADMIN_ROLE
+            and await self.repo.is_counting_super_admin(ra.role_id, ra.id)
+            and await self.repo.count_other_active_super_admins(ra.role_id, ra.id) == 0
+        ):
+            raise ConflictError("Cannot revoke the last active super-admin")
+        # ADM-002 guard: revoking an admin-app role, or a role holding any is_admin permission,
+        # requires admin:*; self-revoke still goes through the last-super-admin guard above.
+        # R4: audit entry in the same transaction once ADM-004 lands.
+        try:
+            await self.repo.delete_assignment(ra)
+        except IntegrityError as exc:
+            raise ConflictError("Assignment was changed concurrently") from exc

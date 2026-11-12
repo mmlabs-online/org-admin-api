@@ -4,6 +4,7 @@ from typing import Annotated, Self
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -189,3 +190,26 @@ class RoleCatalog(BaseModel):
 
     app: str
     roles: list[RoleCatalogEntry]  # sorted by key
+
+
+class AssignmentCreate(BaseModel):
+    """Assign a role at app scope (`org_id` null) or in one organization; `granted_by` is never
+    input (it is the actor once ADM-002 lands)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role_id: uuid.UUID
+    org_id: uuid.UUID | None = None
+    expires_at: AwareDatetime | None = None
+
+
+class AssignmentRead(BaseModel):
+    id: uuid.UUID
+    app: str  # app key
+    role_id: uuid.UUID
+    role_key: str
+    org_id: uuid.UUID | None
+    granted_by: uuid.UUID | None
+    expires_at: datetime | None
+    active: bool  # computed with the database clock
+    created_at: datetime
