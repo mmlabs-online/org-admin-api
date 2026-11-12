@@ -1,16 +1,20 @@
 from typing import Annotated
 
-from fastapi import Depends, Header, Request
+from fastapi import BackgroundTasks, Depends, Header, Request
 
 from app.api.deps import SessionDep
 from app.core.client_ip import client_ip
 from app.core.config import Settings
 from app.modules.auth.cookies import clear_device_cookie_header, read_device_cookies
+from app.modules.auth.hooks import SignupHook, VerificationEmailHook
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.service import AppContextService
 from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import TurnstileVerifier
+from app.modules.email.dispatcher import EmailDispatcher
+from app.modules.email.sender import OutgoingEmail
 from app.modules.rbac.models import App
+from app.modules.rbac.origins import normalize_origin
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.service import DeviceSessionService, ResolvedDevice
 
@@ -67,6 +71,56 @@ async def get_app_context(
 
 
 AppContextDep = Annotated[App, Depends(get_app_context)]
+
+
+def get_email_dispatcher(request: Request) -> EmailDispatcher:
+    dispatcher: EmailDispatcher = request.app.state.email_dispatcher
+    return dispatcher
+
+
+EmailDispatcherDep = Annotated[EmailDispatcher, Depends(get_email_dispatcher)]
+
+
+async def get_optional_link_origin(
+    request: Request,
+    session: SessionDep,
+    x_mm_app: Annotated[str | None, Header(alias="X-MM-App")] = None,
+    origin: Annotated[str | None, Header()] = None,
+) -> str | None:
+    """Origin for email links: the request `Origin` once checked against the `X-MM-App` app's
+    registered origins (403 otherwise); without `X-MM-App`, `EMAIL_LINK_BASE_URL`. Never
+    `Host` or `X-Forwarded-Host`."""
+    settings: Settings = request.app.state.settings
+    if x_mm_app is None:
+        return settings.email_link_base_url
+    await AppContextService(session, app_env=settings.app_env).check(x_mm_app, origin)
+    assert origin is not None  # noqa: S101 - `check` refused a missing Origin
+    return normalize_origin(origin)
+
+
+def get_link_origin(_app: AppContextDep, origin: Annotated[str, Header()]) -> str:
+    """`AppContextDep` already proved `Origin` is registered for the `X-MM-App` app."""
+    return normalize_origin(origin)
+
+
+def get_signup_hook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    dispatcher: EmailDispatcherDep,
+    link_origin: Annotated[str | None, Depends(get_optional_link_origin)],
+) -> SignupHook:
+    """Background tasks run only after a successful response, i.e. after the commit."""
+    settings: Settings = request.app.state.settings
+
+    def schedule(email: OutgoingEmail) -> None:
+        background_tasks.add_task(dispatcher.enqueue, email)
+
+    return VerificationEmailHook(
+        link_origin=link_origin,
+        email_hasher=get_email_hasher(request),
+        daily_cap=settings.email_daily_cap,
+        schedule=schedule,
+    )
 
 
 async def get_device(request: Request, devices: DeviceSessionsDep) -> ResolvedDevice:

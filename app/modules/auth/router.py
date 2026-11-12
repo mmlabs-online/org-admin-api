@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, Response, Security, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, Security, status
 from fastapi.security import APIKeyCookie
 
 from app.api.deps import SessionDep
@@ -17,20 +17,26 @@ from app.modules.auth.deps import (
     ClientIpDep,
     DeviceDep,
     DeviceSessionsDep,
+    EmailDispatcherDep,
     get_email_hasher,
+    get_link_origin,
     get_password_hasher,
     get_password_policy,
+    get_signup_hook,
     get_turnstile_verifier,
 )
-from app.modules.auth.hooks import SignupHook, get_signup_hook
+from app.modules.auth.email_verification import EmailVerificationService
+from app.modules.auth.hooks import SignupHook
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.schemas import (
     LoginRequest,
     LoginResponse,
     LoginUser,
     LogoutRequest,
+    ResendVerificationRequest,
     SignupRequest,
     SignupResponse,
+    VerifyEmailRequest,
 )
 from app.modules.auth.service import LoginService, LogoutService, SignupService
 from app.modules.auth.throttle import EmailHasher
@@ -55,6 +61,7 @@ _ERR: dict[str, Any] = {"description": "Error envelope"}
     response_model=SignupResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[rate_limit("signup")],
+    responses={403: _ERR, 409: _ERR, 422: _ERR, 429: _ERR},
 )
 async def signup(
     session: SessionDep,
@@ -65,7 +72,11 @@ async def signup(
     verifier: Annotated[TurnstileVerifier, Depends(get_turnstile_verifier)],
     hook: Annotated[SignupHook, Depends(get_signup_hook)],
 ) -> SignupResponse:
-    """Public by design (R3 class 3): per-IP rate limit + Turnstile."""
+    """Public by design (R3 class 3): per-IP rate limit + Turnstile.
+
+    Optional `X-MM-App` + `Origin` choose the verification link's origin (checked, 403 when
+    invalid); the email is queued after the commit.
+    """
     user = await SignupService(
         session, policy=policy, hasher=hasher, verifier=verifier, hook=hook
     ).signup(body, remote_ip)
@@ -175,3 +186,52 @@ async def token(
     return TokenResponse(
         access_token=issued.access_token, expires_in=issued.expires_in, audience=app.key
     )
+
+
+@router.post(
+    "/verify-email",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    dependencies=[rate_limit("verify_email")],
+    responses={422: _ERR, 429: _ERR},
+)
+async def verify_email(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    body: VerifyEmailRequest,
+) -> None:
+    """Public (R3 class 3, per-IP limit): the one-time token is the credential."""
+    settings: Settings = request.app.state.settings
+    await EmailVerificationService(
+        session, email_hasher=get_email_hasher(request), daily_cap=settings.email_daily_cap
+    ).verify(body.token)
+    response.headers["Cache-Control"] = "no-store"
+
+
+@router.post(
+    "/verify-email/resend",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_class=Response,
+    responses={401: _ERR, 403: _ERR, 409: _ERR, 422: _ERR, 429: _ERR},
+)
+async def resend_verification(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    background_tasks: BackgroundTasks,
+    _cookie: DeviceCookieDoc,
+    body: ResendVerificationRequest,
+    link_origin: Annotated[str, Depends(get_link_origin)],
+    device: DeviceDep,
+    dispatcher: EmailDispatcherDep,
+) -> None:
+    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`."""
+    settings: Settings = request.app.state.settings
+    email = await EmailVerificationService(
+        session, email_hasher=get_email_hasher(request), daily_cap=settings.email_daily_cap
+    ).resend(device, body.account_id, link_origin)
+    background_tasks.add_task(dispatcher.enqueue, email)
+    if device.new_cookie is not None:
+        set_device_cookie(response, device.new_cookie, settings)
+    response.headers["Cache-Control"] = "no-store"

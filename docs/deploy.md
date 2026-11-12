@@ -99,6 +99,63 @@ environments and for rotation.
 Done in `mmlabs-online/deployment` (PRs #52, #53, 2026-11-12) before the first release with
 USR-03c.
 
+## Email (USR-04)
+
+Verification links are sent through Gmail SMTP (`smtp.gmail.com:587`, STARTTLS required,
+certificate checked) behind `EmailSender` (ADR-0007). Sending happens in-process after the
+request commits, with retry; a restart loses queued mail and users press resend.
+
+| Key | Secret | Notes |
+|---|---|---|
+| `SMTP_USERNAME` | no (but keep it out of git) | Gmail address of the shared mmlabs sender account. Required in staging/production. |
+| `SMTP_PASSWORD` | **yes** | Gmail **App Password** (16 letters). Required in staging/production. |
+| `EMAIL_LINK_BASE_URL` | no | Origin of an app page serving `/verify-email` (first ricotdin's), e.g. `https://ricotdin.mmlabs.online`; no path, https, mmlabs host. Used when the request names no app. Required in staging/production. |
+| `EMAIL_FROM` | no | Optional; defaults to `SMTP_USERNAME` (Gmail rewrites other From addresses). |
+| `EMAIL_DAILY_CAP` | no | Global sends per rolling 24 h, default 300. |
+| `SMTP_HOST`, `SMTP_PORT` | no | Defaults `smtp.gmail.com`, `587`. |
+| `VERIFY_EMAIL_RATE_LIMIT`, `VERIFY_EMAIL_RATE_WINDOW_SECONDS` | no | Per-IP limit on `POST /auth/verify-email`, default 20 / 60 s. |
+
+In staging/production **both `migrate` and the API refuse to start** without `SMTP_USERNAME`,
+`SMTP_PASSWORD` and a valid `EMAIL_LINK_BASE_URL`. Error messages name the key, never the value.
+
+### Deploy prerequisites (owner, separate PR in `mmlabs-online/deployment`)
+
+Merge this **before** the release PR that contains USR-04, otherwise `migrate` refuses to start
+and the old API keeps running. A value written by hand on the Mac is lost on the next deploy (the
+env file is rewritten every run).
+
+1. On the shared Gmail account (the one the mmlabs site uses, owner note 2026-11-12) create a
+   **separate App Password** named for org-admin-api, so it can be revoked without touching the
+   site.
+2. Add GitHub Actions secrets `ORG_ADMIN_SMTP_USERNAME` and `ORG_ADMIN_SMTP_PASSWORD` in the
+   deployment repo, ideally in an Environment that only `main` can deploy.
+3. `deploy-org-admin-api.yml`, step `envfile`: pass them through `env:`; fail before `pull` when
+   missing; validate (address regex; App Password `^[a-z]{16}$` after removing spaces) so a newline
+   cannot inject lines; write with `printf 'SMTP_USERNAME=%s\n'` / `printf 'SMTP_PASSWORD=%s\n'`;
+   update the "No GitHub secrets" comment and the README.
+4. `apps/org-admin-api/compose.yml` → `x-app.environment`: `EMAIL_LINK_BASE_URL=https://<origin
+   that serves /verify-email>` (optional `EMAIL_FROM`, `EMAIL_DAILY_CAP`).
+
+### Gmail limits (runbook)
+
+- Gmail allows about **500 messages/day** on a consumer account (about 2,000 on Workspace), counted
+  over a rolling 24 h and **shared with the mmlabs site**. `EMAIL_DAILY_CAP` (default 300) keeps
+  this service below that.
+- Symptoms: log `email_quota_exceeded` (Gmail answered `550 5.4.5`; sending pauses for 1 h and
+  queued mail is dropped with `email_dropped reason=paused`), `email_not_sent reason=daily_cap`
+  (our own cap), users getting 429 on resend.
+- What to do: wait for the rolling window to pass (users can resend later; limits still apply);
+  find the traffic source (sign-up spikes, the site's own mail); lower or raise `EMAIL_DAILY_CAP`
+  (redeploy); for lasting volume move to Workspace or another provider.
+- **Switch provider:** add a new `EmailSender` implementation and a branch in
+  `build_email_sender` (`app/modules/email/sender.py`) with its env keys; no API or schema change.
+- **App Password rotation:** create a new App Password, update the GitHub secret, redeploy, then
+  revoke the old one. A revoked or wrong password logs `email_auth_failed` and pauses sending for
+  1 h.
+- **Smoke check after deploy:** sign up a test address and look for `email_sent purpose=verify`
+  in the API logs (startup logs `email_sender=gmail`). Logs never contain addresses, links or
+  tokens.
+
 ## Browser origins (CORS)
 
 No env var (USR-03e, ADR-0006). The API echoes the origins of **active** apps (`apps.origins`,
@@ -211,7 +268,8 @@ config"). Without it settings refuse to load in production and the CLI exits 1
    check: created_at must match your own sign-up; if not, revoke this grant (docs/deploy.md)
    ```
 
-   `created_at` must match the time of your own sign-up; `email_verified` stays `no` until USR-04.
+   `created_at` must match the time of your own sign-up; `email_verified` stays `no` until you
+   open the verification link (USR-04).
    If `created_at` is earlier than your sign-up, the account is not yours: revoke the grant with
    the one-off `psql` from "Operations" (`DELETE FROM role_assignments WHERE id = …`) and
    investigate.
@@ -224,6 +282,8 @@ config"). Without it settings refuse to load in production and the CLI exits 1
 | 3 | the account is disabled; nothing granted |
 | 64 | usage error (bad arguments or invalid email) |
 
-**After USR-04 ships:** verify the email, then reset the password (this revokes every device session).
+**After USR-04 ships:** verify the email via the link in the verification email (resend from a
+signed-in app if it expired). Resetting the password (revokes every device session) arrives with
+USR-04b.
 
 Locally: `make grant-super-admin email=you@example.com`.

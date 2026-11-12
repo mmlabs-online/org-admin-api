@@ -7,6 +7,7 @@ from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_valid
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.jwt_keys import build_key_set
+from app.modules.rbac.origins import is_loopback_origin, normalize_origin
 
 # OWASP Password Storage Cheat Sheet minimum for Argon2id (m=19 MiB, t=2).
 _ARGON2_MIN_MEMORY_KIB = 19456
@@ -71,6 +72,19 @@ class Settings(BaseSettings):
     # Keys the per-email login failure counters (HMAC-SHA256, ADR-0002 §5). Required in
     # staging/production; local/test fall back to a random per-process key.
     identity_hmac_key: SecretStr | None = None
+
+    # Email (USR-04, ADR-0007): Gmail SMTP with STARTTLS. Username, App Password and link base
+    # are required in staging/production; locally, without them, nothing is sent.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    email_from: str | None = None  # defaults to SMTP_USERNAME
+    # Origin of an app page serving `/verify-email` when the request names no app (D19 form).
+    email_link_base_url: str | None = None
+    email_daily_cap: int = Field(default=300, ge=1)  # all verification/reset sends per 24 h
+    verify_email_rate_limit: int = Field(default=20, ge=1)
+    verify_email_rate_window_seconds: int = Field(default=60, ge=1)
 
     password_min_length: int = Field(default=12, ge=8)
 
@@ -170,6 +184,34 @@ class Settings(BaseSettings):
                     "JWT_ISSUER must be set in staging/production to https://<host> "
                     "(no path, port or trailing slash)"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _email_gate(self) -> Self:
+        production = self.app_env in {"staging", "production"}
+        base = self.email_link_base_url
+        if base is not None:
+            try:
+                valid = normalize_origin(base) == base
+            except ValueError:
+                valid = False
+            if not valid or (production and is_loopback_origin(base)):
+                raise ValueError(
+                    "EMAIL_LINK_BASE_URL must be an https mmlabs origin without path or port "
+                    "(loopback only in local/test)"
+                )
+        if production:
+            missing = [
+                name
+                for name, value in (
+                    ("SMTP_USERNAME", self.smtp_username),
+                    ("SMTP_PASSWORD", self.smtp_password),
+                    ("EMAIL_LINK_BASE_URL", base),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(f"{', '.join(missing)} must be set in staging/production")
         return self
 
 

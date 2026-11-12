@@ -5,6 +5,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, model_validator
 
 PASSWORD_MAX_LENGTH = 128
+EMAIL_TOKEN_RE = r"^[A-Za-z0-9_-]{32,128}$"  # noqa: S105 - a pattern, not a secret
 
 
 class SignupRequest(BaseModel):
@@ -54,3 +55,15 @@ class LogoutRequest(BaseModel):
         if (self.account_id is None) == (self.all is None):
             raise ValueError("exactly one of account_id or all is required")
         return self
+
+
+class VerifyEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(pattern=EMAIL_TOKEN_RE)
+
+
+class ResendVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: uuid.UUID

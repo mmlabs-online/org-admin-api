@@ -103,8 +103,10 @@ organizations      (id uuid, name, slug unique, description NULL, status active|
                     created_by → users NULL, created_at, updated_at)   [Identity module; existing table moved, D15]
 join_requests      (id, app_id, user_id, status pending|approved|rejected, created_at, decided_by NULL)
                     — only needed for join_policy = approval (USR-03b)
-email_tokens       (id, user_id, purpose verify|reset, token_hash, expires_at, used_at NULL)  (USR-04)
-email_send_log     (id, email_hash, purpose, sent_at)   — resend limits (USR-04)
+email_tokens       (id, user_id, purpose verify|reset, token_hash, expires_at, used_at NULL,
+                    created_at)  (USR-04)
+email_send_log     (id, email_hmac, purpose, sent_at)   — resend limits; HMAC-SHA256 with
+                    IDENTITY_HMAC_KEY (USR-04)
 ```
 
 Notes

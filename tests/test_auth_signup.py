@@ -8,8 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.db.session import get_session
 from app.main import create_app
-from app.modules.auth.deps import get_turnstile_verifier
-from app.modules.auth.hooks import get_signup_hook
+from app.modules.auth.deps import get_signup_hook, get_turnstile_verifier
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.users.models import User
 from tests.conftest import MakeClient
