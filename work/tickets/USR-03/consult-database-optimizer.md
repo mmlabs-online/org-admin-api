@@ -1,0 +1,25 @@
+# consult-database-optimizer — USR-03
+
+**Findings**
+- The data model is in identity-architecture.md §3. It defines `device_sessions` (token_hash unique, prev_token_hash, prev_valid_until, created_at, last_seen_at, rotated_at, revoked_at, ip inet, user_agent) and `account_sessions` with a partial unique index on (device_session_id, user_id) WHERE revoked_at IS NULL. There is no `refresh_tokens` table yet, so nothing has to be dropped.
+- Conventions: `Base` has a naming convention, `UUIDPkMixin`/`TimestampMixin` exist, and migrations use `op.f()` names. The current head is `b638a7c84c31` (rbac). `users.id` is a UUID. The users migration downgrade drops `citext` "once another table uses" it, so it is not touched here.
+- Rate limiting is in process (ADR-0002): one uvicorn process, counters reset on restart. Nothing in the DB holds login-failure state today.
+
+**Recommendations**
+1. **`device_sessions`**: `id uuid pk`, `token_hash bytea NOT NULL` (SHA-256 of the 256-bit cookie; a fast hash is fine for high-entropy secrets) with `uq_device_sessions_token_hash`, `prev_token_hash bytea NULL`, `prev_valid_until timestamptz NULL`, `created_at`/`last_seen_at`/`rotated_at timestamptz NOT NULL default now()`, `revoked_at timestamptz NULL`, `ip inet NULL`, `user_agent varchar(512) NULL` (truncate in the service). Add CHECK `(prev_token_hash IS NULL) = (prev_valid_until IS NULL)` and CHECK `octet_length(token_hash) = 32`. Use a partial index `ix_device_sessions_prev_token_hash ON (prev_token_hash) WHERE prev_token_hash IS NOT NULL`. Make it non-unique: a rare collision is impossible in practice, and a unique constraint would complicate rotation. Use only `created_at`, not `TimestampMixin`, because `updated_at` would duplicate `last_seen_at`.
+2. **`account_sessions`**: `id uuid pk`, `device_session_id uuid NOT NULL FK ON DELETE CASCADE`, `user_id uuid NOT NULL FK users ON DELETE CASCADE`, `created_at`, `last_used_at`, `revoked_at NULL`. Add `uq_account_sessions_active` UNIQUE (device_session_id, user_id) WHERE revoked_at IS NULL, plus `ix_account_sessions_user_id` (needed for USR-04 "revoke all of a user" and for the FK cascade). Declare the partial index in the model with `Index(..., unique=True, postgresql_where=text("revoked_at IS NULL"))` so `alembic check` reports no drift. Partial-index predicates can be flagged as drift, so verify this. On login, insert with `ON CONFLICT (device_session_id, user_id) WHERE revoked_at IS NULL DO UPDATE SET last_used_at = now() RETURNING id`. That makes "add or reuse" atomic.
+3. **Rotation concurrency**: look up by `token_hash = :h OR (prev_token_hash = :h)`, then `SELECT … FOR UPDATE` on the device row. Do the actual rotation as a compare-and-swap: `UPDATE device_sessions SET prev_token_hash = token_hash, prev_valid_until = now()+'60s', token_hash = :new, rotated_at = now() WHERE id = :id AND token_hash = :old AND revoked_at IS NULL RETURNING id`. If no row comes back, a concurrent request has already rotated it. Re-read and accept the cookie as a prev-hash hit within the grace. Do not treat this as reuse. Use the DB `now()` for every time comparison, never the app clock. Reuse after the grace means `UPDATE … SET revoked_at = now()` on the device row and its active account sessions, in the same transaction.
+4. **Login backoff (D11)**: I recommend keeping it in process, behind the same Protocol as the ADR-0002 limiter, keyed by an HMAC of the lowercased email so no raw emails sit in memory. This matches the current single-process decision and avoids a write-hot table. If the planner wants it in the DB so it survives restarts, use `login_failures(email_hash bytea pk, failures int, last_failed_at timestamptz, locked_until timestamptz)`. Update it with `INSERT … ON CONFLICT DO UPDATE`, delete the row on successful login, and remove stale rows (>24 h) with a cleanup query.
+5. **Retention**: a revoked or expired device session has no use after about 30 days. Add an index on `revoked_at` only if a cleanup job ships in this ticket. Otherwise leave cleanup as a follow-up (R7).
+6. **Migration**: one revision with down_revision `b638a7c84c31`. Import both models in `app/db/models.py`. The downgrade drops `account_sessions` first, then `device_sessions`. Run `alembic upgrade → downgrade -1 → upgrade` in tests or CI.
+
+**Risks**
+- `alembic check` may report drift on the partial index unless the predicate text matches exactly.
+- If backoff stays in memory, it resets on restart and is wrong with more than one worker (already an accepted ADR-0002 limitation).
+- Without cleanup, the tables grow without bound. The volume is low, so this is acceptable for v1.
+- A disabled user is not cascaded. The token endpoint must check `users.status` on every call.
+
+**Open questions**
+- Should per-email backoff be in memory (my recommendation) or in the DB?
+- What is the retention period for revoked sessions, and is the cleanup job in scope?
+- Should a device session have an absolute expiry (e.g. 90 days idle via `last_seen_at`)? The spec is silent.
