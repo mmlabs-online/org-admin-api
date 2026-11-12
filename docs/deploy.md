@@ -101,3 +101,57 @@ docker compose -p postgres -f ~/srv/postgres/compose.yml exec postgres psql -U p
 
 **Roll back by hand:** revert the release PR in the deployment repo and merge the revert. The deploy
 runs the previous image (migrations are kept, see the rules above).
+
+## Bootstrap the first super-admin
+
+The first `admin:super-admin` is granted from the command line (USR-02f), never over HTTP. The CLI
+creates no users, takes no password and never marks an email verified. Re-running it is safe.
+
+**Prerequisites:** migrations are at head (the seeded `admin` app and role exist), and
+`TRUSTED_PROXY_CIDRS` is set in `apps/org-admin-api/compose.yml` → `x-app.environment` (see
+"Required runtime config"). Without it settings refuse to load in production and the CLI exits 1
+(`error: settings could not be loaded`), like `migrate` and the API.
+
+1. **Sign up yourself** through the public sign-up, then **log in once** (after USR-03) to prove you
+   control the password. Never grant to an account someone else could have registered in your
+   name (pre-registration hijack).
+2. **Run on the Mac**, from the deployment repo checkout the deploy uses. Start the line with a
+   space so zsh keeps it out of history (`setopt HIST_IGNORE_SPACE`), or run `fc -p` first:
+
+   ```bash
+    docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+      run --rm --no-deps migrate /app/.venv/bin/python -m app.cli grant-super-admin --email you@example.com
+   ```
+
+   This reuses the one-shot `migrate` service (only on the `db` network) with its command
+   replaced. `--rm` removes the container (the email is visible in `ps`/`docker inspect` only while
+   it runs); `--no-deps` leaves Postgres untouched. Required env is the same as `migrate`:
+   `DATABASE_URL` (env file written by the deploy), `APP_ENV=production`, `TRUSTED_PROXY_CIDRS`.
+   **Never set `DB_ECHO`** (the CLI refuses it). `ADMIN_RBAC_API_ENABLED` is not needed.
+3. **Check the output** (the email is masked):
+
+   ```
+   granted admin:super-admin            (or: already held admin:super-admin)
+   user_id: <uuid>
+   email: y***@e***.com
+   created_at: <timestamp>
+   email_verified: no
+   check: created_at must match your own sign-up; if not, revoke this grant (docs/deploy.md)
+   ```
+
+   `created_at` must match the time of your own sign-up; `email_verified` stays `no` until USR-04.
+   If `created_at` is earlier than your sign-up, the account is not yours: revoke the grant with
+   the one-off `psql` from "Operations" (`DELETE FROM role_assignments WHERE id = …`) and
+   investigate.
+
+| Exit | Meaning |
+|---|---|
+| 0 | granted, or already held |
+| 1 | any other failure (settings, `DB_ECHO`, missing seed, database); one fixed line, no details |
+| 2 | no account with this email: sign up first |
+| 3 | the account is disabled; nothing granted |
+| 64 | usage error (bad arguments or invalid email) |
+
+**After USR-04 ships:** verify the email, then reset the password (this revokes every device session).
+
+Locally: `make grant-super-admin email=you@example.com`.

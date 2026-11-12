@@ -5,6 +5,7 @@ import unicodedata
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from app.core.text import mask_email
 from app.modules.rbac.schemas import AppName, Description
 
 APP_NAME = TypeAdapter(AppName)
@@ -68,3 +69,21 @@ def test_error_does_not_echo_value() -> None:
 
 def test_none_passes_through() -> None:
     assert _WithDescription.model_validate({"description": None}).description is None
+
+
+@pytest.mark.parametrize(
+    ("email", "masked"),
+    [
+        ("john.doe@example.com", "j***@e***.com"),
+        ("a@b.co", "a***@b***.co"),
+        ("x@localhost", "x***@l***"),
+        ("john@mail.example.co.uk", "j***@m***.uk"),
+        ("\u00e9lodie@ex\u00e4mple.fr", "\u00e9***@e***.fr"),
+        ("no-at-sign", "***"),
+        ("@example.com", "***@e***.com"),
+        ("user@", "u***@***"),
+        ("averyveryverylonglocalpart@averyverylongdomain.com", "a***@a***.com"),
+    ],
+)
+def test_mask_email(email: str, masked: str) -> None:
+    assert mask_email(email) == masked

@@ -34,9 +34,30 @@ from app.modules.rbac.schemas import (
     RoleRead,
     RoleUpdate,
 )
+from app.modules.users.models import UserStatus
+from app.modules.users.repository import UserRepository
 
 ADMIN_WILDCARD = f"{ADMIN_APP_KEY}:*"
 SUPER_ADMIN_ROLE = f"{ADMIN_APP_KEY}:super-admin"
+
+
+class BootstrapOutcome(StrEnum):
+    GRANTED = "granted"
+    ALREADY_HELD = "already_held"
+    UNKNOWN_EMAIL = "unknown_email"
+    USER_DISABLED = "user_disabled"
+    NOT_SEEDED = "not_seeded"
+
+
+@dataclass(frozen=True)
+class BootstrapResult:
+    """Plain values for the CLI, so it never touches the ORM."""
+
+    outcome: BootstrapOutcome
+    user_id: uuid.UUID | None = None
+    email: str | None = None
+    created_at: datetime | None = None
+    email_verified: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -517,6 +538,39 @@ class AssignmentService:
         if row is None:  # unreachable while the transaction holds the app lock
             raise ConflictError("Assignment was changed concurrently")
         return _assignment_read(row)
+
+    async def bootstrap_super_admin(self, email: str) -> BootstrapResult:
+        """CLI only (USR-02f). The caller owns the transaction; `email` is already normalized.
+
+        Lock order: admin app (`FOR NO KEY UPDATE`) -> user row (`FOR SHARE`), app -> rows as in
+        ADR-0003 §10. A future disable/delete path that takes `lock_app("admin")` must lock in
+        the same order. Creates no user and never marks an email verified (D16).
+        """
+        app = await self.repo.lock_app(ADMIN_APP_KEY)
+        role = await self.repo.get_role_by_key(app.id, SUPER_ADMIN_ROLE) if app else None
+        if app is None or role is None:
+            return BootstrapResult(BootstrapOutcome.NOT_SEEDED)
+        user = await UserRepository(self.repo.session).get_by_email_for_share(email)
+        if user is None:
+            return BootstrapResult(BootstrapOutcome.UNKNOWN_EMAIL)
+        if user.status != UserStatus.ACTIVE.value:
+            return BootstrapResult(BootstrapOutcome.USER_DISABLED)
+        outcome = BootstrapOutcome.GRANTED
+        existing = await self.repo.find_assignment(user.id, role.id, None)
+        if existing is not None and (
+            existing.expires_at is None or existing.expires_at > await self.repo.db_now()
+        ):
+            outcome = BootstrapOutcome.ALREADY_HELD
+        else:
+            # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
+            await self._grant_locked(app, role, user.id, None, None, None)
+        return BootstrapResult(
+            outcome,
+            user_id=user.id,
+            email=user.email,
+            created_at=user.created_at,
+            email_verified=user.email_verified_at is not None,
+        )
 
     async def _grant_locked(
         self,
