@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | architecture, auth, security, api |
 | Attempts | 0 |
@@ -44,3 +44,4 @@ USR-03, USR-03f (commit before response, cookie-tossing defence), USR-02
 ## Notes / answers from owner
 - 2026-11-12: created by the orchestrator from the USR-03 planner's split.
 - 2026-11-12 (USR-03 security review N1): `/token` must apply `accounts_created_before` when the previous cookie value is used.
+- 2026-11-12 (orchestrator, from plan.md "AC corrections" / deviation D-1; owner to confirm in the PR): AC1 algorithm → **ES256 (ADR-0005)**; AC2 mismatch → 403 `audience_mismatch`, `audience=admin` → 403 `audience_not_supported` until ADM-002; AC4 app unknown/disabled → 403 `origin_not_allowed` (AppContextDep, no oracle — `app_disabled` is unreachable), `org_id` → 422 `org_not_supported`; AC7 also adds a verifier checklist for consumers in `docs/consumers.md`.
