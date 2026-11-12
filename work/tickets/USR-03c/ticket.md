@@ -7,7 +7,7 @@
 | Areas | architecture, auth, security, api |
 | Attempts | 0 |
 | Created | 2026-11-12 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/19 |
 
 ## Goal
 an app gets its own short-lived JWT for the account it chose on this device, verifiable locally through `/.well-known/jwks.json` (D7, §5.8 "Per-app access tokens", "Verification by apps").
