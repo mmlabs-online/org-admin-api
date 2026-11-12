@@ -22,7 +22,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-03f | Session hardening: commit before response, atomic login throttle, cookie-tossing defence | DONE | P1 | auth, security, api | 1 | 2026-11-12 |
 | USR-03c | Signing keys, per-app token endpoint, JWKS and key rotation runbook | DONE | P1 | architecture, auth, security, api | 1 | 2026-11-12 |
 | USR-03e | Dynamic CORS from apps.origins; remove or restrict CORS_ORIGINS | DONE | P1 | api, security, auth | 1 | 2026-11-12 |
-| USR-04 | Email verification and password reset via Gmail SMTP | BACKLOG | P1 | auth, security, db, api | 0 | 2026-11-11 |
+| USR-04 | Email verification and password reset via Gmail SMTP | PLANNING | P1 | auth, security, db, api | 0 | 2026-11-11 |
 | USR-07 | Register an app in production from the CLI (first consumer: ricotdin) | BACKLOG | P1 | api, auth, security | 0 | 2026-11-12 |
 | USR-03b | Accounts list, join flow, @mmlabs/auth-client and mmlabs-auth | BACKLOG | P1 | architecture, api, auth, security | 0 | 2026-11-11 |
 | ADM-002 | Lock admin endpoints (aud=admin + require_permission) | BACKLOG | P1 | auth, security, api | 0 | 2026-11-11 |
