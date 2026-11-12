@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P1 |
 | Areas | api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/15 |
 
 ## Goal
 Staff can assign, revoke and list a user's roles per app (optionally per org) (the bootstrap CLI moved to USR-02f).
