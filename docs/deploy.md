@@ -69,6 +69,51 @@ than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates 
     deployment repo's secrets), never in `compose.yml`, the image or logs.
   - Never rotate it casually: a new key orphans every stored counter, which resets login backoff
     and the Turnstile-after-3 requirement for every email (old rows become dead weight).
+- **`JWT_SIGNING_KEY`** (USR-03c, ADR-0005): the access-token signing key, **base64 of a PEM
+  P-256 private key on one line**. Secret: put it in the env file written by the deploy (like
+  `IDENTITY_HMAC_KEY`), never in `compose.yml`, the image or logs.
+  - Generate (macOS and Linux):
+    `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 | base64 | tr -d '\n'`.
+    Use a different key per environment.
+  - In staging/production **both `migrate` and the API refuse to start** without a valid key, so
+    the deployment repo must provide it **before** the release PR that contains USR-03c is merged.
+    Otherwise deploy step 5 fails and the old API keeps running.
+  - The `kid` is derived from the key (RFC 7638 thumbprint); the API logs it at startup
+    (`jwt_keys_loaded signing_kid=…`), never the key.
+- **`JWT_ISSUER`** (USR-03c): the token `iss`, `https://api.mmlabs.online` in production. Not a
+  secret: set it in `apps/org-admin-api/compose.yml` → `x-app.environment`. Required in
+  staging/production, `https://<host>` with no path, port or trailing slash. **Never change it**:
+  every consumer pins it.
+- **`JWT_PUBLIC_KEYS_EXTRA`** (USR-03c): JSON list (in a quoted string, like
+  `TRUSTED_PROXY_CIDRS`) of base64 public PEMs that the JWKS publishes next to the signing key.
+  Not a secret (`compose.yml`). Empty except during a rotation (below).
+
+**Owner action in `mmlabs-online/deployment` before releasing USR-03c:** add a repository secret
+(e.g. `ORG_ADMIN_API_JWT_SIGNING_KEY`), write it as `JWT_SIGNING_KEY=` into
+`~/.config/org-admin-api/org-admin-api.env` in `.github/workflows/deploy-org-admin-api.yml`, and add
+`JWT_ISSUER: https://api.mmlabs.online` to `apps/org-admin-api/compose.yml` → `x-app.environment`.
+
+## Signing key rotation
+
+Tokens live 900 s; the JWKS is cached for `max-age=300` by clients and at most 1 h by consumers
+(`docs/consumers.md`).
+
+**Planned rotation:**
+
+1. Generate the next key (`NEXT`, as above) and derive its public key:
+   `echo "$NEXT" | base64 -d | openssl pkey -pubout | base64 | tr -d '\n'`. Add that value to
+   `JWT_PUBLIC_KEYS_EXTRA` and redeploy. Check that
+   `https://api.mmlabs.online/.well-known/jwks.json` lists two kids. Wait at least the JWKS
+   `max-age` (300 s) plus the longest consumer cache (≤ 1 h).
+2. Make the next key the signer (`JWT_SIGNING_KEY` = `NEXT`), replace the extra entry with the
+   **old** public key, and redeploy.
+3. After the TTL (900 s) + leeway (60 s) + `max-age` (300 s), about 25 minutes, remove the old
+   public key from `JWT_PUBLIC_KEYS_EXTRA` and redeploy.
+
+**Emergency rotation** (key leaked): do step 2 immediately **without** any extra key and redeploy.
+Live tokens then fail at verifiers; clients get a 401 from their backend and call `/token` again,
+which the cookie still allows, and verifiers refetch the JWKS on the unknown `kid`. Expect about one
+failed request per active client. Never keep a leaked public key in the JWKS.
 
 ## Migration rules
 

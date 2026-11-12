@@ -31,6 +31,7 @@ Apps can list the accounts signed in on the device, let a user join the app ("Co
 USR-03, USR-03c (token, JWKS), USR-03e (browser CORS) and USR-02.
 
 ## Notes / answers from owner
+- 2026-11-12 (USR-03c security review S1/S2): `mmlabs-auth` must use a flushable JWKS cache (no `cache_keys=True`), refetch on unknown `kid` at most once a minute (`cooldown_duration=60`), and the emergency key-rotation runbook must include flushing every consumer's JWKS cache.
 - 2026-11-12 (USR-02c security review F4): the join flow writes `role_assignments`, so it must take `lock_app` first.
 - New ticket (2026-11-11).
 - From the USR-02d security review: the join must read `apps.default_role_id` under `FOR SHARE`/`FOR KEY SHARE` on the app row (or a single `INSERT … SELECT default_role_id FROM apps …`), otherwise a concurrent default-role switch + PUT can grant admin permissions through join. Where the libraries live (this repo `clients/` vs separate repos) and how they are published (npm/PyPI private?) — decide in the plan; may need the owner (BLOCK if it changes repo layout).

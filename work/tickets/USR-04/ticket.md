@@ -33,3 +33,4 @@ USR-01, USR-03, USR-03c (token for the AC "afterwards /api/v1/auth/token works")
 
 ## Notes / answers from owner
 - 2026-11-11: renamed from ADM-010; provider decided (D3, was Q8). Priority P1: a verified email is required to join any app or get any token (D2), and there is no interim path (D16).
+- 2026-11-12 (owner): use the same Gmail sender account the owner already set up for the mmlabs site repo. Its address and App Password go only into this service's deploy env (never into this repo); the owner provides them at deploy time.

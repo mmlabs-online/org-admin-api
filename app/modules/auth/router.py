@@ -35,6 +35,9 @@ from app.modules.auth.schemas import (
 from app.modules.auth.service import LoginService, LogoutService, SignupService
 from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import TurnstileVerifier
+from app.modules.tokens.deps import KeySetDep
+from app.modules.tokens.schemas import TokenRequest, TokenResponse
+from app.modules.tokens.service import TokenService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -139,3 +142,36 @@ async def logout(
     elif device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)
     response.headers["Cache-Control"] = "no-store"
+
+
+@router.post(
+    "/token",
+    response_model=TokenResponse,
+    dependencies=[rate_limit("token")],
+    responses={401: _ERR, 403: _ERR, 422: _ERR, 429: _ERR},
+)
+async def token(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    app: AppContextDep,
+    _cookie: DeviceCookieDoc,
+    body: TokenRequest,
+    device: DeviceDep,
+    key_set: KeySetDep,
+) -> TokenResponse:
+    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`; per-app JWT (D7)."""
+    settings: Settings = request.app.state.settings
+    issued = await TokenService(
+        session,
+        key_set=key_set,
+        issuer=settings.jwt_issuer,
+        ttl_seconds=settings.access_token_ttl_seconds,
+    ).issue(app, device, body)
+    if device.new_cookie is not None:
+        set_device_cookie(response, device.new_cookie, settings)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return TokenResponse(
+        access_token=issued.access_token, expires_in=issued.expires_in, audience=app.key
+    )

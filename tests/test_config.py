@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from tests.conftest import TEST_JWT_SIGNING_KEY
 
 FLAGS = ["admin_users_api_enabled", "admin_rbac_api_enabled"]
 
@@ -132,3 +133,65 @@ def test_identity_hmac_key_optional_locally(monkeypatch: pytest.MonkeyPatch) -> 
 def test_cors_origins_wildcard_refused(origins: list[str]) -> None:
     with pytest.raises(ValidationError, match="CORS_ORIGINS"):
         Settings(cors_origins=origins)
+
+
+# --- JWT signing key, issuer and TTL (USR-03c) --------------------------------
+
+_PROD_JWT = {**_PROD, "identity_hmac_key": "k" * 32}
+_ISSUER = "https://api.mmlabs.online"
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_jwt_signing_key_required_in_production(
+    monkeypatch: pytest.MonkeyPatch, app_env: str
+) -> None:
+    monkeypatch.delenv("JWT_SIGNING_KEY", raising=False)
+    with pytest.raises(ValidationError, match="JWT_SIGNING_KEY"):
+        Settings(_env_file=None, app_env=app_env, jwt_issuer=_ISSUER, **_PROD_JWT)  # type: ignore[call-arg, arg-type]
+    ok = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        app_env=app_env,  # type: ignore[arg-type]
+        jwt_issuer=_ISSUER,
+        jwt_signing_key=TEST_JWT_SIGNING_KEY,  # type: ignore[arg-type]
+        **_PROD_JWT,  # type: ignore[arg-type]
+    )
+    assert ok.jwt_signing_key is not None
+
+
+@pytest.mark.parametrize("field", ["jwt_signing_key", "jwt_public_keys_extra"])
+def test_jwt_signing_key_malformed_rejected_without_echo(field: str) -> None:
+    marker = "Sup3rS3cretJwtMarker"
+    value: object = marker if field == "jwt_signing_key" else [marker]
+    with pytest.raises(ValidationError, match=field.upper()) as exc:
+        Settings(**{field: value})
+    assert marker not in str(exc.value)
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+@pytest.mark.parametrize(
+    "issuer",
+    [None, "http://api.mmlabs.online", "https://api.mmlabs.online/", "https://api.x:8443", ""],
+)
+def test_jwt_issuer_required_in_production(
+    monkeypatch: pytest.MonkeyPatch, app_env: str, issuer: str | None
+) -> None:
+    monkeypatch.delenv("JWT_ISSUER", raising=False)
+    kwargs: dict[str, object] = {} if issuer is None else {"jwt_issuer": issuer}
+    with pytest.raises(ValidationError, match="JWT_ISSUER"):
+        Settings(_env_file=None, app_env=app_env, **kwargs, **_PROD_JWT)  # type: ignore[call-arg, arg-type]
+    ok = Settings(_env_file=None, app_env=app_env, jwt_issuer=_ISSUER, **_PROD_JWT)  # type: ignore[call-arg, arg-type]
+    assert ok.jwt_issuer == _ISSUER
+
+
+def test_jwt_keys_optional_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JWT_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("JWT_ISSUER", raising=False)
+    settings = Settings(_env_file=None, app_env="local")  # type: ignore[call-arg]
+    assert settings.jwt_signing_key is None
+    assert settings.jwt_issuer == "http://localhost:8000"
+
+
+@pytest.mark.parametrize("ttl", [59, 3601])
+def test_access_token_ttl_bounds(ttl: int) -> None:
+    with pytest.raises(ValidationError, match="access_token_ttl_seconds"):
+        Settings(access_token_ttl_seconds=ttl)
