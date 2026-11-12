@@ -101,7 +101,7 @@ def test_settings_errors_do_not_echo_input(monkeypatch: pytest.MonkeyPatch) -> N
     assert marker not in str(exc.value)
 
 
-# --- IDENTITY_HMAC_KEY and CORS_ORIGINS (USR-03) -----------------------------
+# --- IDENTITY_HMAC_KEY (USR-03); CORS_ORIGINS removed (USR-03e) ---------------
 
 _PROD = {"trusted_proxy_cidrs": ["172.18.0.0/16"], **_PROD_ARGON2}
 
@@ -129,10 +129,10 @@ def test_identity_hmac_key_optional_locally(monkeypatch: pytest.MonkeyPatch) -> 
     assert Settings(_env_file=None, app_env="local").identity_hmac_key is None  # type: ignore[call-arg]
 
 
-@pytest.mark.parametrize("origins", [["*"], ["http://localhost:3000", "*"]])
-def test_cors_origins_wildcard_refused(origins: list[str]) -> None:
-    with pytest.raises(ValidationError, match="CORS_ORIGINS"):
-        Settings(cors_origins=origins)
+def test_cors_origins_env_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["*"]')
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert not hasattr(settings, "cors_origins")
 
 
 # --- JWT signing key, issuer and TTL (USR-03c) --------------------------------

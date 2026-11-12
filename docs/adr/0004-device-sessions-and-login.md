@@ -67,7 +67,8 @@ Per-app tokens (USR-03c) and dynamic CORS (USR-03e) build on this.
    Missing/malformed header → 403 `app_header_required`; unknown or disabled app, missing/`null`/
    unregistered Origin → 403 `origin_not_allowed`. Loopback origins are ignored in
    staging/production. Logout is cookie class (R3 class 2) with the same check. The static
-   `CORSMiddleware` stays until USR-03e; `CORS_ORIGINS` may not contain `*`.
+   `CORSMiddleware` was replaced by dynamic CORS in USR-03e (ADR-0006); `CORS_ORIGINS` was
+   removed.
 9. **Login.** Order: per-IP limit → app/Origin check → body → per-email backoff (429 before any
    Argon2 work) → Turnstile when ≥ 3 failures → password check (a dummy Argon2 verify for unknown
    emails; disabled users' passwords are checked too) → one 401 `invalid_credentials` for unknown

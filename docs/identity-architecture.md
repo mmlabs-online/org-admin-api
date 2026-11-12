@@ -160,7 +160,8 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   (and always on signup / forgot). Same error body for unknown email and wrong password.
 - **S4 CORS/CSRF (D12):** `Access-Control-Allow-Origin` echoes only origins in `apps.origins`, with
   `Allow-Credentials: true`. Every cookie-authenticated POST checks `Origin` against the app's origins
-  and requires `X-MM-App: <key>` (the custom header forces a CORS preflight).
+  and requires `X-MM-App: <key>` (the custom header forces a CORS preflight). CORS covers
+  `/api/v1/auth/*` only, from a per-process cache of active apps' origins (TTL 60 s): ADR-0006.
 - **S5 Verified email:** no join and no app token for an unverified email (D2). Login is allowed.
 - **S6 Email (D3):** verification/reset resend at most 1/min and 5/day per email; tokens single-use,
   expiring, stored hashed. Gmail App Password only in env.

@@ -81,6 +81,16 @@ def fake_turnstile() -> FakeTurnstileVerifier:
     return FakeTurnstileVerifier()
 
 
+def _use_test_session(app: FastAPI, db_session: AsyncSession) -> None:
+    """The CORS origin registry reads through the test transaction (ADR-0006)."""
+
+    @asynccontextmanager
+    async def _registry_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    app.state.origin_registry.session_factory = _registry_session
+
+
 @pytest.fixture
 def make_client(db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier) -> MakeClient:
     """Build a client for an app with optional settings overrides (same DB session)."""
@@ -94,6 +104,7 @@ def make_client(db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier)
 
         app.dependency_overrides[get_session] = _override_session
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+        _use_test_session(app, db_session)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
 
@@ -123,6 +134,7 @@ def make_strict_app(
 
         app.dependency_overrides[get_session] = _override_session
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+        _use_test_session(app, db_session)
         return app
 
     return _make

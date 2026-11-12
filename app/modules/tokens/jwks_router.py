@@ -1,7 +1,7 @@
 """`GET /.well-known/jwks.json` — R3 class 3 (public), root mount (D13), per-IP limit `jwks`.
 
-Uncredentialed: `Access-Control-Allow-Origin: *`; the credentialed CORS middleware skips
-`/.well-known/` (see `app.main`).
+Uncredentialed: `Access-Control-Allow-Origin: *`; the credentialed CORS middleware
+(`app.core.cors`) only covers `/api/v1/auth/`.
 """
 
 from fastapi import APIRouter, Request, Response

@@ -2,7 +2,12 @@ import re
 
 import pytest
 
-from app.modules.rbac.origins import normalize_origin, normalize_origins
+from app.modules.rbac.origins import (
+    allowed_origins,
+    is_loopback_origin,
+    normalize_origin,
+    normalize_origins,
+)
 
 GENERIC = re.escape(
     "origin must be https://mmlabs.online or one of its subdomains, or http(s) on localhost"
@@ -91,3 +96,35 @@ def test_normalize_origins_dedupes_and_limits() -> None:
     assert len(long_origin) > 255
     with pytest.raises(ValueError):
         normalize_origins([long_origin])
+
+
+@pytest.mark.parametrize(
+    ("origin", "expected"),
+    [
+        ("http://localhost:3000", True),
+        ("https://localhost", True),
+        ("http://127.0.0.1:5173", True),
+        ("http://[::1]:8080", True),
+        ("http://[::1]", True),
+        ("https://stoktok.mmlabs.online", False),
+        ("https://localhost.mmlabs.online", False),
+    ],
+)
+def test_is_loopback_origin(origin: str, expected: bool) -> None:
+    assert is_loopback_origin(origin) is expected
+
+
+@pytest.mark.parametrize(
+    ("app_env", "expected"),
+    [
+        ("local", ["https://a.mmlabs.online", "http://localhost:3000", "http://[::1]:8080"]),
+        ("test", ["https://a.mmlabs.online", "http://localhost:3000", "http://[::1]:8080"]),
+        ("staging", ["https://a.mmlabs.online"]),
+        ("production", ["https://a.mmlabs.online"]),
+    ],
+)
+def test_allowed_origins_drops_loopback_in_staging_production(
+    app_env: str, expected: list[str]
+) -> None:
+    origins = ["https://a.mmlabs.online", "http://localhost:3000", "http://[::1]:8080"]
+    assert allowed_origins(origins, app_env) == expected

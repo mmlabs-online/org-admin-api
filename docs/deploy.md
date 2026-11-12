@@ -99,6 +99,15 @@ environments and for rotation.
 Done in `mmlabs-online/deployment` (PRs #52, #53, 2026-11-12) before the first release with
 USR-03c.
 
+## Browser origins (CORS)
+
+No env var (USR-03e, ADR-0006). The API echoes the origins of **active** apps (`apps.origins`,
+D19) with credentials, for `/api/v1/auth/*` only. Register or update an app's origins with the
+USR-07 CLI (or the admin API later). Changes made through the API process apply at once; changes
+from the CLI or manual SQL apply within 60 s. Loopback origins are ignored in staging/production.
+A stale `CORS_ORIGINS` in the deployment env file is ignored and can be deleted from
+`mmlabs-online/deployment`.
+
 ## Signing key rotation
 
 Tokens live 900 s; the JWKS is cached for `max-age=300` by clients and at most 1 h by consumers
