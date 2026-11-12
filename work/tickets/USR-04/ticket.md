@@ -7,7 +7,7 @@
 | Areas | auth, security, db, api |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/21 |
 
 ## Goal
 Users verify their email and reset a forgotten password through one-time, expiring links sent by Gmail SMTP, behind a swappable `EmailSender` interface.
