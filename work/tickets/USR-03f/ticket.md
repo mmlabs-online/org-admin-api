@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | auth, security, api |
 | Attempts | 0 |
@@ -17,7 +17,7 @@ Close the three 🟡 findings from the USR-03 security review before tokens (USR
 
 ## Acceptance criteria
 - [ ] S2: the DB transaction commits **before** the response (and its `Set-Cookie`) is sent for login, logout and any rotating request (e.g. `get_session` with `scope="function"` repo-wide, or explicit commits); a failed commit sends no `Set-Cookie`; test with the strict client
-- [ ] S1: per-email backoff/Turnstile decision and the failure increment are atomic (e.g. `pg_advisory_xact_lock` on the email HMAC, or reserve-then-decide); concurrency test: two parallel attempts at `failures=2` both get `turnstile_required`
+- [ ] S1: per-email backoff/Turnstile decision and the failure increment are atomic (e.g. `pg_advisory_xact_lock` on the email HMAC, or reserve-then-decide); concurrency test: two parallel attempts at `failures=2` → exactly one 401 `invalid_credentials` and one `turnstile_required`, counter ends at 3 (corrected per plan D-1)
 - [ ] S3: defence against cookie tossing from sibling `*.mmlabs.online` subdomains per the owner's decision — either `__Host-mm_device` with `Path=/` (spec/R11 change) or keep `Path=/api/v1/auth` and clear tossed `Domain=` cookies / record the risk in ADR-0004
 - [ ] N1: logout `{account_id}` honours `accounts_created_before` when the previous cookie value is used
 - [ ] Tests for each item; ADR-0004 updated
