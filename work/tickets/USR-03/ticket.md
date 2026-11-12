@@ -1,13 +1,13 @@
-# USR-03: Device sessions (multi-account), login/logout, per-app token, JWKS, CORS/CSRF
+# USR-03: Device sessions (multi-account), cookie rotation, login/logout with Origin check
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | architecture, auth, security, db, api |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/17 |
 
 ## Goal
 A browser holds one device session with several signed-in accounts; each app gets its own short-lived JWT for the account it chose, verified locally through JWKS. Replaces the earlier refresh-token design.
@@ -37,3 +37,4 @@ USR-01, USR-02.
 - 2026-11-11: renamed from ADM-009 and redesigned (D5–D7, D11, D12). The refresh-token design is replaced by device/account sessions.
 - 2026-11-11 (D16): no interim "mark verified" path. Until USR-04 ships, `/api/v1/auth/token` returns `email_unverified` for real users; tests create verified users directly in fixtures.
 - 2026-11-11 (D13): endpoints under `/api/v1/auth/*`, cookie `Path=/api/v1/auth`.
+- 2026-11-12: planner split this ticket. USR-03 keeps sessions, cookie, rotation, login (Origin/X-MM-App, D11 brute force, Turnstile after 3) and logout. Token + JWKS → USR-03c; dynamic CORS → USR-03e. The token/JWKS/CORS acceptance criteria above moved to those tickets (see plan.md → "Split proposal").

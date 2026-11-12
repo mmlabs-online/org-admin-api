@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6,6 +8,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.rate_limit import InMemoryRateLimiter
 from app.modules.auth.passwords import PasswordHasher
+from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import CloudflareTurnstileVerifier
 from app.modules.health.router import router as health_router
 from app.modules.rbac.assignments_router import router as assignments_router
@@ -35,6 +38,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.rate_limiter = InMemoryRateLimiter()
     app.state.turnstile_verifier = CloudflareTurnstileVerifier(settings)
     app.state.password_hasher = PasswordHasher(settings)
+    # Settings require the key in staging/production; local/test fall back to a random one.
+    hmac_key = settings.identity_hmac_key
+    app.state.email_hasher = EmailHasher(
+        hmac_key.get_secret_value().encode() if hmac_key else secrets.token_bytes(32)
+    )
     register_error_handlers(app)
     app.include_router(health_router)
     app.include_router(api_router, prefix=settings.api_prefix)

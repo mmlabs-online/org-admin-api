@@ -28,7 +28,7 @@ the existing `organizations` table moved to the Identity module (+ `created_by`;
 - [ ] Tests: create org → owner role; invite/accept; token roles with/without org; user without a role in that org → 403; org-less app ignores `org_id` (422)
 
 ## Dependencies
-USR-03b, ADM-004 (audit), USR-04 (verified email for invitations).
+USR-03b, USR-03c (token endpoint), ADM-004 (audit), USR-04 (verified email for invitations).
 
 ## Notes / answers from owner
 - New ticket (2026-11-11). OQ1 (platform-wide vs per-app orgs) open; working assumption platform-wide, design so `organizations.app_key` can be added later.

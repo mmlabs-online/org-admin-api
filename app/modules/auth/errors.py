@@ -14,3 +14,22 @@ class WeakPasswordError(AppError):
 
 class TurnstileFailedError(PermissionDeniedError):
     code = "turnstile_failed"
+
+
+class InvalidCredentialsError(AppError):
+    """One message for unknown email, wrong password and disabled user (D11)."""
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "invalid_credentials"
+
+
+class TurnstileRequiredError(PermissionDeniedError):
+    code = "turnstile_required"
+
+
+class AppHeaderRequiredError(PermissionDeniedError):
+    code = "app_header_required"
+
+
+class OriginNotAllowedError(PermissionDeniedError):
+    code = "origin_not_allowed"

@@ -13,6 +13,9 @@ os.environ["APP_ENV"] = "test"
 os.environ["ARGON2_MEMORY_KIB"] = "1024"
 os.environ["ARGON2_TIME_COST"] = "1"
 os.environ["ARGON2_PARALLELISM"] = "1"
+# Test-only HMAC key for login failure counters (required in staging/production).
+TEST_IDENTITY_HMAC_KEY = "test-identity-hmac-key-0123456789abcdef"
+os.environ["IDENTITY_HMAC_KEY"] = TEST_IDENTITY_HMAC_KEY
 
 import pytest
 from alembic import command
@@ -70,6 +73,34 @@ def make_client(db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier)
 
         async def _override_session() -> AsyncIterator[AsyncSession]:
             yield db_session
+
+        app.dependency_overrides[get_session] = _override_session
+        app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            yield c
+
+    return _make
+
+
+@pytest.fixture
+def make_strict_client(
+    db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier
+) -> MakeClient:
+    """Like `make_client`, but the session mirrors `get_session`: commit on success, rollback
+    on exception. Commit test setup (`await db_session.commit()`, releases the savepoint; the
+    outer test transaction still rolls back) before calling it."""
+
+    @asynccontextmanager
+    async def _make(**settings_overrides: Any) -> AsyncIterator[AsyncClient]:
+        app = create_app(Settings(**settings_overrides) if settings_overrides else None)
+
+        async def _override_session() -> AsyncIterator[AsyncSession]:
+            try:
+                yield db_session
+                await db_session.commit()
+            except Exception:
+                await db_session.rollback()
+                raise
 
         app.dependency_overrides[get_session] = _override_session
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile

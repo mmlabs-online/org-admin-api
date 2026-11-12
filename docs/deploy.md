@@ -60,6 +60,15 @@ than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates 
   - Rules: private networks only, no `/0`, IPv4 prefix ≥ /8, IPv6 prefix ≥ /48.
   - Find the subnet: `docker network inspect web -f '{{(index .IPAM.Config 0).Subnet}}'`. Better:
     pin the `web` subnet, give cloudflared a fixed IP and trust that `/32`.
+- **`IDENTITY_HMAC_KEY`** (USR-03): secret key for the per-email login failure counters
+  (`login_failures.email_hmac` = HMAC-SHA256 of the normalized email; ADR-0002 §5). At least 32
+  random characters, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`. In
+  staging/production **both `migrate` and the API refuse to start** without it (or with a shorter
+  value), so set it before deploying the release that contains USR-03.
+  - It is a secret: put it in the env file written by the deploy (with `DATABASE_URL`, from the
+    deployment repo's secrets), never in `compose.yml`, the image or logs.
+  - Never rotate it casually: a new key orphans every stored counter, which resets login backoff
+    and the Turnstile-after-3 requirement for every email (old rows become dead weight).
 
 ## Migration rules
 
