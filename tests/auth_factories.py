@@ -4,12 +4,15 @@ import hashlib
 import uuid
 from datetime import UTC, datetime
 from http.cookies import Morsel, SimpleCookie
+from typing import Any
 
 from httpx import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.config import Settings
+from app.modules.auth.cookies import DEVICE_COOKIE
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.rbac.models import App
 from app.modules.sessions.models import AccountSession, DeviceSession
@@ -88,19 +91,33 @@ def auth_headers(
     if origin is not None:
         headers["Origin"] = origin
     if cookie is not None:
-        headers["Cookie"] = f"mm_device={cookie}"
+        headers["Cookie"] = f"{DEVICE_COOKIE}={cookie}"
     return headers
 
 
 def parse_set_cookie(resp: Response) -> Morsel[str] | None:
-    """The `mm_device` morsel of the response, or None when no cookie was set."""
+    """The `__Host-mm_device` morsel of the response, or None when no cookie was set."""
     for header in resp.headers.get_list("set-cookie"):
         jar: SimpleCookie = SimpleCookie()
         jar.load(header)
-        if "mm_device" in jar:
-            return jar["mm_device"]
+        if DEVICE_COOKIE in jar:
+            return jar[DEVICE_COOKIE]
     return None
 
 
 def login_body(user: User, password: str = PASSWORD, **extra: object) -> dict[str, object]:
     return {"email": user.email, "password": password, **extra}
+
+
+def recording_app(app: ASGIApp, events: list[str]) -> Any:
+    """Wrap `app` so `events` gets "response.start" when `http.response.start` is sent."""
+
+    async def wrapper(scope: Scope, receive: Receive, send: Send) -> None:
+        async def _send(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                events.append("response.start")
+            await send(message)
+
+        await app(scope, receive, _send)
+
+    return wrapper

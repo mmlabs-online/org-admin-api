@@ -20,6 +20,7 @@ os.environ["IDENTITY_HMAC_KEY"] = TEST_IDENTITY_HMAC_KEY
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -82,16 +83,17 @@ def make_client(db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier)
     return _make
 
 
-@pytest.fixture
-def make_strict_client(
-    db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier
-) -> MakeClient:
-    """Like `make_client`, but the session mirrors `get_session`: commit on success, rollback
-    on exception. Commit test setup (`await db_session.commit()`, releases the savepoint; the
-    outer test transaction still rolls back) before calling it."""
+MakeStrictApp = Callable[..., FastAPI]
 
-    @asynccontextmanager
-    async def _make(**settings_overrides: Any) -> AsyncIterator[AsyncClient]:
+
+@pytest.fixture
+def make_strict_app(
+    db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier
+) -> MakeStrictApp:
+    """The app behind `make_strict_client`: the session mirrors `get_session` (commit on
+    success, rollback on exception)."""
+
+    def _make(**settings_overrides: Any) -> FastAPI:
         app = create_app(Settings(**settings_overrides) if settings_overrides else None)
 
         async def _override_session() -> AsyncIterator[AsyncSession]:
@@ -104,6 +106,20 @@ def make_strict_client(
 
         app.dependency_overrides[get_session] = _override_session
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+        return app
+
+    return _make
+
+
+@pytest.fixture
+def make_strict_client(make_strict_app: MakeStrictApp) -> MakeClient:
+    """Like `make_client`, but the session mirrors `get_session`: commit on success, rollback
+    on exception. Commit test setup (`await db_session.commit()`, releases the savepoint; the
+    outer test transaction still rolls back) before calling it."""
+
+    @asynccontextmanager
+    async def _make(**settings_overrides: Any) -> AsyncIterator[AsyncClient]:
+        app = make_strict_app(**settings_overrides)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
 

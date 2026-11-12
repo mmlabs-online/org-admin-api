@@ -59,8 +59,9 @@ async def test_login_sets_device_cookie_attributes(
     assert morsel["httponly"] is True
     assert morsel["secure"] is True
     assert morsel["samesite"].lower() == "lax"
-    assert morsel["path"] == "/api/v1/auth"
+    assert morsel["path"] == "/"
     assert morsel["domain"] == ""
+    assert "domain" not in resp.headers["set-cookie"].lower()
     assert morsel["max-age"] == str(30 * 86400)
     assert len(morsel.value) >= 43
     assert re.fullmatch(r"[A-Za-z0-9_-]+", morsel.value)

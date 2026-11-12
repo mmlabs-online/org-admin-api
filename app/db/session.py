@@ -22,7 +22,10 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, autoflush=Fals
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """One session per request; commits on success, rolls back on error."""
+    """One session per request; commits on success, rolls back on error.
+
+    The commit runs before the response is sent (function scope via `SessionDep`).
+    """
     async with SessionLocal() as session:
         try:
             yield session

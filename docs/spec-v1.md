@@ -61,13 +61,13 @@ One account per person across all mmlabs apps, **fully self-hosted here** (D1): 
 - **Users:** email (unique, case-insensitive), password, status (`active` / `disabled`), email verified flag, timestamps. Staff are users too; what they may do in the admin API is RBAC (§5.3).
 - **Sign-up:** open self-registration, protected by Cloudflare Turnstile and a per-IP rate limit (D2). Unverified users may log in but must verify their email before joining any app or getting an app token.
 - **Passwords:** hashed with Argon2id; never logged or returned; minimum length and a breached/common-password check per the plan.
-- **Login and sessions:** each app has its own login page and uses `@mmlabs/auth-client`, which posts credentials straight to this API (D4). A browser holds one device session (cookie `mm_device`, rotated with a 60 s grace) with any number of signed-in accounts; each app remembers its own chosen account, so signing into another account in one app does not change another app (D5, D6). Logout per account or for the whole device.
+- **Login and sessions:** each app has its own login page and uses `@mmlabs/auth-client`, which posts credentials straight to this API (D4). A browser holds one device session (cookie `__Host-mm_device`, rotated with a 60 s grace) with any number of signed-in accounts; each app remembers its own chosen account, so signing into another account in one app does not change another app (D5, D6). Logout per account or for the whole device.
 - **Per-app access tokens:** an app asks for its own short-lived JWT for a chosen account (and org, if any), carrying only that app's roles (D7). Not a member → `not_member` with `join_available`; joining follows the app's `join_policy` (D8–D9).
 - **Verification by apps:** public keys at `/.well-known/jwks.json`; apps verify signature, `iss`, `aud` and expiry locally. Claims: `sub`, `email`, `email_verified`, `aud`, `roles`, `org` (if scoped), `iat`, `exp`. Backends use `mmlabs-auth` (Python) (D4).
 - **Abuse protection:** no hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP limit, Turnstile after 3 failures; the same error for unknown email and wrong password (D11). CORS only for registered app origins; cookie-authenticated POSTs check Origin and `X-MM-App` (D12).
 - **Email flows:** email verification and password reset by one-time, expiring links, sent through Gmail SMTP behind an `EmailSender` interface; resend at most 1/min and 5/day per email (D3).
 - **Organizations:** optional per app (`org_mode`); one `organizations` table owned by this Identity module (D10, D15, USR-06).
-- **Endpoints:** all under `/api/v1/auth/*` (cookie `Path=/api/v1/auth`); JWKS at `/.well-known/jwks.json` (D13).
+- **Endpoints:** all under `/api/v1/auth/*` (cookie `__Host-mm_device`, `Path=/`, host-only; D13 as amended by D20); JWKS at `/.well-known/jwks.json` (D13).
 - **Admin:** staff can list, look up, disable/enable users, manage their roles per app and revoke their sessions (audited, §5.4).
 
 ### §5.7 Later (not v1)

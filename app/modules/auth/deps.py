@@ -70,7 +70,7 @@ AppContextDep = Annotated[App, Depends(get_app_context)]
 
 
 async def get_device(request: Request, devices: DeviceSessionsDep) -> ResolvedDevice:
-    """Resolve `mm_device` (may rotate); a 401 clears the cookie when one was sent."""
+    """Resolve `__Host-mm_device` (may rotate); a 401 clears the cookie when one was sent."""
     cookies = read_device_cookies(request)
     try:
         return await devices.resolve(cookies)

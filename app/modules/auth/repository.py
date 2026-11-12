@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import and_, case, delete, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import LoginFailure
-from app.modules.auth.throttle import COUNTER_RESET
+from app.modules.auth.throttle import COUNTER_RESET, TURNSTILE_AFTER
 
 
 @dataclass(frozen=True)
@@ -39,10 +39,22 @@ class LoginFailureRepository:
             failures = 0
         return FailureState(failures, blocked_until, now)
 
-    async def record_failure(self, email_hmac: bytes) -> int:
-        """Count one failure (restarting at 1 after COUNTER_RESET); returns the new count."""
-        stmt = pg_insert(LoginFailure).values(email_hmac=email_hmac, failures=1)
+    async def reserve(self, email_hmac: bytes, *, turnstile_ok: bool) -> int | None:
+        """Count one attempt atomically (S1); the new count, or None when refused.
+
+        The upsert takes the row lock and re-checks the block and the Turnstile threshold
+        against the latest committed row, so concurrent attempts cannot all pass phase 1.
+        A stale counter (older than COUNTER_RESET) restarts at 1.
+        """
         stale = LoginFailure.last_failed_at < func.now() - COUNTER_RESET
+        allowed = or_(
+            stale,
+            and_(
+                or_(LoginFailure.blocked_until.is_(None), LoginFailure.blocked_until <= func.now()),
+                or_(LoginFailure.failures < TURNSTILE_AFTER, literal(turnstile_ok)),
+            ),
+        )
+        stmt = pg_insert(LoginFailure).values(email_hmac=email_hmac, failures=1)
         result = await self.session.execute(
             stmt.on_conflict_do_update(
                 index_elements=[LoginFailure.email_hmac],
@@ -50,9 +62,11 @@ class LoginFailureRepository:
                     "failures": case((stale, 1), else_=LoginFailure.failures + 1),
                     "last_failed_at": func.now(),
                 },
+                where=allowed,
             ).returning(LoginFailure.failures)
         )
-        return int(result.scalar_one())
+        count = result.scalar_one_or_none()
+        return None if count is None else int(count)
 
     async def set_block(self, email_hmac: bytes, minutes: int) -> None:
         await self.session.execute(
@@ -70,5 +84,5 @@ class LoginFailureRepository:
         )
 
     async def commit(self) -> None:
-        """Persist the failure before the 401 is raised (ADR-0004)."""
+        """Persist the reservation (and release the row lock) before the password check."""
         await self.session.commit()

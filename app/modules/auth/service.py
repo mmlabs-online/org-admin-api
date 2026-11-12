@@ -19,7 +19,7 @@ from app.modules.auth.errors import (
 )
 from app.modules.auth.hooks import SignupHook
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
-from app.modules.auth.repository import LoginFailureRepository
+from app.modules.auth.repository import FailureState, LoginFailureRepository
 from app.modules.auth.schemas import LoginRequest, LogoutRequest, SignupRequest
 from app.modules.auth.throttle import TURNSTILE_AFTER, EmailHasher, backoff_minutes
 from app.modules.auth.turnstile import TurnstileVerifier
@@ -80,7 +80,7 @@ def _is_loopback(origin: str) -> bool:
 
 
 class AppContextService:
-    """CSRF check for endpoints that read or set `mm_device` (D12, ADR-0004)."""
+    """CSRF check for endpoints that read or set `__Host-mm_device` (D12, ADR-0004)."""
 
     def __init__(self, session: AsyncSession, *, app_env: str) -> None:
         self.repo = RbacRepository(session)
@@ -132,6 +132,12 @@ class LoginService:
         self.email_hasher = email_hasher
         self.devices = devices
 
+    @staticmethod
+    def _raise_if_blocked(state: FailureState) -> None:
+        if state.blocked_until is not None and state.blocked_until > state.now:
+            retry_after = math.ceil((state.blocked_until - state.now).total_seconds())
+            raise RateLimitedError(max(1, retry_after))
+
     async def login(
         self,
         data: LoginRequest,
@@ -142,15 +148,27 @@ class LoginService:
     ) -> LoginResult:
         email = normalize_email(str(data.email))
         email_hmac = self.email_hasher.hmac(email)
+        # Phase 1 (no lock): refuse early; the Turnstile call stays outside any lock.
         state = await self.failures.get(email_hmac)
-        if state.blocked_until is not None and state.blocked_until > state.now:
-            retry_after = math.ceil((state.blocked_until - state.now).total_seconds())
-            raise RateLimitedError(max(1, retry_after))
+        self._raise_if_blocked(state)
+        turnstile_ok = False
         if state.failures >= TURNSTILE_AFTER:
             if data.turnstile_token is None:
                 raise TurnstileRequiredError("Verification is required")
             if not await self.verifier.verify(data.turnstile_token, remote_ip):
                 raise TurnstileFailedError("Verification failed")
+            turnstile_ok = True
+
+        # Phase 2 (S1): reserve the attempt atomically, then commit before Argon2 so the row
+        # lock is released and the attempt stays counted whatever the outcome.
+        failures = await self.failures.reserve(email_hmac, turnstile_ok=turnstile_ok)
+        if failures is None:  # a concurrent attempt reached a threshold first
+            self._raise_if_blocked(await self.failures.get(email_hmac))
+            raise TurnstileRequiredError("Verification is required")
+        minutes = backoff_minutes(failures)
+        if minutes is not None:
+            await self.failures.set_block(email_hmac, minutes)
+        await self.failures.commit()
 
         password = data.password.get_secret_value()
         user = await self.users.get_by_email_for_share(email)
@@ -162,12 +180,7 @@ class LoginService:
             ok = await self.hasher.verify(user.password_hash, password)
             ok = ok and user.status == UserStatus.ACTIVE.value
         if user is None or not ok:
-            failures = await self.failures.record_failure(email_hmac)
-            minutes = backoff_minutes(failures)
-            if minutes is not None:
-                await self.failures.set_block(email_hmac, minutes)
-            await self.failures.commit()  # the 401 must not roll the counter back
-            logger.info("login_failed")
+            logger.info("login_failed")  # already counted by the reservation
             raise InvalidCredentialsError("Invalid email or password")
 
         await self.failures.delete(email_hmac)
@@ -191,8 +204,14 @@ class LogoutService:
         self.devices = devices
 
     async def logout(self, data: LogoutRequest, device: ResolvedDevice) -> None:
-        """`{account_id}` revokes that account session on this device only (no oracle)."""
+        """`{account_id}` revokes that account session on this device only (no oracle).
+
+        With the previous cookie value, only account sessions created before the rotation
+        are reachable (N1); `{all}` still revokes the whole device.
+        """
         if data.all:
             await self.devices.revoke_device(device.device_id)
         elif data.account_id is not None:
-            await self.devices.revoke_account(device.device_id, data.account_id)
+            await self.devices.revoke_account(
+                device.device_id, data.account_id, created_before=device.accounts_created_before
+            )

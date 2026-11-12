@@ -122,8 +122,10 @@ class DeviceSessionService:
     async def add_account(self, device_id: uuid.UUID, user_id: uuid.UUID) -> uuid.UUID:
         return await self.repo.upsert_account(device_id, user_id)
 
-    async def revoke_account(self, device_id: uuid.UUID, account_id: uuid.UUID) -> None:
-        await self.repo.revoke_account(device_id, account_id)
+    async def revoke_account(
+        self, device_id: uuid.UUID, account_id: uuid.UUID, *, created_before: datetime | None
+    ) -> None:
+        await self.repo.revoke_account(device_id, account_id, created_before=created_before)
 
     async def revoke_device(self, device_id: uuid.UUID) -> None:
         await self.repo.revoke_device(device_id)

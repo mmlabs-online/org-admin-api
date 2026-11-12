@@ -134,16 +134,19 @@ class SessionRepository:
             query = query.where(AccountSession.created_at < created_before)
         return await self.session.scalar(query.execution_options(populate_existing=True))
 
-    async def revoke_account(self, device_id: uuid.UUID, account_id: uuid.UUID) -> None:
+    async def revoke_account(
+        self, device_id: uuid.UUID, account_id: uuid.UUID, *, created_before: datetime | None
+    ) -> None:
+        """With `created_before`, only an account session created strictly before it (N1)."""
+        query = update(AccountSession).where(
+            AccountSession.id == account_id,
+            AccountSession.device_session_id == device_id,
+            AccountSession.revoked_at.is_(None),
+        )
+        if created_before is not None:
+            query = query.where(AccountSession.created_at < created_before)
         await self.session.execute(
-            update(AccountSession)
-            .where(
-                AccountSession.id == account_id,
-                AccountSession.device_session_id == device_id,
-                AccountSession.revoked_at.is_(None),
-            )
-            .values(revoked_at=func.now())
-            .execution_options(synchronize_session=False)
+            query.values(revoked_at=func.now()).execution_options(synchronize_session=False)
         )
 
     async def commit(self) -> None:
