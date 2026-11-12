@@ -19,7 +19,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-02c | Role assignments staff API (flag-gated) | DONE | P1 | api, auth, security | 1 | 2026-11-12 |
 | USR-02f | Bootstrap super-admin CLI (grant-super-admin) with masked output and runbook | DONE | P1 | auth, security | 1 | 2026-11-12 |
 | USR-03 | Device sessions (multi-account), cookie rotation, login/logout with Origin check | DONE | P1 | architecture, auth, security, db, api | 1 | 2026-11-12 |
-| USR-03f | Session hardening: commit before response, atomic login throttle, cookie-tossing defence | REVIEW | P1 | auth, security, api | 0 | 2026-11-12 |
+| USR-03f | Session hardening: commit before response, atomic login throttle, cookie-tossing defence | DONE | P1 | auth, security, api | 1 | 2026-11-12 |
 | USR-03c | Signing keys, per-app token endpoint, JWKS and key rotation runbook | BACKLOG | P1 | architecture, auth, security, api | 0 | 2026-11-12 |
 | USR-03e | Dynamic CORS from apps.origins; remove or restrict CORS_ORIGINS | BACKLOG | P1 | api, security, auth | 0 | 2026-11-12 |
 | USR-03b | Accounts list, join flow, @mmlabs/auth-client and mmlabs-auth | BACKLOG | P1 | architecture, api, auth, security | 0 | 2026-11-11 |
