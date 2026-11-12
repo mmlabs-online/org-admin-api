@@ -7,7 +7,7 @@
 | Areas | architecture, auth, security, db, api |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | (pending) |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/17 |
 
 ## Goal
 A browser holds one device session with several signed-in accounts; each app gets its own short-lived JWT for the account it chose, verified locally through JWKS. Replaces the earlier refresh-token design.
