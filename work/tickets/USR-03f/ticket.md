@@ -7,7 +7,7 @@
 | Areas | auth, security, api |
 | Attempts | 0 |
 | Created | 2026-11-12 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/18 |
 
 ## Goal
 Close the three 🟡 findings from the USR-03 security review before tokens (USR-03c) build on device sessions.
