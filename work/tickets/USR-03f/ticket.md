@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P1 |
 | Areas | auth, security, api |
 | Attempts | 0 |
@@ -26,4 +26,5 @@ Close the three 🟡 findings from the USR-03 security review before tokens (USR
 USR-03.
 
 ## Notes / answers from owner
+- 2026-11-12 (owner): S3 → use `__Host-mm_device` with `Path=/` (spec D13/R11 cookie path changes from `/api/v1/auth` to `/`; update spec, identity-architecture.md and ADR-0004 accordingly; CLAUDE.md R11 wording is for the owner to update).
 - 2026-11-12: created by the orchestrator from the USR-03 security review (no 🔴, three 🟡). Needs an owner decision on S3 (`__Host-` prefix and `Path=/` vs `Path=/api/v1/auth`).
