@@ -15,7 +15,7 @@ Scope source of truth: `docs/spec-v1.md` §5.3, §5.8. Earlier decision: [ADR-00
  │  localStorage mm_account_id   localStorage mm_account_id    localStorage mm_account_id│
  │        └──────── @mmlabs/auth-client (TS, framework-agnostic; Angular/React wrappers) ─┘
  │                 fetch(..., credentials:"include", headers {X-MM-App: <key>})          │
- │                 cookie mm_device (HttpOnly, Secure, Lax, Path=/api/v1/auth, host-only)│
+ │                 cookie __Host-mm_device (HttpOnly, Secure, Lax, Path=/, host-only)    │
  └───────────────────────────────────────┬───────────────────────────────────────────────┘
                                          │ credentials go straight to the API, never via an app backend
  ┌───────────────────────────────────────▼───────────────── api.mmlabs.online ───────────┐
@@ -52,7 +52,7 @@ email (USR-04). The user may log in, but cannot join an app or get an app token 
 
 **Log in (in app B, with app A already signed in as another account)**
 1. App B posts email + password to `POST /api/v1/auth/login` (header `X-MM-App: B`, Origin checked).
-2. API ensures a `device_session` for the `mm_device` cookie (creates one if missing), rotates the
+2. API ensures a `device_session` for the `__Host-mm_device` cookie (creates one if missing), rotates the
    cookie (D6), creates an `account_session` for that user on the device, returns `{account_id, …}`.
 3. App B stores `mm_account_id` in **its own** localStorage. App A's `mm_account_id` is untouched, so
    A keeps using its account (D5).
@@ -109,7 +109,7 @@ email_send_log     (id, email_hash, purpose, sent_at)   — resend limits (USR-0
 
 Notes
 - **`refresh_tokens` is dropped.** The earlier design (opaque refresh token per login, rotated on use)
-  is replaced by the `mm_device` cookie + `device_sessions` (rotation, grace, reuse detection) and
+  is replaced by the `__Host-mm_device` cookie + `device_sessions` (rotation, grace, reuse detection) and
   `account_sessions` (one per signed-in account on the device). Revoking an account session is the
   new "revoke refresh token"; revoking a device session logs out every account on that browser.
 - The 60 s grace (D6) needs the previous hash: `prev_token_hash` + `prev_valid_until`.
@@ -121,13 +121,13 @@ Notes
 
 ## 4. API surface
 
-All identity endpoints live under **`/api/v1/auth`**; the cookie is scoped to it (`Path=/api/v1/auth`, D5 as amended
-by D13). The only endpoint outside `/api/v1` is `/.well-known/jwks.json` (standard location, public).
+All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Host-mm_device` with `Path=/`
+(D20, amends D5/D13 for the cookie); only the identity endpoints read it. The only endpoint outside `/api/v1` is `/.well-known/jwks.json` (standard location, public).
 
 | Method & path | Auth | Purpose | Ticket |
 |---|---|---|---|
 | `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit | create unverified user; send verification email | USR-01 (+USR-04 email) |
-| `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
+| `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `__Host-mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
 | `GET /api/v1/auth/accounts` | cookie | accounts signed in on this device | USR-03b |
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03 |
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + `X-MM-App` | apply join policy, assign default role, audit | USR-03b |
@@ -149,8 +149,9 @@ Claims `iss=https://api.mmlabs.online`, `aud=<app key>`, `sub`, `email`, `email_
 
 ## 5. Security rules (complements R11 in CLAUDE.md)
 
-- **S1 Cookie (D5):** `mm_device` = opaque random (≥ 256 bit), `HttpOnly; Secure; SameSite=Lax;
-  Path=/api/v1/auth`, no `Domain` (host-only on `api.mmlabs.online`); only its hash is stored.
+- **S1 Cookie (D5, D20):** `__Host-mm_device` = opaque random (≥ 256 bit), `HttpOnly; Secure;
+  SameSite=Lax; Path=/`, no `Domain` (host-only on `api.mmlabs.online`); only its hash is stored. The
+  `__Host-` prefix stops sibling `*.mmlabs.online` hosts from setting or shadowing it.
 - **S2 Rotation (D6):** rotate on login and at most every ~24 h; the previous value stays valid for
   60 s. Presenting an old value after the grace window = reuse → revoke the whole device session.
 - **S3 Brute force (D11):** no hard lockout. Per-email exponential backoff after 5 failures (1, 2, 4 …
@@ -218,6 +219,7 @@ Follow-up decisions (owner, 2026-11-11, resolving §10):
 | D17 | **Role catalog is public (Q1, 2026-11-11):** `GET /api/v1/apps/{key}/roles` joins R3 class 3 (public). Rate-limited per IP; 404 for unknown, disabled and `admin` apps; exposes only role key, name, `is_system` and permission keys. |
 | D18 | **R9 exceptions (Q2, 2026-11-11):** apps are addressed by their immutable `key` in `/api/v1/apps/{key}/…`; the role catalog is a single document, not `Page[T]`. Permissions, roles and assignments keep UUID ids. |
 | D19 | **Allowed app origins (Q3, 2026-11-11):** only `https://mmlabs.online`, `https://*.mmlabs.online` and loopback (`http(s)://localhost`, `127.0.0.1`, `[::1]`). Any other origin → 422. |
+| D20 | **Cookie `__Host-mm_device`, `Path=/` (USR-03f, owner 2026-11-12):** the device cookie is `__Host-mm_device` — `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain` — so sibling `*.mmlabs.online` hosts cannot set or shadow it (cookie tossing). Amends D5 and D13 for the cookie only; identity endpoints stay under `/api/v1/auth/*`. A legacy `mm_device` is ignored. Logout `{account_id}` with the previous value only reaches account sessions created before the rotation; `{all:true}` with the previous value revokes the whole device (denial of service within 60 s only, never escalation). |
 
 ## 9. Open questions
 
@@ -228,7 +230,8 @@ Follow-up decisions (owner, 2026-11-11, resolving §10):
 
 ## 10. Conflicts with earlier rules/spec — resolved 2026-11-11
 
-- **C1 — Path prefix** → D13: `/api/v1/auth/*`, cookie `Path=/api/v1/auth`.
+- **C1 — Path prefix** → D13: `/api/v1/auth/*`, cookie `Path=/api/v1/auth`. The cookie path is superseded by
+  D20 (`__Host-mm_device`, `Path=/`, 2026-11-12); the endpoint prefix is unchanged.
 - **C2 — R3 categories** → D14: R3 in CLAUDE.md reworded.
 - **C3 — Organizations ownership** → D15: one `organizations` table, moved to Identity, `created_by` added.
 - **U1 — Verified email before USR-04** → D16: wait for USR-04. Consequence: between the ADM-002 and USR-04

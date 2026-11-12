@@ -39,7 +39,9 @@ from app.modules.auth.turnstile import TurnstileVerifier
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # OpenAPI only: the dependencies read the raw `Cookie` header themselves (duplicates matter).
-_device_cookie_scheme = APIKeyCookie(name=DEVICE_COOKIE, auto_error=False)
+_device_cookie_scheme = APIKeyCookie(
+    name=DEVICE_COOKIE, scheme_name="DeviceCookie", auto_error=False
+)
 DeviceCookieDoc = Annotated[str | None, Security(_device_cookie_scheme)]
 
 _ERR: dict[str, Any] = {"description": "Error envelope"}
@@ -129,7 +131,7 @@ async def logout(
     device: DeviceDep,
     devices: DeviceSessionsDep,
 ) -> None:
-    """Cookie class (R3 class 2): `mm_device` + Origin + `X-MM-App`."""
+    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`."""
     await LogoutService(devices).logout(body, device)
     settings: Settings = request.app.state.settings
     if body.all:

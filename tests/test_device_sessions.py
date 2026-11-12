@@ -228,7 +228,7 @@ async def test_multiple_device_cookies_rejected(
 ) -> None:
     user = await make_login_user(db_session)
     raw, device, _ = await make_device(db_session, user)
-    headers = auth_headers() | {"Cookie": f"mm_device={raw}; mm_device=other"}
+    headers = auth_headers() | {"Cookie": f"__Host-mm_device={raw}; __Host-mm_device=other"}
     resp = await client.post(LOGOUT, json=_logout(), headers=headers)
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "session_invalid"
