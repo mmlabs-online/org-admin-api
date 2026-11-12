@@ -100,7 +100,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - [x] Q7. Sign-up — **answered 2026-11-11 (D2):** open self-registration with Turnstile + per-IP limit; verified email required to join an app.
 - [x] Q8. Email provider — **answered 2026-11-11 (D3):** Gmail SMTP (dedicated account, App Password, `smtp.gmail.com:587`) behind an `EmailSender` interface. Sender address: the dedicated account (exact address to be set in env).
 - [ ] OQ1. Organizations platform-wide (shared across apps) or per app? Working assumption: platform-wide + `apps.org_mode`; adding `organizations.app_key` later must be purely additive.
-- [ ] OQ2 (was Q9). No migration from Supabase Auth; working assumption: existing users re-register.
+- [x] OQ2 (was Q9). No migration from Supabase Auth; working assumption: existing users re-register. **Confirmed 2026-11-12** for ricotdin too: no existing ricotdin users are migrated; everyone starts fresh.
 - [ ] OQ3 (was Q10). Is 2FA mandatory for staff (admin app)?
 
 Answers go here with date, and into the relevant ticket's "Notes / answers from owner".

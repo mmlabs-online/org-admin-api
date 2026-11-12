@@ -28,3 +28,4 @@ USR-02, USR-02f (CLI pattern).
 ## Notes / answers from owner
 - 2026-11-12: owner wants ricotdin (FastAPI + React SPA; JWT via PyJWT) to start using mmlabs users and auth. ricotdin: `join_policy=open`. Domain/origins and `org_mode` still to confirm (ricotdin has no orgs mentioned → default `none`).
 - Integration path for ricotdin, in order: USR-03c (token + JWKS) → USR-03e (CORS) → USR-04 (email verification; tokens need a verified email, D16) → USR-07 (register ricotdin) → USR-03b (join + client libs).
+- 2026-11-12 (owner): ricotdin origins `https://ricotdin.mmlabs.online` and `https://ricotdin-staging.mmlabs.online`; `join_policy=open`; no existing ricotdin users are migrated (fresh start).
