@@ -1,4 +1,4 @@
-.PHONY: install dev db-up db-down migrate migration lint format typecheck test check
+.PHONY: install dev db-up db-down migrate migration grant-super-admin lint format typecheck test check
 
 install:        ## Install deps (incl. dev)
 	uv sync
@@ -17,6 +17,10 @@ migrate:        ## Apply migrations
 
 migration:      ## Create a migration: make migration m="add users"
 	uv run alembic revision --autogenerate -m "$(m)"
+
+grant-super-admin:  ## Grant admin:super-admin: make grant-super-admin email=you@example.com
+	@test -n "$(email)" || { echo "usage: make grant-super-admin email=you@example.com"; exit 64; }
+	@uv run python -m app.cli grant-super-admin --email '$(email)'
 
 lint:
 	uv run ruff check .

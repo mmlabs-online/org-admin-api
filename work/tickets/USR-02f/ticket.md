@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | auth, security |
 | Attempts | 0 |
 | Created | 2026-11-12 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/16 |
 
 ## Goal
 Grant the first super-admin from the server's command line — never over HTTP, with the RBAC flag off.

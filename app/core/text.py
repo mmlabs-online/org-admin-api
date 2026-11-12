@@ -19,3 +19,18 @@ def reject_disallowed_categories(value: str) -> str:
     if any(unicodedata.category(ch) in DISALLOWED_CATEGORIES for ch in value):
         raise PydanticCustomError("display_text", "contains a disallowed character")
     return value
+
+
+def mask_email(email: str) -> str:
+    """Mask an email for operator output only (R11): `john.doe@example.com` -> `j***@e***.com`.
+
+    The mask is always `***`, so the length of the hidden parts is not leaked.
+    """
+    local, sep, domain = email.rpartition("@")
+    if not sep:
+        return "***"
+    labels = domain.split(".")
+    masked_domain = labels[0][:1] + "***"
+    if len(labels) >= 2:
+        masked_domain += "." + labels[-1]
+    return f"{local[:1]}***@{masked_domain}"

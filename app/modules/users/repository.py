@@ -18,6 +18,18 @@ class UserRepository:
     async def get(self, user_id: uuid.UUID) -> User | None:
         return await self.session.get(User, user_id)
 
+    async def get_by_email_for_share(self, email: str) -> User | None:
+        """Exact (CITEXT) lookup of a normalized email, locked `FOR SHARE` until commit.
+
+        Blocks a concurrent status change or delete; FK checks (`KEY SHARE`) are not blocked.
+        """
+        return await self.session.scalar(
+            select(User)
+            .where(User.email == email)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+
     async def list(
         self, *, email: str | None, status: UserStatus | None, limit: int, offset: int
     ) -> tuple[list[User], int]:
