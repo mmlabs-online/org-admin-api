@@ -1,3 +1,4 @@
+import base64
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -16,6 +17,22 @@ os.environ["ARGON2_PARALLELISM"] = "1"
 # Test-only HMAC key for login failure counters (required in staging/production).
 TEST_IDENTITY_HMAC_KEY = "test-identity-hmac-key-0123456789abcdef"
 os.environ["IDENTITY_HMAC_KEY"] = TEST_IDENTITY_HMAC_KEY
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
+# Test-only access-token signing key (one per test session) and issuer (ADR-0005); both are
+# required in staging/production, so the production-mode `Settings(...)` tests stay valid.
+TEST_JWT_SIGNING_KEY = base64.b64encode(
+    ec.generate_private_key(ec.SECP256R1()).private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+).decode()
+os.environ["JWT_SIGNING_KEY"] = TEST_JWT_SIGNING_KEY
+TEST_JWT_ISSUER = "https://api.test.invalid"
+os.environ["JWT_ISSUER"] = TEST_JWT_ISSUER
 
 import pytest
 from alembic import command

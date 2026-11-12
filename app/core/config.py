@@ -1,14 +1,18 @@
 import ipaddress
+import re
 from functools import lru_cache
 from typing import Literal, Self
 
 from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.jwt_keys import build_key_set
+
 # OWASP Password Storage Cheat Sheet minimum for Argon2id (m=19 MiB, t=2).
 _ARGON2_MIN_MEMORY_KIB = 19456
 _ARGON2_MIN_TIME_COST = 2
 _IDENTITY_HMAC_KEY_MIN_LENGTH = 32
+_JWT_ISSUER_RE = r"^https://[a-z0-9.-]+$"  # staging/production: no path, port or trailing slash
 
 
 class Settings(BaseSettings):
@@ -49,6 +53,19 @@ class Settings(BaseSettings):
     role_catalog_rate_window_seconds: int = Field(default=60, ge=1)
     login_rate_limit: int = Field(default=20, ge=1)
     login_rate_window_seconds: int = Field(default=60, ge=1)
+    token_rate_limit: int = Field(default=60, ge=1)
+    token_rate_window_seconds: int = Field(default=60, ge=1)
+    # JWKS: app backends may share one egress IP.
+    jwks_rate_limit: int = Field(default=120, ge=1)
+    jwks_rate_window_seconds: int = Field(default=60, ge=1)
+
+    # Access-token signing (ADR-0005): base64 of a PEM P-256 private key on one line. Required
+    # in staging/production; local/test fall back to an ephemeral per-process key.
+    jwt_signing_key: SecretStr | None = None
+    # JSON list of base64 public PEMs published in the JWKS during a rotation (not secret).
+    jwt_public_keys_extra: list[str] = []
+    jwt_issuer: str = "http://localhost:8000"
+    access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
 
     # Device sessions (ADR-0004): idle timeout (= cookie Max-Age) and absolute lifetime.
     device_session_idle_days: int = Field(default=30, ge=1)
@@ -133,6 +150,36 @@ class Settings(BaseSettings):
             raise ValueError("IDENTITY_HMAC_KEY must be at least 32 characters")
         if not key and self.app_env in {"staging", "production"}:
             raise ValueError("IDENTITY_HMAC_KEY must be set in staging/production")
+        return self
+
+    @model_validator(mode="after")
+    def _jwt_keys_gate(self) -> Self:
+        key = self.jwt_signing_key.get_secret_value() if self.jwt_signing_key else None
+        if key is not None:
+            try:
+                build_key_set(key, [])
+            except ValueError:
+                raise ValueError(
+                    "JWT_SIGNING_KEY is not a valid base64 PEM P-256 private key"
+                ) from None
+        if self.jwt_public_keys_extra:
+            try:
+                build_key_set(key, self.jwt_public_keys_extra)
+            except ValueError:
+                raise ValueError(
+                    "JWT_PUBLIC_KEYS_EXTRA must be a JSON list of distinct base64 PEM P-256 "
+                    "public keys, none equal to the signing key"
+                ) from None
+        if self.app_env in {"staging", "production"}:
+            if key is None:
+                raise ValueError("JWT_SIGNING_KEY must be set in staging/production")
+            if "jwt_issuer" not in self.model_fields_set or not re.fullmatch(
+                _JWT_ISSUER_RE, self.jwt_issuer
+            ):
+                raise ValueError(
+                    "JWT_ISSUER must be set in staging/production to https://<host> "
+                    "(no path, port or trailing slash)"
+                )
         return self
 
 

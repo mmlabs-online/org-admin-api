@@ -129,13 +129,13 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit | create unverified user; send verification email | USR-01 (+USR-04 email) |
 | `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `__Host-mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
 | `GET /api/v1/auth/accounts` | cookie | accounts signed in on this device | USR-03b |
-| `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03 |
+| `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03c |
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + `X-MM-App` | apply join policy, assign default role, audit | USR-03b |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
 | `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification | USR-04 |
 | `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public | send reset link | USR-04 |
 | `POST /api/v1/auth/password/reset` `{token, new_password}` | public | set password, revoke all sessions of the user | USR-04 |
-| `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03 |
+| `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03c |
 | `GET /api/v1/apps/{key}/roles` (ETag / 304) | public (D17), per-IP limit | role → permissions catalog | USR-02e |
 | `PUT /api/v1/apps/{key}/manifest` | app credential | app pushes its permissions + default role | USR-05 |
 | `POST /api/v1/auth/orgs` `{account_id, name, slug}` | cookie; needs `<app>:org:create` | create org, creator gets the app's org owner role | USR-06 |
@@ -143,9 +143,10 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06 |
 | Admin: `/api/v1/users`, `/api/v1/apps`, roles, assignments, sessions revoke | Bearer, `aud=admin` + `admin:*` | staff management | USR-01/02, ADM-002 |
 
-Token (D7): JWT, asymmetric (EdDSA or RS256, chosen in USR-03 plan), ~15 min, header `kid`.
-Claims `iss=https://api.mmlabs.online`, `aud=<app key>`, `sub`, `email`, `email_verified`, `roles`
-(app-scope roles + roles in the selected org), `org` (only when `org_id` given), `iat`, `exp`.
+Token (D7): JWT, ES256 (P-256, ADR-0005), ~15 min, header `kid` + `typ: at+jwt`.
+Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,
+`email`, `email_verified`, `roles` (app-scope roles + roles in the selected org), `org` (only when
+`org_id` given, USR-06), `iat`, `exp`, `jti`.
 
 ## 5. Security rules (complements R11 in CLAUDE.md)
 
@@ -163,7 +164,7 @@ Claims `iss=https://api.mmlabs.online`, `aud=<app key>`, `sub`, `email`, `email_
 - **S5 Verified email:** no join and no app token for an unverified email (D2). Login is allowed.
 - **S6 Email (D3):** verification/reset resend at most 1/min and 5/day per email; tokens single-use,
   expiring, stored hashed. Gmail App Password only in env.
-- **S7 Tokens (D7, R11):** signing keys from env, `kid`, documented rotation; apps must check `aud`.
+- **S7 Tokens (D7, R11):** signing keys from env, `kid`, documented rotation; apps must check `aud` (ADR-0005, rotation in deploy.md).
 - **S8 Audit:** login (success/failure), logout, join, role/assignment changes, org membership changes
   are audit events (ADM-004).
 
