@@ -35,3 +35,4 @@ USR-03, USR-02. Can run in parallel with USR-03c.
 
 ## Notes / answers from owner
 - 2026-11-12: created by the orchestrator from the USR-03 planner's split.
+- 2026-11-12 (owner): A1 confirmed — `CORS_ORIGINS` removed entirely; admin UI CORS is decided with ADM-002. A3 answered — ricotdin staging is a separate app key `ricotdin-staging` (recorded on USR-07).

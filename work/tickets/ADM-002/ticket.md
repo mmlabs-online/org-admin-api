@@ -29,6 +29,7 @@ FastAPI dependencies `current_user` (Bearer JWT, `aud=admin`) and `require_permi
 USR-02, USR-02b, USR-02c, USR-02d, USR-02e, USR-03 (staff get an `aud=admin` token via `/api/v1/auth/token`; admin join policy is `closed`, so roles are granted by staff/bootstrap).
 
 ## Notes / answers from owner
+- 2026-11-12 (owner, USR-03e A1): `CORS_ORIGINS` is gone; if an admin web UI needs cross-origin Bearer calls, add non-credentialed CORS from `apps[admin].origins` here.
 - 2026-11-12 (USR-03f security review N-d): admin Bearer auth must never accept or fall back to `__Host-mm_device` (the cookie now reaches every path).
 - 2026-11-12: USR-03 split — staff `aud=admin` tokens come from USR-03c; admin UI browser calls need USR-03e. Both are now dependencies.
 - 2026-11-12 (USR-02c security review): S1/F1 — refuse org-scoped assignments on the `admin` app and pin `admin` `org_mode = none` in `AppService.update`; F2 — last-super-admin guard on user disable/delete under `lock_app("admin")`; enforce the `# ADM-002 guard` markers (no self-grant of admin roles, `admin:*` for admin/`is_admin` grants); F3 — audit admin-app assignments written while the flag was on.
