@@ -39,7 +39,8 @@ an app gets its own short-lived JWT for the account it chose on this device, ver
   for missing cookie/headers.
 
 ## Dependencies
-USR-03, USR-02
+USR-03, USR-03f (commit before response, cookie-tossing defence), USR-02
 
 ## Notes / answers from owner
 - 2026-11-12: created by the orchestrator from the USR-03 planner's split.
+- 2026-11-12 (USR-03 security review N1): `/token` must apply `accounts_created_before` when the previous cookie value is used.

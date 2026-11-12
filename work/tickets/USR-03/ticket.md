@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P1 |
 | Areas | architecture, auth, security, db, api |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | (pending) |
 
 ## Goal
 A browser holds one device session with several signed-in accounts; each app gets its own short-lived JWT for the account it chose, verified locally through JWKS. Replaces the earlier refresh-token design.

@@ -35,3 +35,4 @@ USR-03, USR-03c (token, JWKS), USR-03e (browser CORS) and USR-02.
 - New ticket (2026-11-11).
 - From the USR-02d security review: the join must read `apps.default_role_id` under `FOR SHARE`/`FOR KEY SHARE` on the app row (or a single `INSERT … SELECT default_role_id FROM apps …`), otherwise a concurrent default-role switch + PUT can grant admin permissions through join. Where the libraries live (this repo `clients/` vs separate repos) and how they are published (npm/PyPI private?) — decide in the plan; may need the owner (BLOCK if it changes repo layout).
 - This ticket is large; the planner should propose a split (e.g. API part / TS client / Python package) if over ~400 lines.
+- 2026-11-12 (USR-03 security review N1): `GET /accounts` must apply `accounts_created_before` when the previous cookie value is used.
