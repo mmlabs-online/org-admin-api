@@ -8,6 +8,7 @@ the submitted value.
 """
 
 import re
+from collections.abc import Iterable
 
 MAX_ORIGINS = 20
 MAX_ORIGIN_LENGTH = 255
@@ -57,3 +58,17 @@ def normalize_origins(values: list[str]) -> list[str]:
     if len(values) > MAX_ORIGINS:
         raise ValueError(f"at most {MAX_ORIGINS} origins")
     return list(dict.fromkeys(normalize_origin(v) for v in values))
+
+
+def is_loopback_origin(origin: str) -> bool:
+    """`origin` is already normalized (`scheme://host[:port]`)."""
+    authority = origin.split("://", 1)[-1]
+    host = "[::1]" if authority.startswith("[::1]") else authority.split(":")[0]
+    return host in _LOOPBACK_HOSTS
+
+
+def allowed_origins(origins: Iterable[str], app_env: str) -> list[str]:
+    """An app's origins usable in `app_env`: loopback is ignored in staging/production."""
+    if app_env in {"staging", "production"}:
+        return [o for o in origins if not is_loopback_origin(o)]
+    return list(origins)

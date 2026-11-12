@@ -2,34 +2,25 @@ import logging
 import secrets
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.types import Receive, Scope, Send
 
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
+from app.core.cors import DynamicCORSMiddleware
 from app.core.errors import register_error_handlers
 from app.core.jwt_keys import build_key_set
 from app.core.rate_limit import InMemoryRateLimiter
+from app.db.session import SessionLocal
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import CloudflareTurnstileVerifier
 from app.modules.health.router import router as health_router
 from app.modules.rbac.assignments_router import router as assignments_router
+from app.modules.rbac.origin_registry import AppOriginRegistry
 from app.modules.rbac.router import router as rbac_router
 from app.modules.tokens.jwks_router import router as jwks_router
 from app.modules.users.router import router as users_router
 
 logger = logging.getLogger(__name__)
-
-
-class _CredentialedCORS(CORSMiddleware):
-    """Static CORS until USR-03e; skips `/.well-known/` (public, uncredentialed, ACAO *)."""
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and scope["path"].startswith("/.well-known/"):
-            await self.app(scope, receive, send)
-            return
-        await super().__call__(scope, receive, send)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -42,14 +33,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/docs",
         redoc_url=None,
     )
-    if settings.cors_origins:
-        app.add_middleware(
-            _CredentialedCORS,
-            allow_origins=settings.cors_origins,
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+    # Credentialed CORS for `/api/v1/auth/*` from active apps' origins (ADR-0006).
+    origin_registry = AppOriginRegistry(session_factory=SessionLocal, app_env=settings.app_env)
+    app.state.origin_registry = origin_registry
+    app.add_middleware(
+        DynamicCORSMiddleware,
+        registry=origin_registry,
+        path_prefix=f"{settings.api_prefix}/auth/",
+    )
     app.state.settings = settings
     app.state.rate_limiter = InMemoryRateLimiter()
     app.state.turnstile_verifier = CloudflareTurnstileVerifier(settings)

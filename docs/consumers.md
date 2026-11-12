@@ -3,8 +3,29 @@
 How an mmlabs app gets and verifies its per-app access token (D7, ADR-0005). The worked example is
 **ricotdin**; replace the app key for any other app.
 
-Prerequisites for ricotdin, in order: USR-03c (this endpoint and JWKS), USR-03e (dynamic CORS, needed
-in production), USR-04 (verified email), USR-07 (ricotdin integration).
+Prerequisites for ricotdin, in order: USR-03c (this endpoint and JWKS), USR-03e (dynamic CORS,
+done), USR-04 (verified email), USR-07 (ricotdin integration, registers its origins).
+
+## Calling the identity API from the browser
+
+CORS for `/api/v1/auth/*` echoes only the origins of active apps (ADR-0006).
+
+- Every call: `fetch(url, {credentials: "include", headers: {"Content-Type":
+  "application/json", "X-MM-App": "ricotdin"}})`. The custom header forces a preflight; that is
+  expected.
+- The page must run on a registered origin: exact scheme + host, no port, no path
+  (`https://ricotdin.mmlabs.online`; a staging origin once USR-07 registers it).
+- A CORS failure shows up as `TypeError: Failed to fetch`, not as a 403: check the page origin and
+  the app's `origins`. A 403 `origin_not_allowed` means the origin passed CORS (it belongs to some
+  app) but not this `X-MM-App`.
+- 401/403/422/429 envelopes are readable; `Retry-After` is exposed on 429. A 500 is not readable
+  cross-origin. Responses carry `Cache-Control: no-store`.
+- Local development: run a local API (`make dev`, `http://localhost:8000`) with the SPA on
+  `http://localhost:<port>` registered as an origin of the local app. Use the same host name on
+  both sides (`localhost` vs `127.0.0.1` is cross-site and the cookie is not sent). A local SPA
+  cannot use the production API (loopback origins are ignored there, and the request is
+  cross-site). Safari may refuse `Secure`/`__Host-` cookies on `http://localhost`: use
+  Chrome/Firefox or local https.
 
 ## Getting a token (SPA)
 

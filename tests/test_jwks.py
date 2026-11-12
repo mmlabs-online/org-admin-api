@@ -4,9 +4,10 @@ import json
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_keys import build_key_set, thumbprint
-from tests.auth_factories import ORIGIN
+from tests.auth_factories import ORIGIN, make_login_app
 from tests.conftest import TEST_JWT_SIGNING_KEY, MakeClient
 
 JWKS = "/.well-known/jwks.json"
@@ -60,15 +61,14 @@ async def test_jwks_lists_extra_keys(make_client: MakeClient) -> None:
     assert all("d" not in k for k in keys)
 
 
-async def test_jwks_no_credentials_with_cors_origin(make_client: MakeClient) -> None:
-    async with make_client(cors_origins=[ORIGIN]) as client:
-        resp = await client.get(JWKS, headers={"Origin": ORIGIN})
-        control = await client.get("/healthz", headers={"Origin": ORIGIN})
+async def test_jwks_wildcard_without_credentials_for_registered_origin(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await make_login_app(db_session)
+    resp = await client.get(JWKS, headers={"Origin": ORIGIN})
     assert resp.headers["access-control-allow-origin"] == "*"
     assert "access-control-allow-credentials" not in resp.headers
-    # The credentialed middleware is active elsewhere.
-    assert control.headers["access-control-allow-origin"] == ORIGIN
-    assert control.headers["access-control-allow-credentials"] == "true"
+    assert "origin" not in resp.headers.get("vary", "").lower()
 
 
 async def test_jwks_rate_limited_429(make_client: MakeClient) -> None:

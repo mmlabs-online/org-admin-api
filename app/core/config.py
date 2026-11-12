@@ -37,8 +37,6 @@ class Settings(BaseSettings):
     db_max_overflow: int = 10
     db_echo: bool = False
 
-    cors_origins: list[str] = []
-
     # Cloudflare Turnstile (sign-up). Missing secret => sign-up fails closed (403).
     turnstile_secret_key: SecretStr | None = None
     turnstile_allowed_hostnames: list[str] = []  # empty = hostname not checked
@@ -85,14 +83,6 @@ class Settings(BaseSettings):
     admin_users_api_enabled: bool = False
     # Temporary: privilege-changing RBAC endpoints without auth. Removed by ADM-002.
     admin_rbac_api_enabled: bool = False
-
-    @field_validator("cors_origins")
-    @classmethod
-    def _no_wildcard_origin(cls, value: list[str]) -> list[str]:
-        # With credentials, Starlette would echo any Origin for "*".
-        if "*" in value:
-            raise ValueError("CORS_ORIGINS must not contain '*'")
-        return value
 
     @field_validator("trusted_proxy_cidrs")
     @classmethod

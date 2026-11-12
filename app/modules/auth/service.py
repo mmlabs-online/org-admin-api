@@ -24,15 +24,13 @@ from app.modules.auth.schemas import LoginRequest, LogoutRequest, SignupRequest
 from app.modules.auth.throttle import TURNSTILE_AFTER, EmailHasher, backoff_minutes
 from app.modules.auth.turnstile import TurnstileVerifier
 from app.modules.rbac.models import APP_KEY_RE, App, AppStatus
-from app.modules.rbac.origins import normalize_origin
+from app.modules.rbac.origins import allowed_origins, normalize_origin
 from app.modules.rbac.repository import RbacRepository
 from app.modules.sessions.service import DeviceSessionService, ResolvedDevice
 from app.modules.users.models import User, UserStatus
 from app.modules.users.repository import UserRepository
 
 logger = logging.getLogger(__name__)
-
-_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 
 
 def normalize_email(email: str) -> str:
@@ -72,13 +70,6 @@ class SignupService:
         return user
 
 
-def _is_loopback(origin: str) -> bool:
-    """`origin` is already normalized (`scheme://host[:port]`)."""
-    authority = origin.split("://", 1)[-1]
-    host = "[::1]" if authority.startswith("[::1]") else authority.split(":")[0]
-    return host in _LOOPBACK_HOSTS
-
-
 class AppContextService:
     """CSRF check for endpoints that read or set `__Host-mm_device` (D12, ADR-0004)."""
 
@@ -98,10 +89,7 @@ class AppContextService:
             normalized = normalize_origin(origin)
         except ValueError:
             raise OriginNotAllowedError("Origin is not allowed") from None
-        allowed = app.origins
-        if self.app_env in {"staging", "production"}:
-            allowed = [o for o in allowed if not _is_loopback(o)]
-        if normalized not in allowed:
+        if normalized not in allowed_origins(app.origins, self.app_env):
             raise OriginNotAllowedError("Origin is not allowed")
         return app
 

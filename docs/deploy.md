@@ -49,14 +49,22 @@ than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates 
 
 ## Required runtime config
 
+**In production the deploy writes all of these itself** (`mmlabs-online/deployment`,
+`deploy-org-admin-api.yml` → step `envfile`, on every run): `TRUSTED_PROXY_CIDRS` from
+`docker network inspect web`; `IDENTITY_HMAC_KEY` and `JWT_SIGNING_KEY` generated **on the Mac** the
+first time and kept in `~/.config/org-admin-api/secrets/` (`identity_hmac_key`,
+`jwt_signing_key.b64`, mode 0600), never in git, GitHub secrets or logs; `JWT_ISSUER` in
+`apps/org-admin-api/compose.yml`. Nothing to set by hand; the details below are for other
+environments and for rotation.
+
 - **`TRUSTED_PROXY_CIDRS`** (ADM-011): the CIDR(s) of the Docker network cloudflared reaches the
   API on (`web`). Without it every client shares one rate-limit bucket, so in staging/production
   **both `migrate` and the API refuse to start** when it is empty or unsafe (deploy step 5 fails,
   the old API keeps running).
-  - Set it in `apps/org-admin-api/compose.yml` → `x-app.environment` (read by `migrate` and the
-    API). It is not a secret. Not in the env file: the deploy rewrites that file on every run.
-  - Format: a **JSON list in a quoted string**, e.g. `TRUSTED_PROXY_CIDRS: '["172.18.0.0/16"]'`.
-    A bare `172.18.0.0/16` fails to parse.
+  - Production: written into the env file by the deploy from the `web` network's subnet(s). Not a
+    secret.
+  - Format: a **JSON list**, e.g. `TRUSTED_PROXY_CIDRS=["172.18.0.0/16"]` in an env file (quote it,
+    `'["…"]'`, in YAML). A bare `172.18.0.0/16` fails to parse.
   - Rules: private networks only, no `/0`, IPv4 prefix ≥ /8, IPv6 prefix ≥ /48.
   - Find the subnet: `docker network inspect web -f '{{(index .IPAM.Config 0).Subnet}}'`. Better:
     pin the `web` subnet, give cloudflared a fixed IP and trust that `/32`.
@@ -65,14 +73,14 @@ than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates 
   random characters, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`. In
   staging/production **both `migrate` and the API refuse to start** without it (or with a shorter
   value), so set it before deploying the release that contains USR-03.
-  - It is a secret: put it in the env file written by the deploy (with `DATABASE_URL`, from the
-    deployment repo's secrets), never in `compose.yml`, the image or logs.
+  - It is a secret. Production: generated on the host by the deploy (64 hex chars) and written to
+    the env file; never in `compose.yml`, the image or logs.
   - Never rotate it casually: a new key orphans every stored counter, which resets login backoff
     and the Turnstile-after-3 requirement for every email (old rows become dead weight).
 - **`JWT_SIGNING_KEY`** (USR-03c, ADR-0005): the access-token signing key, **base64 of a PEM
   P-256 private key on one line**. Secret: put it in the env file written by the deploy (like
   `IDENTITY_HMAC_KEY`), never in `compose.yml`, the image or logs.
-  - Generate (macOS and Linux):
+  - Production: generated on the host by the deploy the first time. Elsewhere generate with
     `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 | base64 | tr -d '\n'`.
     Use a different key per environment.
   - In staging/production **both `migrate` and the API refuse to start** without a valid key, so
@@ -88,10 +96,17 @@ than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates 
   `TRUSTED_PROXY_CIDRS`) of base64 public PEMs that the JWKS publishes next to the signing key.
   Not a secret (`compose.yml`). Empty except during a rotation (below).
 
-**Owner action in `mmlabs-online/deployment` before releasing USR-03c:** add a repository secret
-(e.g. `ORG_ADMIN_API_JWT_SIGNING_KEY`), write it as `JWT_SIGNING_KEY=` into
-`~/.config/org-admin-api/org-admin-api.env` in `.github/workflows/deploy-org-admin-api.yml`, and add
-`JWT_ISSUER: https://api.mmlabs.online` to `apps/org-admin-api/compose.yml` → `x-app.environment`.
+Done in `mmlabs-online/deployment` (PRs #52, #53, 2026-11-12) before the first release with
+USR-03c.
+
+## Browser origins (CORS)
+
+No env var (USR-03e, ADR-0006). The API echoes the origins of **active** apps (`apps.origins`,
+D19) with credentials, for `/api/v1/auth/*` only. Register or update an app's origins with the
+USR-07 CLI (or the admin API later). Changes made through the API process apply at once; changes
+from the CLI or manual SQL apply within 60 s. Loopback origins are ignored in staging/production.
+A stale `CORS_ORIGINS` in the deployment env file is ignored and can be deleted from
+`mmlabs-online/deployment`.
 
 ## Signing key rotation
 
@@ -110,8 +125,11 @@ Tokens live 900 s; the JWKS is cached for `max-age=300` by clients and at most 1
 3. After the TTL (900 s) + leeway (60 s) + `max-age` (300 s), about 25 minutes, remove the old
    public key from `JWT_PUBLIC_KEYS_EXTRA` and redeploy.
 
-**Emergency rotation** (key leaked): do step 2 immediately **without** any extra key and redeploy.
-Live tokens then fail at verifiers; clients get a 401 from their backend and call `/token` again,
+**Emergency rotation** (key leaked): delete `~/.config/org-admin-api/secrets/jwt_signing_key.b64`
+on the host (or, without host access, change the deploy to regenerate it) and redeploy with no
+extra key; the deploy generates a new one. Then restart or flush the JWKS cache of every consumer
+(ricotdin, …): until a verifier refetches, it still trusts the leaked key. After that, live tokens
+fail at verifiers; clients get a 401 from their backend and call `/token` again,
 which the cookie still allows, and verifiers refetch the JWKS on the unknown `kid`. Expect about one
 failed request per active client. Never keep a leaked public key in the JWKS.
 
@@ -162,8 +180,8 @@ The first `admin:super-admin` is granted from the command line (USR-02f), never 
 creates no users, takes no password and never marks an email verified. Re-running it is safe.
 
 **Prerequisites:** migrations are at head (the seeded `admin` app and role exist), and
-`TRUSTED_PROXY_CIDRS` is set in `apps/org-admin-api/compose.yml` → `x-app.environment` (see
-"Required runtime config"). Without it settings refuse to load in production and the CLI exits 1
+`TRUSTED_PROXY_CIDRS` is in the env file (written by the deploy, see "Required runtime
+config"). Without it settings refuse to load in production and the CLI exits 1
 (`error: settings could not be loaded`), like `migrate` and the API.
 
 1. **Sign up yourself** through the public sign-up, then **log in once** (after USR-03) to prove you

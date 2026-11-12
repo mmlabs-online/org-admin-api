@@ -204,6 +204,7 @@ class AppService:
             raise ConflictError("App key is already taken") from exc
         # Same transaction: a failure here rolls the app back with the request.
         await self.catalog._build_for_app(app)
+        self.repo.mark_apps_changed()
         return app
 
     async def update(self, key: str, data: AppUpdate, actor: uuid.UUID | None = None) -> App:
@@ -246,6 +247,7 @@ class AppService:
             await self.repo.save()
         except IntegrityError as exc:  # e.g. the role was deleted concurrently
             raise ConflictError("App was changed concurrently") from exc
+        self.repo.mark_apps_changed()
         await self.repo.session.refresh(app)
         return app
 
@@ -260,6 +262,7 @@ class AppService:
             await self.repo.delete_app(app)
         except IntegrityError as exc:  # an assignment was added concurrently
             raise ConflictError("App has role assignments; disable it instead") from exc
+        self.repo.mark_apps_changed()
 
 
 class PermissionService:

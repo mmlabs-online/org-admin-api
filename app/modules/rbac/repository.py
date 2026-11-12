@@ -7,11 +7,21 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.organizations.models import Organization
-from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
+from app.modules.rbac.models import (
+    App,
+    AppStatus,
+    Permission,
+    Role,
+    RoleAssignment,
+    RolePermission,
+)
 from app.modules.users.models import User, UserStatus
 
 # (assignment, app key, role key, active) — `active` is computed with the database clock.
 AssignmentRow = tuple[RoleAssignment, str, str, bool]
+
+# `session.info` flag: an app was written; the CORS origin cache is invalidated after commit.
+APPS_CHANGED_KEY = "rbac_apps_changed"
 
 
 class RbacRepository:
@@ -20,6 +30,15 @@ class RbacRepository:
 
     async def get_app_by_key(self, key: str) -> App | None:
         return await self.session.scalar(select(App).where(App.key == key))
+
+    async def active_app_origins(self) -> list[list[str]]:
+        result = await self.session.scalars(
+            select(App.origins).where(App.status == AppStatus.ACTIVE.value)
+        )
+        return [list(origins) for origins in result]
+
+    def mark_apps_changed(self) -> None:
+        self.session.info[APPS_CHANGED_KEY] = True
 
     async def lock_app(self, key: str) -> App | None:
         """Lock the app row (`FOR NO KEY UPDATE`) until the transaction ends.
