@@ -9,7 +9,11 @@ from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import RateLimitedError
-from app.modules.auth.email_throttle import DAILY_CAP_RETRY_SECONDS, resend_retry_after
+from app.modules.auth.email_throttle import (
+    DAILY_CAP_RETRY_SECONDS,
+    cap_allows,
+    resend_retry_after,
+)
 from app.modules.auth.errors import EmailAlreadyVerifiedError, TokenInvalidError
 from app.modules.auth.repository import EmailSendLogRepository, EmailTokenRepository
 from app.modules.auth.throttle import EmailHasher
@@ -37,6 +41,19 @@ class DailyCapReachedError(RateLimitedError):
     """The global daily send cap protecting the shared Gmail quota is reached."""
 
 
+async def daily_cap_allows(
+    tokens: EmailTokenRepository, sends: EmailSendLogRepository, purpose: str, daily_cap: int
+) -> bool:
+    """Whether one more `purpose` email fits the global daily cap (USR-04b).
+
+    Counts real sends (tokens issued in the last 24 h) under one global advisory lock, so
+    concurrent requests cannot all pass the check.
+    """
+    await sends.lock_global()
+    total_24h, verify_24h = await tokens.count_issued_24h()
+    return cap_allows(purpose, total_24h=total_24h, verify_24h=verify_24h, daily_cap=daily_cap)
+
+
 class EmailVerificationService:
     def __init__(self, session: AsyncSession, *, email_hasher: EmailHasher, daily_cap: int) -> None:
         self.tokens = EmailTokenRepository(session)
@@ -58,7 +75,7 @@ class EmailVerificationService:
         retry_after = resend_retry_after(window.now, window.last, window.count, window.oldest)
         if retry_after is not None:
             raise RateLimitedError(retry_after)
-        if await self.sends.count_global_24h() >= self.daily_cap:
+        if not await daily_cap_allows(self.tokens, self.sends, VERIFY, self.daily_cap):
             raise DailyCapReachedError(DAILY_CAP_RETRY_SECONDS)
         await self.sends.insert(email_hmac, VERIFY)
 

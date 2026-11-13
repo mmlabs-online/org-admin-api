@@ -294,8 +294,10 @@ config"). Without it settings refuse to load in production and the CLI exits 1
 | 64 | usage error (bad arguments or invalid email) |
 
 **After USR-04 ships:** verify the email via the link in the verification email (resend from a
-signed-in app if it expired). Resetting the password (revokes every device session) arrives with
-USR-04b.
+signed-in app if it expired). If you don't know the password, use "forgot password" in an app,
+then reset it from the emailed link (USR-04b): this ends every signed-in session of the account
+(its account sessions on every device) and also marks the email verified. Access tokens already
+issued stay valid for at most 15 minutes (`ACCESS_TOKEN_TTL_SECONDS`).
 
 Locally: `make grant-super-admin email=you@example.com`.
 

@@ -72,8 +72,8 @@ points at the page origin that made the request; there is no API-wide fallback o
 > because no consumer used sign-up yet.
 
 **Link format (fixed for every app):** `{origin}/verify-email#token=<43 chars>`. **Every registered
-origin of an app must serve `/verify-email`** (and `/reset-password` once USR-04b lands). The token is in the fragment, so it never
-reaches a server log. The page:
+origin of an app must serve `/verify-email` and `/reset-password`** (see "Password reset"). The
+token is in the fragment, so it never reaches a server log. The page:
 
 1. reads `location.hash`, then removes it at once (`history.replaceState(null, "", "/verify-email")`);
 2. is served with `Referrer-Policy: no-referrer`;
@@ -106,7 +106,58 @@ origin and invalidates earlier links.
 | 202 | Sent (asynchronously; delivery is not confirmed). |
 | 401 `session_invalid` | Sign in again. |
 | 409 `email_already_verified` | Nothing to do; fetch a new `/token`. |
-| 429 `rate_limited` | At most 1 per minute and 5 per day per email (sign-up counts as the first); show `Retry-After`. |
+| 429 `rate_limited` | At most 1 per minute and 5 per day per email (sign-up counts as the first), plus a per-IP limit; show `Retry-After`. |
+
+## Password reset
+
+**Forgot.** `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` **requires** `X-MM-App`
+and a browser `Origin` registered for that app, like sign-up (403 otherwise, before anything is
+sent). Call it from the browser with `credentials: "include"` so CORS answers the preflight. A
+Turnstile token is always required. The answer is **202 for every email**, registered or not:
+per-email limits (1 per minute, 5 per day) and the daily send cap apply silently, so the page must
+always say "if an account exists for this address, we sent a link".
+
+| Status / code | What to do |
+|---|---|
+| 202 | Show "check your email" (whether or not an email was sent). |
+| 403 `app_header_required` / `origin_not_allowed` | Bug: send `X-MM-App` from a registered origin. |
+| 403 `turnstile_failed` | Re-run the Turnstile challenge. |
+| 422 `validation_error` | Bad email or body. |
+| 429 `rate_limited` | Per-IP limit; back off for `Retry-After` seconds. |
+
+**Link format (fixed for every app):** `{origin}/reset-password#token=<43 chars>`, where `origin` is
+the page origin that called forgot. The link works once and expires after **30 minutes**; a newer
+link replaces older ones. The `/reset-password` page:
+
+1. reads `location.hash`, then removes it at once (`history.replaceState(null, "", "/reset-password")`);
+2. is served with `Referrer-Policy: no-referrer`;
+3. asks for the new password and calls
+
+   ```js
+   await fetch("https://api.mmlabs.online/api/v1/auth/password/reset", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify({ token, new_password }),
+   });
+   ```
+
+   (public endpoint: no cookie or `X-MM-App` needed; never send the token in a query string);
+4. on 204 shows "password changed, sign in with your new password". Reset signs nobody in and
+   sets no cookie.
+
+| Status / code | What to do |
+|---|---|
+| 204 | Done: send the user to sign in. |
+| 422 `weak_password` | Show `details.reasons` (`too_short`, `too_common`); the link still works, let the user retry. |
+| 422 `token_invalid` | Link unknown, expired (30 min), already used or replaced: offer "forgot password" again. |
+| 422 `validation_error` | Bug or truncated link. |
+| 429 `rate_limited` | Back off for `Retry-After` seconds. |
+
+**Effects.** A reset ends **every signed-in session of the account** on every device (other
+accounts signed in on the same device stay); the next `/token` for it answers 401
+`session_invalid`, so sign in again. Access tokens already issued stay valid until they expire (at
+most 15 min, `ACCESS_TOKEN_TTL_SECONDS`). A reset also marks the email verified (the user proved
+they receive mail there) and clears the login backoff for the email.
 
 ## Verifying (backend) checklist
 

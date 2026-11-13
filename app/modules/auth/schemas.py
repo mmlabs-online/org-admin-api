@@ -67,3 +67,17 @@ class ResendVerificationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     account_id: uuid.UUID
+
+
+class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    turnstile_token: str = Field(min_length=1, max_length=2048)
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(pattern=EMAIL_TOKEN_RE)
+    new_password: SecretStr = Field(max_length=PASSWORD_MAX_LENGTH)

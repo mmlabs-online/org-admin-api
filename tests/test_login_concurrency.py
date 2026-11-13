@@ -12,9 +12,10 @@ from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.db.session import SessionLocal
 from app.main import create_app
 from app.modules.auth.deps import get_turnstile_verifier
@@ -205,3 +206,53 @@ async def test_real_get_session_commits_before_response_start(
     assert "set-cookie" in resp.headers
     assert events.count("commit") >= 2  # the reservation, then the request transaction
     assert events[-1] == "response.start"
+
+
+async def _wait_for_lock_waiter() -> None:
+    """Until some backend of this database waits on a lock (polled, bounded by the caller)."""
+    while True:
+        async with SessionLocal() as probe:
+            waiting = await probe.scalar(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                )
+            )
+        if waiting:
+            return
+        await asyncio.sleep(0.02)
+
+
+async def test_login_blocked_by_reset_lock_reads_new_password(race: Race) -> None:
+    """AC 14: a reset holds `FOR UPDATE` on the user while it changes the hash; a login that
+    reads the user `FOR SHARE` waits, then sees the new hash, so the old password fails."""
+    new_hash = await PasswordHasher(Settings()).hash("a brand new passphrase 42")
+    async with SessionLocal() as reset:
+        try:
+            await reset.execute(
+                text("SELECT id FROM users WHERE id = :id FOR UPDATE"), {"id": race.user.id}
+            )
+            attempt = asyncio.create_task(race.post(PASSWORD))
+            try:
+                await _bounded(_wait_for_lock_waiter())
+                assert not attempt.done()
+                await reset.execute(
+                    text("UPDATE users SET password_hash = :h WHERE id = :id"),
+                    {"h": new_hash, "id": race.user.id},
+                )
+                await reset.commit()
+            except BaseException:
+                attempt.cancel()
+                raise
+        finally:
+            await reset.rollback()
+    resp = await _bounded(attempt)
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "invalid_credentials"
+    async with SessionLocal() as session:
+        accounts = await session.scalar(
+            select(func.count())
+            .select_from(AccountSession)
+            .where(AccountSession.user_id == race.user.id)
+        )
+    assert accounts == 0

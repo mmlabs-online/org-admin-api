@@ -80,9 +80,16 @@ class Settings(BaseSettings):
     smtp_username: str | None = None
     smtp_password: SecretStr | None = None
     email_from: str | None = None  # defaults to SMTP_USERNAME
-    email_daily_cap: int = Field(default=300, ge=1)  # all verification/reset sends per 24 h
+    # All verification/reset sends per 24 h: verify uses at most 80 %, reset the rest (USR-04b).
+    email_daily_cap: int = Field(default=300, ge=1)
     verify_email_rate_limit: int = Field(default=20, ge=1)
     verify_email_rate_window_seconds: int = Field(default=60, ge=1)
+    verify_email_resend_rate_limit: int = Field(default=5, ge=1)
+    verify_email_resend_rate_window_seconds: int = Field(default=600, ge=1)
+    forgot_rate_limit: int = Field(default=5, ge=1)
+    forgot_rate_window_seconds: int = Field(default=60, ge=1)
+    reset_rate_limit: int = Field(default=10, ge=1)
+    reset_rate_window_seconds: int = Field(default=60, ge=1)
 
     password_min_length: int = Field(default=12, ge=8)
 

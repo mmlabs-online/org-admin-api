@@ -570,6 +570,25 @@ async def test_resend_already_verified_409(
     assert fake_email.calls == 0
 
 
+async def test_resend_per_ip_429(
+    make_client: MakeClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+    stoktok: App,
+) -> None:
+    _, raw, account_id = await _signed_in(db_session)
+    _, other_raw, other_account = await _signed_in(db_session)
+    async with make_client(verify_email_resend_rate_limit=1) as c:
+        first = await _resend(c, email_dispatcher, account_id, raw)
+        second = await _resend(c, email_dispatcher, other_account, other_raw)
+    assert first.status_code == 202
+    assert second.status_code == 429  # per IP: a different email would not be limited
+    assert second.json()["error"]["code"] == "rate_limited"
+    assert 1 <= int(second.headers["Retry-After"]) <= 600
+    assert len(fake_email.sent) == 1
+
+
 async def test_resend_validation_422(
     client: AsyncClient, db_session: AsyncSession, stoktok: App
 ) -> None:

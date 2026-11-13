@@ -135,8 +135,8 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + `X-MM-App` | apply join policy, assign default role, audit | USR-03b |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
 | `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification | USR-04 |
-| `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public | send reset link | USR-04 |
-| `POST /api/v1/auth/password/reset` `{token, new_password}` | public | set password, revoke all sessions of the user | USR-04 |
+| `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04b) | send reset link (silent per-email limit) | USR-04b |
+| `POST /api/v1/auth/password/reset` `{token, new_password}` | public, per-IP limit | set password, revoke all account sessions of the user (every device) | USR-04b |
 | `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03c |
 | `GET /api/v1/apps/{key}/roles` (ETag / 304) | public (D17), per-IP limit | role → permissions catalog | USR-02e |
 | `PUT /api/v1/apps/{key}/manifest` | app credential | app pushes its permissions + default role | USR-05 |
