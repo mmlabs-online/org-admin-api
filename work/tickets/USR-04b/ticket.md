@@ -37,8 +37,9 @@ A user who forgot their password gets a one-time reset link (via the USR-04 `Ema
   password"; note that issued access tokens stay valid ≤ 15 min after a reset.
 
 ## Dependencies
-USR-04.
+USR-04, USR-04c.
 
 ## Notes / answers from owner
 - 2026-11-12 (USR-04 security review S1/S2): add a per-IP rate-limit scope on `/auth/verify-email/resend`; split or reserve the global `EMAIL_DAILY_CAP` per purpose so sign-up spam cannot block reset mail (e.g. verify ≤ 80 %); optionally serialize the global count with a global advisory lock; runbook: alert on `email_not_sent reason=daily_cap`. Also: wire `EmailDispatcher.aclose()` into an app lifespan; retention cleanup for `email_send_log`/`email_tokens`.
 - 2026-11-12: created by the orchestrator from the USR-04 planner's split.
+- 2026-11-13 (owner, USR-04c): forgot requires `X-MM-App` + Origin like signup; the reset link origin is the request's validated Origin; there is no `EMAIL_LINK_BASE_URL` fallback.
