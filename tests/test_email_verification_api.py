@@ -33,8 +33,8 @@ from tests.auth_factories import (
     sha256,
     shift,
 )
-from tests.conftest import TEST_EMAIL_LINK_BASE_URL, MakeClient
-from tests.fakes import FakeEmailSender
+from tests.conftest import MakeClient
+from tests.fakes import FakeEmailSender, FakeTurnstileVerifier
 from tests.rbac_factories import assign, make_role
 
 SIGNUP = "/api/v1/auth/signup"
@@ -47,8 +47,9 @@ TOKEN_INVALID = {
 }
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 async def stoktok(db_session: AsyncSession) -> App:
+    """Signup requires app context (USR-04c), so every test here has the `stoktok` app."""
     return await make_login_app(db_session)
 
 
@@ -62,6 +63,8 @@ async def _signup(
     email: str = "dana@example.com",
     headers: dict[str, str] | None = None,
 ) -> Response:
+    """Sign up from the `stoktok` app unless `headers` say otherwise."""
+    headers = auth_headers() if headers is None else headers
     resp = await client.post(SIGNUP, json=_signup_body(email), headers=headers)
     await dispatcher.join()
     return resp
@@ -131,38 +134,35 @@ async def test_signup_sends_verification_link_to_app_origin(
     ]
 
 
-async def test_signup_without_app_header_uses_link_base(
-    client: AsyncClient, email_dispatcher: EmailDispatcher, fake_email: FakeEmailSender
-) -> None:
-    resp = await _signup(client, email_dispatcher, headers={"Origin": "https://evil.example"})
-    assert resp.status_code == 201
-    (email,) = fake_email.sent
-    assert _link(email)[0] == TEST_EMAIL_LINK_BASE_URL
-
-
 @pytest.mark.parametrize(
     ("app_key", "origin", "code"),
     [
-        ("nope", ORIGIN, "origin_not_allowed"),
-        ("stoktok", "https://other.mmlabs.online", "origin_not_allowed"),
-        ("stoktok", None, "origin_not_allowed"),
+        (None, None, "app_header_required"),
+        (None, ORIGIN, "app_header_required"),
         ("Bad Key!", ORIGIN, "app_header_required"),
+        ("nope", ORIGIN, "origin_not_allowed"),
+        ("frozen", ORIGIN, "origin_not_allowed"),
+        ("stoktok", None, "origin_not_allowed"),
+        ("stoktok", "null", "origin_not_allowed"),
+        ("stoktok", "https://other.mmlabs.online", "origin_not_allowed"),
     ],
 )
-async def test_signup_bad_app_header_403_no_user(
+async def test_signup_bad_app_context_403_no_side_effects(
     client: AsyncClient,
     db_session: AsyncSession,
     email_dispatcher: EmailDispatcher,
     fake_email: FakeEmailSender,
-    stoktok: App,
-    app_key: str,
+    fake_turnstile: FakeTurnstileVerifier,
+    app_key: str | None,
     origin: str | None,
     code: str,
 ) -> None:
+    await make_login_app(db_session, "frozen", status="disabled")
     resp = await _signup(client, email_dispatcher, headers=auth_headers(app_key, origin))
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == code
     assert await db_session.scalar(select(func.count()).select_from(User)) == 0
+    assert fake_turnstile.calls == []
     assert fake_email.calls == 0
     assert await _send_log_count(db_session) == 0
 
@@ -174,10 +174,10 @@ async def test_link_ignores_host_and_forwarded_host(
     stoktok: App,
 ) -> None:
     evil = {"Host": "evil.example", "X-Forwarded-Host": "evil.example"}
-    await _signup(client, email_dispatcher, "a@example.com", headers=evil)
-    await _signup(client, email_dispatcher, "b@example.com", headers=evil | auth_headers())
+    await _signup(client, email_dispatcher, "a@example.com", headers=evil | auth_headers())
+    await _signup(client, email_dispatcher, "b@example.com", headers=auth_headers() | evil)
     first, second = fake_email.sent
-    assert _link(first)[0] == TEST_EMAIL_LINK_BASE_URL
+    assert _link(first)[0] == ORIGIN
     assert _link(second)[0] == ORIGIN
     assert "evil" not in first.body + second.body
 
@@ -192,7 +192,9 @@ async def test_signup_failure_sends_nothing(
         assert (await _signup(c, email_dispatcher)).status_code == 201
         assert (await _signup(c, email_dispatcher)).status_code == 409
         weak = await c.post(
-            SIGNUP, json=_signup_body("weak@example.com") | {"password": "Password1234"}
+            SIGNUP,
+            json=_signup_body("weak@example.com") | {"password": "Password1234"},
+            headers=auth_headers(),
         )
         assert weak.status_code == 422
         await email_dispatcher.join()
@@ -205,7 +207,7 @@ async def test_signup_response_does_not_wait_for_sender(
     client: AsyncClient, email_dispatcher: EmailDispatcher, fake_email: FakeEmailSender
 ) -> None:
     fake_email.gate = asyncio.Event()
-    resp = await client.post(SIGNUP, json=_signup_body())
+    resp = await client.post(SIGNUP, json=_signup_body(), headers=auth_headers())
     assert resp.status_code == 201  # returned while the sender is still blocked
     assert fake_email.sent == []
     fake_email.gate.set()

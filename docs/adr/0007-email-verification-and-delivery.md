@@ -18,6 +18,11 @@ mmlabs site already sends from, which changes D3's "dedicated account".
 2. **Link origin.** Sign-up and resend use the request's `Origin` once it is proven to be a
    registered origin of the `X-MM-App` app (the CSRF check). Sign-up without `X-MM-App` uses
    `EMAIL_LINK_BASE_URL` (a D19 origin from env). Never `Host` or `X-Forwarded-Host`.
+   *Amended by USR-04c (2026-11-13):* sign-up **requires** the app context (`X-MM-App` + a
+   registered `Origin`, 403 otherwise, before any account is created), like login and resend.
+   `EMAIL_LINK_BASE_URL` is removed: many apps share this service, so one fallback origin would
+   send users of other apps to the wrong app. Every registered origin of an app must serve the
+   link pages (`/verify-email`, later `/reset-password`).
 3. **Token model.** `secrets.token_urlsafe(32)` (256 bit); only SHA-256 is stored in
    `email_tokens`. Single use via one atomic `UPDATE … WHERE used_at IS NULL AND expires_at >
    now() RETURNING`. Issuing a token supersedes the user's older unused tokens of the same purpose.

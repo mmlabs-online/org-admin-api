@@ -128,7 +128,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 
 | Method & path | Auth | Purpose | Ticket |
 |---|---|---|---|
-| `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit | create unverified user; send verification email | USR-01 (+USR-04 email) |
+| `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04c) | create unverified user; send verification email | USR-01 (+USR-04 email) |
 | `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `__Host-mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
 | `GET /api/v1/auth/accounts` | cookie | accounts signed in on this device | USR-03b |
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03c |

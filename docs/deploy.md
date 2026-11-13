@@ -109,14 +109,14 @@ request commits, with retry; a restart loses queued mail and users press resend.
 |---|---|---|
 | `SMTP_USERNAME` | no (but keep it out of git) | Gmail address of the shared mmlabs sender account. Required in staging/production. |
 | `SMTP_PASSWORD` | **yes** | Gmail **App Password** (16 letters). Required in staging/production. |
-| `EMAIL_LINK_BASE_URL` | no | Origin of an app page serving `/verify-email` (first ricotdin's), e.g. `https://ricotdin.mmlabs.online`; no path, https, mmlabs host. Used when the request names no app. Required in staging/production. |
 | `EMAIL_FROM` | no | Optional; defaults to `SMTP_USERNAME` (Gmail rewrites other From addresses). |
 | `EMAIL_DAILY_CAP` | no | Global sends per rolling 24 h, default 300. |
 | `SMTP_HOST`, `SMTP_PORT` | no | Defaults `smtp.gmail.com`, `587`. |
 | `VERIFY_EMAIL_RATE_LIMIT`, `VERIFY_EMAIL_RATE_WINDOW_SECONDS` | no | Per-IP limit on `POST /auth/verify-email`, default 20 / 60 s. |
 
-In staging/production **both `migrate` and the API refuse to start** without `SMTP_USERNAME`,
-`SMTP_PASSWORD` and a valid `EMAIL_LINK_BASE_URL`. Error messages name the key, never the value.
+In staging/production **both `migrate` and the API refuse to start** without `SMTP_USERNAME` and
+`SMTP_PASSWORD`. Error messages name the key, never the value. Email links always use the
+requesting app's validated `Origin` (USR-04c); there is no link-base key.
 
 ### Deploy prerequisites (owner, separate PR in `mmlabs-online/deployment`)
 
@@ -133,8 +133,9 @@ env file is rewritten every run).
    missing; validate (address regex; App Password `^[a-z]{16}$` after removing spaces) so a newline
    cannot inject lines; write with `printf 'SMTP_USERNAME=%s\n'` / `printf 'SMTP_PASSWORD=%s\n'`;
    update the "No GitHub secrets" comment and the README.
-4. `apps/org-admin-api/compose.yml` → `x-app.environment`: `EMAIL_LINK_BASE_URL=https://<origin
-   that serves /verify-email>` (optional `EMAIL_FROM`, `EMAIL_DAILY_CAP`).
+4. `apps/org-admin-api/compose.yml` → `x-app.environment`: optional `EMAIL_FROM`,
+   `EMAIL_DAILY_CAP`. No link-base key is needed: `EMAIL_LINK_BASE_URL` was removed (USR-04c), a
+   leftover value is ignored, so that compose line can be dropped at any time.
 
 ### Gmail limits (runbook)
 

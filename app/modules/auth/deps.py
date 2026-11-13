@@ -81,23 +81,6 @@ def get_email_dispatcher(request: Request) -> EmailDispatcher:
 EmailDispatcherDep = Annotated[EmailDispatcher, Depends(get_email_dispatcher)]
 
 
-async def get_optional_link_origin(
-    request: Request,
-    session: SessionDep,
-    x_mm_app: Annotated[str | None, Header(alias="X-MM-App")] = None,
-    origin: Annotated[str | None, Header()] = None,
-) -> str | None:
-    """Origin for email links: the request `Origin` once checked against the `X-MM-App` app's
-    registered origins (403 otherwise); without `X-MM-App`, `EMAIL_LINK_BASE_URL`. Never
-    `Host` or `X-Forwarded-Host`."""
-    settings: Settings = request.app.state.settings
-    if x_mm_app is None:
-        return settings.email_link_base_url
-    await AppContextService(session, app_env=settings.app_env).check(x_mm_app, origin)
-    assert origin is not None  # noqa: S101 - `check` refused a missing Origin
-    return normalize_origin(origin)
-
-
 def get_link_origin(_app: AppContextDep, origin: Annotated[str, Header()]) -> str:
     """`AppContextDep` already proved `Origin` is registered for the `X-MM-App` app."""
     return normalize_origin(origin)
@@ -107,7 +90,7 @@ def get_signup_hook(
     request: Request,
     background_tasks: BackgroundTasks,
     dispatcher: EmailDispatcherDep,
-    link_origin: Annotated[str | None, Depends(get_optional_link_origin)],
+    link_origin: Annotated[str, Depends(get_link_origin)],
 ) -> SignupHook:
     """Background tasks run only after a successful response, i.e. after the commit."""
     settings: Settings = request.app.state.settings

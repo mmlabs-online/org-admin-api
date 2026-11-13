@@ -29,7 +29,7 @@ class VerificationEmailHook:
     def __init__(
         self,
         *,
-        link_origin: str | None,
+        link_origin: str,
         email_hasher: EmailHasher,
         daily_cap: int,
         schedule: Callable[[OutgoingEmail], None],
@@ -40,9 +40,6 @@ class VerificationEmailHook:
         self.schedule = schedule
 
     async def __call__(self, user_id: uuid.UUID, session: AsyncSession) -> None:
-        if self.link_origin is None:  # local only: staging/production require a link base
-            logger.warning("email_not_sent reason=no_link_base purpose=verify user_id=%s", user_id)
-            return
         user = await UserRepository(session).get(user_id)
         if user is None:  # pragma: no cover - created in the same transaction
             return

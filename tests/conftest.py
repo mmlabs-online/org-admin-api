@@ -38,8 +38,6 @@ os.environ["JWT_ISSUER"] = TEST_JWT_ISSUER
 os.environ["SMTP_HOST"] = "smtp.test.invalid"
 os.environ["SMTP_USERNAME"] = "sender@test.invalid"
 os.environ["SMTP_PASSWORD"] = "test-app-password"
-TEST_EMAIL_LINK_BASE_URL = "https://app.mmlabs.online"
-os.environ["EMAIL_LINK_BASE_URL"] = TEST_EMAIL_LINK_BASE_URL
 
 import pytest
 from alembic import command

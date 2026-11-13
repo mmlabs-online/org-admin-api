@@ -60,13 +60,19 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/token", {
 A new account is unverified; `/token` (and join, USR-03b) answer 403 `email_unverified` until the
 user opens the link from the verification email (D2, ADR-0007).
 
-**Sign-up.** Send `X-MM-App` (and the browser sends `Origin`) with `POST /api/v1/auth/signup`: the
-link then points at the page origin that made the request. Without `X-MM-App` the link uses the
-API's `EMAIL_LINK_BASE_URL`. With `X-MM-App`, a wrong key or an unregistered origin is a 403 before
-any account is created.
+**Sign-up.** `POST /api/v1/auth/signup` **requires** `X-MM-App` and a browser `Origin` registered
+for that app. Without them it answers 403 `app_header_required` (missing or malformed key) or
+`origin_not_allowed` (unknown or disabled app, missing or unregistered origin) before any account
+is created or any email is queued. Call it from the browser with `credentials: "include"`, like the
+other `/auth/*` calls, so CORS answers the preflight that the custom header triggers. The link
+points at the page origin that made the request; there is no API-wide fallback origin.
 
-**Link format (fixed for every app):** `{origin}/verify-email#token=<43 chars>`. Every app that
-sends `X-MM-App` on sign-up must serve `/verify-email`. The token is in the fragment, so it never
+> **v1 contract change (USR-04c, 2026-11-13).** Sign-up without `X-MM-App` used to succeed (the
+> link then used a fixed fallback origin); it now answers 403. This change is made inside v1 (R9)
+> because no consumer used sign-up yet.
+
+**Link format (fixed for every app):** `{origin}/verify-email#token=<43 chars>`. **Every registered
+origin of an app must serve `/verify-email`** (and `/reset-password` once USR-04b lands). The token is in the fragment, so it never
 reaches a server log. The page:
 
 1. reads `location.hash`, then removes it at once (`history.replaceState(null, "", "/verify-email")`);

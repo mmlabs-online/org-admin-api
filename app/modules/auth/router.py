@@ -72,10 +72,11 @@ async def signup(
     verifier: Annotated[TurnstileVerifier, Depends(get_turnstile_verifier)],
     hook: Annotated[SignupHook, Depends(get_signup_hook)],
 ) -> SignupResponse:
-    """Public by design (R3 class 3): per-IP rate limit + Turnstile.
+    """Public by design (R3 class 3): per-IP rate limit + Turnstile, plus the required app
+    context: `X-MM-App` of an active app and an `Origin` registered for it (403 otherwise,
+    before any account is created).
 
-    Optional `X-MM-App` + `Origin` choose the verification link's origin (checked, 403 when
-    invalid); the email is queued after the commit.
+    The verification link uses the validated `Origin`; the email is queued after the commit.
     """
     user = await SignupService(
         session, policy=policy, hasher=hasher, verifier=verifier, hook=hook
