@@ -6,6 +6,7 @@ from fastapi.security import APIKeyCookie
 from app.api.deps import SessionDep
 from app.core.config import Settings
 from app.core.rate_limit import rate_limit
+from app.modules.audit.recorder import AuditRecorder, LogAuditRecorder
 from app.modules.auth.cookies import (
     DEVICE_COOKIE,
     clear_device_cookie,
@@ -30,6 +31,8 @@ from app.modules.auth.hooks import SignupHook
 from app.modules.auth.password_reset import PasswordResetService
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.schemas import (
+    AccountList,
+    AccountRead,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
@@ -44,6 +47,8 @@ from app.modules.auth.schemas import (
 from app.modules.auth.service import LoginService, LogoutService, SignupService
 from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import TurnstileVerifier
+from app.modules.membership.schemas import JoinRequest, JoinResponse
+from app.modules.membership.service import JoinService
 from app.modules.tokens.deps import KeySetDep
 from app.modules.tokens.schemas import TokenRequest, TokenResponse
 from app.modules.tokens.service import TokenService
@@ -57,6 +62,13 @@ _device_cookie_scheme = APIKeyCookie(
 DeviceCookieDoc = Annotated[str | None, Security(_device_cookie_scheme)]
 
 _ERR: dict[str, Any] = {"description": "Error envelope"}
+
+_audit_recorder = LogAuditRecorder()
+
+
+def get_audit_recorder() -> AuditRecorder:
+    """Placeholder until ADM-004; tests override it."""
+    return _audit_recorder
 
 
 @router.post(
@@ -191,6 +203,71 @@ async def token(
     return TokenResponse(
         access_token=issued.access_token, expires_in=issued.expires_in, audience=app.key
     )
+
+
+@router.get(
+    "/accounts",
+    response_model=AccountList,
+    dependencies=[rate_limit("accounts")],
+    responses={401: _ERR, 403: _ERR, 429: _ERR},
+)
+async def list_accounts(
+    request: Request,
+    response: Response,
+    _app: AppContextDep,
+    _cookie: DeviceCookieDoc,
+    device: DeviceDep,
+    devices: DeviceSessionsDep,
+) -> AccountList:
+    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`.
+
+    `AppContextDep` comes before `DeviceDep`: a bad app context answers 403 before any device
+    lookup or cookie rotation.
+    """
+    rows = await devices.list_accounts(device)
+    settings: Settings = request.app.state.settings
+    if device.new_cookie is not None:
+        set_device_cookie(response, device.new_cookie, settings)
+    response.headers["Cache-Control"] = "no-store"
+    return AccountList(
+        items=[
+            AccountRead(
+                account_id=account.id,
+                email=user.email,
+                email_verified=user.email_verified_at is not None,
+                display_name=user.display_name,
+            )
+            for account, user in rows
+        ]
+    )
+
+
+@router.post(
+    "/apps/{key}/join",
+    response_model=JoinResponse,
+    dependencies=[rate_limit("join")],
+    responses={401: _ERR, 403: _ERR, 422: _ERR, 429: _ERR},
+)
+async def join_app(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    key: str,
+    app: AppContextDep,
+    _cookie: DeviceCookieDoc,
+    body: JoinRequest,
+    device: DeviceDep,
+    recorder: Annotated[AuditRecorder, Depends(get_audit_recorder)],
+) -> JoinResponse:
+    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`; `{key}` must be the
+    calling app. "Continue as <account>" is the consent (D8). 200 for a new or an existing
+    membership (idempotent)."""
+    await JoinService(session, recorder).join(app, device, key, body)
+    settings: Settings = request.app.state.settings
+    if device.new_cookie is not None:
+        set_device_cookie(response, device.new_cookie, settings)
+    response.headers["Cache-Control"] = "no-store"
+    return JoinResponse(status="member")
 
 
 @router.post(

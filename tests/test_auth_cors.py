@@ -70,6 +70,38 @@ async def test_preflight_token_from_registered_origin(
     assert "access-control-allow-origin" not in resp.headers
 
 
+ACCOUNTS = "/api/v1/auth/accounts"
+JOIN = "/api/v1/auth/apps/stoktok/join"
+
+
+async def test_preflight_accounts_and_join_from_registered_origin(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await make_login_app(db_session)
+    for path, method in ((ACCOUNTS, "GET"), (JOIN, "POST")):
+        resp = await client.options(
+            path, headers={**_preflight(ORIGIN), "Access-Control-Request-Method": method}
+        )
+        assert resp.status_code == 204, path
+        assert _echoed(resp), path
+
+
+async def test_accounts_and_join_foreign_origin_not_echoed(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await make_login_app(db_session)
+    for path, method in ((ACCOUNTS, "GET"), (JOIN, "POST")):
+        resp = await client.options(
+            path, headers={**_preflight(EVIL), "Access-Control-Request-Method": method}
+        )
+        assert "access-control-allow-origin" not in resp.headers, path
+    accounts = await client.get(ACCOUNTS, headers={"Origin": EVIL, "X-MM-App": "stoktok"})
+    join = await client.post(JOIN, json={}, headers={"Origin": EVIL, "X-MM-App": "stoktok"})
+    for resp in (accounts, join):
+        assert resp.status_code == 403
+        assert "access-control-allow-origin" not in resp.headers
+
+
 async def test_login_cross_origin_credentialed_echo(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:

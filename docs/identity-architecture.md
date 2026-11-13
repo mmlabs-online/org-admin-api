@@ -61,12 +61,18 @@ email (USR-04). The user may log in, but cannot join an app or get an app token 
 checks the account session belongs to this device and is not revoked, the email is verified, the user
 is a member of B (else `403 not_member` with `join_available`), the org (if any) → returns the JWT.
 
-**Join** — UI shows "Continue as <account>" (= consent) → `POST /api/v1/auth/apps/B/join {account_id}` →
-applies `join_policy`; `open` assigns B's default role at app scope (`org_id NULL`) and writes an audit
-entry → app retries `/api/v1/auth/token`.
+**Join** — UI shows "Continue as <account>" (= consent) → `POST /api/v1/auth/apps/B/join {account_id}`
+(cookie + Origin + `X-MM-App: B`; the path key must be B, else `403 app_mismatch`) → under the app lock,
+checks the account (401 `session_invalid`) and the verified email (403 `email_unverified`); an existing
+app-scope member gets 200 with no write; then applies `join_policy`: `open` assigns B's default role at
+app scope (`org_id NULL`, an expired row is revived) and writes an audit entry → 200 `{"status":"member"}`
+→ app retries `/api/v1/auth/token`. `closed` and `admin` → 403 `join_closed`; `approval` → 403
+`join_approval_unavailable` until USR-03g; no usable default role → 403 `join_unavailable` (USR-03b).
 
 **Switch / list accounts** — `GET /api/v1/auth/accounts` lists the device's non-revoked account sessions
-(id, email, display info). Switching only changes the app's `mm_account_id`.
+of active users, oldest first: `{"items": [{account_id, email, email_verified, display_name}]}` (a single
+document, proposed D22). With the previous cookie value only accounts created before the rotation are
+listed. Switching only changes the app's `mm_account_id`.
 
 **Log out** — `POST /api/v1/auth/logout {account_id}` revokes one account session (all apps using it on this
 device lose it at their next token request); `{all:true}` revokes the device session.
@@ -102,7 +108,7 @@ role_assignments   (id, user_id, role_id, org_id → organizations NULL, granted
 organizations      (id uuid, name, slug unique, description NULL, status active|suspended,
                     created_by → users NULL, created_at, updated_at)   [Identity module; existing table moved, D15]
 join_requests      (id, app_id, user_id, status pending|approved|rejected, created_at, decided_by NULL)
-                    — only needed for join_policy = approval (USR-03b)
+                    — only needed for join_policy = approval (USR-03g)
 email_tokens       (id, user_id, purpose verify|reset, token_hash, expires_at, used_at NULL,
                     created_at)  (USR-04)
 email_send_log     (id, email_hmac, purpose, sent_at)   — resend limits; HMAC-SHA256 with
@@ -130,9 +136,9 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 |---|---|---|---|
 | `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04c) | create unverified user; send verification email | USR-01 (+USR-04 email) |
 | `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `__Host-mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
-| `GET /api/v1/auth/accounts` | cookie | accounts signed in on this device | USR-03b |
+| `GET /api/v1/auth/accounts` | cookie + Origin + `X-MM-App` | accounts signed in on this device | USR-03b |
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT, or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03c |
-| `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + `X-MM-App` | apply join policy, assign default role, audit | USR-03b |
+| `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + Origin + `X-MM-App` (= `{key}`) | apply join policy, assign default role, audit; `approval` in USR-03g | USR-03b |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
 | `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification | USR-04 |
 | `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04b) | send reset link (silent per-email limit) | USR-04b |
@@ -181,8 +187,8 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 - **`mmlabs-auth`** (Python, for app backends): JWKS fetch + cache, JWT verification (`iss`, `aud`,
   `exp`, `kid`), role-catalog cache with ETag, `require_permission("<app>:<res>:<action>")` (FastAPI
   dependency first).
-- Where they live (this repo under `clients/`, or their own repos) and how they are published: decided
-  in the USR-03b plan.
+- They live in a **separate repo** for the `@mmlabs` libraries (owner creates it) and are built in
+  USR-08 (D21). Until then apps call the API with plain `fetch` (`docs/consumers.md`).
 
 ## 7. Risks
 
@@ -194,6 +200,10 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 - `localStorage.mm_account_id` is per origin; two apps on the same origin would share it.
 - Open join (D9) + open sign-up (D2) means anyone with a verified email gets `<app>:member` in every
   non-admin app; tightening is a data change (D9).
+- Under `open`, a member that staff removed can join again (no ban list); staff use `closed` or tighten
+  the role. Reviving an expired default-role assignment makes it permanent (`expires_at NULL`).
+- `GET /api/v1/auth/accounts` shows every account signed in on the browser to any registered app
+  origin (D4/D8 "Continue as"); XSS in one app exposes those emails (USR-03b plan O3).
 
 ## 8. Decision log — 2026-11-11 (owner)
 
@@ -224,6 +234,13 @@ Follow-up decisions (owner, 2026-11-11, resolving §10):
 | D18 | **R9 exceptions (Q2, 2026-11-11):** apps are addressed by their immutable `key` in `/api/v1/apps/{key}/…`; the role catalog is a single document, not `Page[T]`. Permissions, roles and assignments keep UUID ids. |
 | D19 | **Allowed app origins (Q3, 2026-11-11):** only `https://mmlabs.online`, `https://*.mmlabs.online` and loopback (`http(s)://localhost`, `127.0.0.1`, `[::1]`). Any other origin → 422. |
 | D20 | **Cookie `__Host-mm_device`, `Path=/` (USR-03f, owner 2026-11-12):** the device cookie is `__Host-mm_device` — `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain` — so sibling `*.mmlabs.online` hosts cannot set or shadow it (cookie tossing). Amends D5 and D13 for the cookie only; identity endpoints stay under `/api/v1/auth/*`. A legacy `mm_device` is ignored. Logout `{account_id}` with the previous value only reaches account sessions created before the rotation; `{all:true}` with the previous value revokes the whole device (denial of service within 60 s only, never escalation). |
+
+Decisions from the USR-03b plan (2026-11-13):
+
+| # | Decision |
+|---|---|
+| D21 | **Client libraries (owner, 2026-11-13):** `@mmlabs/auth-client` and `mmlabs-auth` move to USR-08 and live in a separate repo for the `@mmlabs` libraries. |
+| D22 | **Proposed, pending owner:** R9 exception — `GET /api/v1/auth/accounts` returns a single document `{"items": [...]}`, not `Page[T]` (bounded per device). |
 
 ## 9. Open questions
 

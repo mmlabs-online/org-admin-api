@@ -11,8 +11,9 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.sessions.errors import SessionInvalidError
-from app.modules.sessions.models import DeviceSession
+from app.modules.sessions.models import AccountSession, DeviceSession
 from app.modules.sessions.repository import SessionRepository
+from app.modules.users.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,12 @@ class DeviceSessionService:
 
     async def add_account(self, device_id: uuid.UUID, user_id: uuid.UUID) -> uuid.UUID:
         return await self.repo.upsert_account(device_id, user_id)
+
+    async def list_accounts(self, device: ResolvedDevice) -> list[tuple[AccountSession, User]]:
+        """The device's active accounts; with the previous cookie, only those older (N1)."""
+        return await self.repo.list_active_accounts(
+            device.device_id, created_before=device.accounts_created_before
+        )
 
     async def revoke_account(
         self, device_id: uuid.UUID, account_id: uuid.UUID, *, created_before: datetime | None

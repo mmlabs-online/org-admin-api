@@ -14,7 +14,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.core.config import Settings
 from app.modules.auth.cookies import DEVICE_COOKIE
 from app.modules.auth.passwords import PasswordHasher
-from app.modules.rbac.models import App
+from app.modules.rbac.models import App, Role
 from app.modules.sessions.models import AccountSession, DeviceSession
 from app.modules.users.models import User
 from tests.conftest import TEST_IDENTITY_HMAC_KEY
@@ -59,6 +59,16 @@ async def make_login_app(
     session.add(app)
     await session.flush()
     return app
+
+
+async def make_member_role(session: AsyncSession, app: App) -> Role:
+    """Role `<key>:member`, set as the app's default role."""
+    role = Role(app_id=app.id, key=f"{app.key}:member", name="Member", is_system=True)
+    session.add(role)
+    await session.flush()
+    app.default_role_id = role.id
+    await session.flush()
+    return role
 
 
 async def make_device(

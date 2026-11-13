@@ -300,6 +300,21 @@ async def test_status_and_default_role_untouched(
     _assert_no_leak(out, err)
 
 
+async def test_null_default_role_kept_after_permission_add(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """USR-07 S1: a NULL default (staff cleared it) is not set back by a rebuild."""
+    await make_app(db_session, "ricotdin", origins=[PROD])
+    assert await _run(db_session, *_ricotdin("--permission", "ricotdin:app:use")) == 0
+    out, err = capsys.readouterr()
+    assert out.splitlines()[0] == "updated app ricotdin"
+    app = await _app(db_session)
+    assert app is not None
+    assert app.default_role_id is None
+    assert await _member_keys(db_session, app) == ["ricotdin:app:use"]
+    _assert_no_leak(out, err)
+
+
 async def test_admin_refused_exit_64(capsys: pytest.CaptureFixture[str]) -> None:
     argv = ["register-app", "--key", "admin", "--name", "A", "--origin", PROD]
     assert await amain(argv, settings=Settings(), session_scope=_never) == 64
