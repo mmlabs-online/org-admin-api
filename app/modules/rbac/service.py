@@ -180,8 +180,11 @@ class RoleCatalogService:
         """
         return await self._build_for_app(await _locked_app(self.repo, app_key))
 
-    async def _build_for_app(self, app: App) -> DefaultRoleResult:
-        """The caller holds the app lock (`lock_app`) or owns the uncommitted new app row."""
+    async def _build_for_app(self, app: App, *, set_default: bool = True) -> DefaultRoleResult:
+        """The caller holds the app lock (`lock_app`) or owns the uncommitted new app row.
+
+        With `set_default=False`, `apps.default_role_id` is left as it is, even when NULL.
+        """
         # R4: audit entry once ADM-004 lands.
         if app.key == ADMIN_APP_KEY:
             raise ConflictError("The admin app has no member role")
@@ -200,8 +203,9 @@ class RoleCatalogService:
         target = {p.id: p.key for p in await self.repo.list_permissions(app.id, is_admin=False)}
         added, removed = await _set_role_permissions(self.repo, role, target)
 
-        await self.repo.set_default_role_if_null(app.id, role.id)
-        await self.repo.session.refresh(app)
+        if set_default:
+            await self.repo.set_default_role_if_null(app.id, role.id)
+            await self.repo.session.refresh(app)
 
         return DefaultRoleResult(role_key=key, created=created, added=added, removed=removed)
 
@@ -304,7 +308,8 @@ class AppService:
         Origins replace the stored set; `join_policy`/`org_mode` apply only when given (an
         existing app's `org_mode` never changes); permissions are only added (`is_admin=false`)
         and then rebuild `<key>:member` (D9: a plain re-run keeps manual tightening). Never
-        touches `status` or `default_role_id`. Every refusal happens before the first write.
+        touches `status`, nor an existing app's `default_role_id` (a NULL default stays NULL;
+        only app creation sets `<key>:member`). Every refusal happens before the first write.
         """
         if data.key == ADMIN_APP_KEY:
             raise _register_refusal(
@@ -406,7 +411,8 @@ class AppService:
         member_added: list[str] = []
         member_removed: list[str] = []
         if added:
-            built = await self.catalog._build_for_app(app)
+            # A new app got its default in `create()`; an existing app's default is staff data.
+            built = await self.catalog._build_for_app(app, set_default=False)
             member_added, member_removed = built.added, built.removed
 
         member_key = f"{data.key}:member"

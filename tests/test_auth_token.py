@@ -20,6 +20,7 @@ from tests.auth_factories import (
     make_device,
     make_login_app,
     make_login_user,
+    make_member_role,
     parse_set_cookie,
     sha256,
     shift,
@@ -238,12 +239,24 @@ async def test_token_email_unverified_403(
 
 
 @pytest.mark.parametrize(
-    ("join_policy", "join_available"), [("open", True), ("approval", True), ("closed", False)]
+    ("join_policy", "with_default", "join_available"),
+    [
+        ("open", True, True),
+        ("open", False, False),
+        ("approval", True, False),  # USR-03g makes approval joinable again
+        ("closed", True, False),
+    ],
 )
 async def test_token_not_member(
-    client: AsyncClient, db_session: AsyncSession, join_policy: str, join_available: bool
+    client: AsyncClient,
+    db_session: AsyncSession,
+    join_policy: str,
+    with_default: bool,
+    join_available: bool,
 ) -> None:
-    await make_login_app(db_session, join_policy=join_policy)
+    app = await make_login_app(db_session, join_policy=join_policy)
+    if with_default:
+        await make_member_role(db_session, app)
     user = await make_login_user(db_session)
     raw, _, (account,) = await make_device(db_session, user)
     resp = await client.post(TOKEN, json=_body(account.id), headers=auth_headers(cookie=raw))

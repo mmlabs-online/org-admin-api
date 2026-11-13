@@ -380,8 +380,9 @@ permissions. Add ricotdin's permission keys later by re-running with `permission
   existing `is_admin` permission are refused. Adding one rebuilds `<key>:member` from all
   non-admin permissions, which drops permissions removed from it by hand (D9). A re-run without
   a new permission never touches the member role.
-- `status` and the default role never change; a **disabled** app is refused (exit 3). The `admin`
-  app is refused.
+- `status` and the default role of an existing app never change: a NULL default role stays NULL
+  (join then answers `join_unavailable`); only app creation sets `<key>:member` as the default.
+  A **disabled** app is refused (exit 3). The `admin` app is refused.
 - An origin belongs to one app (any status, `admin` included); loopback origins are refused in
   staging/production.
 - The API applies origin changes within 60 s (CORS cache). Separate app keys mean separate token

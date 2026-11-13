@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.sessions.models import AccountSession, DeviceSession
+from app.modules.users.models import User, UserStatus
 
 GRACE = timedelta(seconds=60)  # D6: previous cookie value stays valid this long
 TOUCH_EVERY = timedelta(hours=1)  # `last_seen_at` is refreshed at most this often
@@ -145,6 +146,25 @@ class SessionRepository:
         if created_before is not None:
             query = query.where(AccountSession.created_at < created_before)
         return await self.session.scalar(query.execution_options(populate_existing=True))
+
+    async def list_active_accounts(
+        self, device_id: uuid.UUID, *, created_before: datetime | None
+    ) -> list[tuple[AccountSession, User]]:
+        """Active account sessions of active users on the device, oldest first (N1 as above)."""
+        query = (
+            select(AccountSession, User)
+            .join(User, User.id == AccountSession.user_id)
+            .where(
+                AccountSession.device_session_id == device_id,
+                AccountSession.revoked_at.is_(None),
+                User.status == UserStatus.ACTIVE.value,
+            )
+            .order_by(AccountSession.created_at, AccountSession.id)
+        )
+        if created_before is not None:
+            query = query.where(AccountSession.created_at < created_before)
+        rows = await self.session.execute(query)
+        return [(row[0], row[1]) for row in rows.all()]
 
     async def revoke_account(
         self, device_id: uuid.UUID, account_id: uuid.UUID, *, created_before: datetime | None

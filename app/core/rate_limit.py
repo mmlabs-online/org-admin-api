@@ -73,6 +73,8 @@ Scope = Literal[
     "role_catalog",
     "login",
     "token",
+    "accounts",
+    "join",
     "jwks",
     "verify_email",
     "verify_email_resend",
@@ -87,6 +89,8 @@ _LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
     ),
     "login": lambda s: RateLimit(s.login_rate_limit, s.login_rate_window_seconds),
     "token": lambda s: RateLimit(s.token_rate_limit, s.token_rate_window_seconds),
+    "accounts": lambda s: RateLimit(s.accounts_rate_limit, s.accounts_rate_window_seconds),
+    "join": lambda s: RateLimit(s.join_rate_limit, s.join_rate_window_seconds),
     "jwks": lambda s: RateLimit(s.jwks_rate_limit, s.jwks_rate_window_seconds),
     "verify_email": lambda s: RateLimit(
         s.verify_email_rate_limit, s.verify_email_rate_window_seconds

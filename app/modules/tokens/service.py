@@ -75,9 +75,12 @@ class TokenService:
             raise EmailUnverifiedError("Email address is not verified")
         roles = await self.authz.effective_roles(user.id, app.key)
         if not roles:
+            # What join would do now; USR-03g makes `approval` true again.
+            join_available = (
+                app.join_policy == JoinPolicy.OPEN.value and app.default_role_id is not None
+            )
             raise NotMemberError(
-                "Not a member of this app",
-                details={"join_available": app.join_policy != JoinPolicy.CLOSED.value},
+                "Not a member of this app", details={"join_available": join_available}
             )
 
         now = int(self.clock())

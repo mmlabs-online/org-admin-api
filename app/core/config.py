@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     login_rate_window_seconds: int = Field(default=60, ge=1)
     token_rate_limit: int = Field(default=60, ge=1)
     token_rate_window_seconds: int = Field(default=60, ge=1)
+    accounts_rate_limit: int = Field(default=60, ge=1)
+    accounts_rate_window_seconds: int = Field(default=60, ge=1)
+    join_rate_limit: int = Field(default=20, ge=1)
+    join_rate_window_seconds: int = Field(default=60, ge=1)
     # JWKS: app backends may share one egress IP.
     jwks_rate_limit: int = Field(default=120, ge=1)
     jwks_rate_window_seconds: int = Field(default=60, ge=1)

@@ -81,3 +81,16 @@ class ResetPasswordRequest(BaseModel):
 
     token: str = Field(pattern=EMAIL_TOKEN_RE)
     new_password: SecretStr = Field(max_length=PASSWORD_MAX_LENGTH)
+
+
+class AccountRead(BaseModel):
+    account_id: uuid.UUID  # the account session id apps use (ADR-0004), never the user id
+    email: str
+    email_verified: bool
+    display_name: str | None
+
+
+class AccountList(BaseModel):
+    """A single document, not `Page[T]`: bounded per device (proposed D22)."""
+
+    items: list[AccountRead]

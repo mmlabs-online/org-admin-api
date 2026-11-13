@@ -159,6 +159,60 @@ accounts signed in on the same device stay); the next `/token` for it answers 40
 most 15 min, `ACCESS_TOKEN_TTL_SECONDS`). A reset also marks the email verified (the user proved
 they receive mail there) and clears the login backoff for the email.
 
+## Accounts and joining an app
+
+### Listing the accounts on this browser
+
+```js
+const resp = await fetch("https://api.mmlabs.online/api/v1/auth/accounts", {
+  credentials: "include",
+  headers: { "X-MM-App": "ricotdin" },
+});
+// 200 {"items": [{"account_id", "email", "email_verified", "display_name"}]}
+```
+
+- Lists the accounts signed in on **this browser** (oldest first): every app on the device sees
+  the same list. `account_id` is what `/token` and join take; it is not the user id.
+- Use it for an account switcher or a "Continue as <account>" screen. Switching only changes the
+  app's own `localStorage.mm_account_id`.
+- Same errors as `/token` for the cookie and app context (401 `session_invalid`, 403
+  `app_header_required` / `origin_not_allowed`, 429 `rate_limited`).
+
+### Joining ("Continue as <account>")
+
+Sequence: `/token` → 403 `not_member` with `details.join_available: true` → show "Continue as
+<email>" → on the user's click, join → call `/token` again.
+
+```js
+const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/join", {
+  method: "POST",
+  credentials: "include",
+  headers: { "Content-Type": "application/json", "X-MM-App": "ricotdin" },
+  body: JSON.stringify({ account_id }),
+});
+// 200 {"status": "member"} → call /token again
+```
+
+- **The click is the consent** (D8): only call join after the user chose the account on a
+  "Continue as" screen, never automatically.
+- The path key must be your own app (`X-MM-App`); an app cannot join users into another app.
+- Idempotent: an existing member gets the same 200 and nothing changes.
+- Under `join_policy = open` the user gets the app's default role (`<app>:member`) at app scope. A
+  member that staff removed can join again; staff use `closed` (or tighten the role) to stop that.
+
+| Status / code | Meaning |
+|---|---|
+| 200 `{"status":"member"}` | Joined now or already a member: call `/token`. |
+| 401 `session_invalid` | Account not signed in on this device: re-list the accounts or sign in. |
+| 403 `email_unverified` | Verify the email first (see "Email verification"). |
+| 403 `join_closed` | The app does not accept joins (`admin` included). |
+| 403 `join_approval_unavailable` | The app uses approval, which is not available yet (USR-03g). |
+| 403 `join_unavailable` | The app is misconfigured (no usable default role): contact staff. |
+| 403 `app_mismatch` | Bug: the path key must equal `X-MM-App`. |
+| 403 `app_header_required` / `origin_not_allowed` | Bug or misconfiguration: header or origin. |
+| 422 `validation_error` | Bug: bad body (only `account_id` is allowed). |
+| 429 `rate_limited` | Back off for `Retry-After` seconds. |
+
 ## Verifying (backend) checklist
 
 1. Pin `algorithms=["ES256"]`. Never read the algorithm from the token.
