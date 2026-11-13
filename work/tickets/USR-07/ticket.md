@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-12 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/22 (code landed after #21 merged) |
 
 ## Goal
 An operator can register a consuming app (key, name, origins, join policy, org mode, default member role) on the production server without the flag-gated RBAC admin API, so that ricotdin can start using mmlabs Identity before ADM-002 ships.

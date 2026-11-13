@@ -19,9 +19,11 @@ from app.modules.rbac.models import (
     Role,
     RoleAssignment,
 )
+from app.modules.rbac.origins import is_loopback_origin
 from app.modules.rbac.repository import AssignmentRow, RbacRepository
 from app.modules.rbac.schemas import (
     AppCreate,
+    AppRegister,
     AppUpdate,
     AssignmentCreate,
     AssignmentRead,
@@ -58,6 +60,38 @@ class BootstrapResult:
     email: str | None = None
     created_at: datetime | None = None
     email_verified: bool | None = None
+
+
+class RegisterOutcome(StrEnum):
+    CREATED = "created"
+    UPDATED = "updated"
+    UNCHANGED = "unchanged"
+
+
+@dataclass(frozen=True)
+class RegisterResult:
+    """Plain values for the CLI (USR-07), so it never touches the ORM."""
+
+    outcome: RegisterOutcome
+    key: str
+    name: str
+    join_policy: str
+    org_mode: str
+    origins: tuple[str, ...]
+    origins_added: tuple[str, ...]
+    origins_removed: tuple[str, ...]
+    changes: tuple[tuple[str, str, str], ...]  # (field, old, new) for name / join_policy
+    permissions_added: tuple[str, ...]
+    member_role: str | None  # None: the member role is missing (not rebuilt)
+    member_permissions: tuple[str, ...]
+    member_added: tuple[str, ...]
+    member_removed: tuple[str, ...]
+
+
+def _register_refusal(
+    error: type[ConflictError] | type[UnprocessableError], message: str, field: str, reason: str
+) -> ConflictError | UnprocessableError:
+    return error(message, details=[{"field": field, "reason": reason}])
 
 
 @dataclass(frozen=True)
@@ -263,6 +297,146 @@ class AppService:
         except IntegrityError as exc:  # an assignment was added concurrently
             raise ConflictError("App has role assignments; disable it instead") from exc
         self.repo.mark_apps_changed()
+
+    async def register(self, data: AppRegister, *, app_env: str) -> RegisterResult:
+        """Create or update an app from the operator CLI (USR-07); the caller owns the transaction.
+
+        Origins replace the stored set; `join_policy`/`org_mode` apply only when given (an
+        existing app's `org_mode` never changes); permissions are only added (`is_admin=false`)
+        and then rebuild `<key>:member` (D9: a plain re-run keeps manual tightening). Never
+        touches `status` or `default_role_id`. Every refusal happens before the first write.
+        """
+        if data.key == ADMIN_APP_KEY:
+            raise _register_refusal(
+                ConflictError, "The admin app cannot be registered", "key", "admin_app"
+            )
+        if app_env in {"staging", "production"} and any(
+            is_loopback_origin(o) for o in data.origins
+        ):
+            raise _register_refusal(
+                UnprocessableError,
+                "Loopback origins are not allowed here",
+                "origins",
+                "loopback_not_allowed",
+            )
+        requested = list(dict.fromkeys(data.permissions))
+        for perm_key in requested:
+            if perm_key.split(":", 1)[0] != data.key:
+                raise _register_refusal(
+                    UnprocessableError,
+                    "Key prefix must be the app key",
+                    "permissions",
+                    "prefix_mismatch",
+                )
+            if perm_key == f"{data.key}:*":
+                raise _register_refusal(
+                    UnprocessableError,
+                    "The app wildcard permission cannot be registered",
+                    "permissions",
+                    "wildcard_not_allowed",
+                )
+
+        app = await self.repo.lock_app(data.key)
+        existing: set[str] = set()
+        if app is not None:
+            if app.status == AppStatus.DISABLED:
+                raise _register_refusal(ConflictError, "The app is disabled", "key", "app_disabled")
+            if data.org_mode is not None and data.org_mode != app.org_mode:
+                raise _register_refusal(
+                    ConflictError,
+                    "org_mode of an existing app cannot be changed",
+                    "org_mode",
+                    "org_mode_change",
+                )
+            perms = await self.repo.permissions_by_keys(app.id, requested)
+            if any(p.is_admin for p in perms):
+                raise _register_refusal(
+                    ConflictError,
+                    "An is_admin permission cannot be registered",
+                    "permissions",
+                    "is_admin_permission",
+                )
+            existing = {p.key for p in perms}
+
+        claimed = [o for o in data.origins if not is_loopback_origin(o)]
+        if await self.repo.app_keys_holding_origins(claimed, data.key):
+            raise _register_refusal(
+                ConflictError,
+                "An origin is already registered to another app",
+                "origins",
+                "origin_taken",
+            )
+
+        # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
+        changes: list[tuple[str, str, str]] = []
+        created = app is None
+        if app is None:
+            app = await self.create(
+                AppCreate(
+                    key=data.key,
+                    name=data.name,
+                    join_policy=data.join_policy or JoinPolicy.OPEN,
+                    org_mode=data.org_mode or OrgMode.NONE,
+                    origins=data.origins,
+                )
+            )
+            origins_added, origins_removed = sorted(app.origins), []
+        else:
+            old_name, old_policy, old_origins = app.name, app.join_policy, list(app.origins)
+            fields: dict[str, object] = {"name": data.name}
+            if set(data.origins) != set(old_origins):
+                fields["origins"] = data.origins
+            if data.join_policy is not None:
+                fields["join_policy"] = data.join_policy
+            app = await self.update(data.key, AppUpdate.model_validate(fields))
+            if app.name != old_name:
+                changes.append(("name", old_name, app.name))
+            if app.join_policy != old_policy:
+                changes.append(("join_policy", old_policy, app.join_policy))
+            origins_added = sorted(set(app.origins) - set(old_origins))
+            origins_removed = sorted(set(old_origins) - set(app.origins))
+
+        added = [k for k in requested if k not in existing]
+        permission_service = PermissionService(self.repo.session)
+        for perm_key in added:
+            await permission_service.create(
+                data.key, PermissionCreate(key=perm_key, is_admin=False)
+            )
+
+        member_added: list[str] = []
+        member_removed: list[str] = []
+        if added:
+            built = await self.catalog._build_for_app(app)
+            member_added, member_removed = built.added, built.removed
+
+        member_key = f"{data.key}:member"
+        role = await self.repo.get_role_by_key(app.id, member_key)
+        member_permissions = (
+            [] if role is None else sorted((await self.repo.role_permission_keys(role.id)).values())
+        )
+
+        if created:
+            outcome = RegisterOutcome.CREATED
+        elif changes or origins_added or origins_removed or added or member_added or member_removed:
+            outcome = RegisterOutcome.UPDATED
+        else:
+            outcome = RegisterOutcome.UNCHANGED
+        return RegisterResult(
+            outcome=outcome,
+            key=app.key,
+            name=app.name,
+            join_policy=app.join_policy,
+            org_mode=app.org_mode,
+            origins=tuple(app.origins),
+            origins_added=tuple(origins_added),
+            origins_removed=tuple(origins_removed),
+            changes=tuple(changes),
+            permissions_added=tuple(sorted(added)),
+            member_role=None if role is None else member_key,
+            member_permissions=tuple(member_permissions),
+            member_added=tuple(member_added),
+            member_removed=tuple(member_removed),
+        )
 
 
 class PermissionService:

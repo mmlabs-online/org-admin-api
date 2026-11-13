@@ -1,4 +1,4 @@
-.PHONY: install dev db-up db-down migrate migration grant-super-admin lint format typecheck test check
+.PHONY: install dev db-up db-down migrate migration grant-super-admin register-app lint format typecheck test check
 
 install:        ## Install deps (incl. dev)
 	uv sync
@@ -21,6 +21,10 @@ migration:      ## Create a migration: make migration m="add users"
 grant-super-admin:  ## Grant admin:super-admin: make grant-super-admin email=you@example.com
 	@test -n "$(email)" || { echo "usage: make grant-super-admin email=you@example.com"; exit 64; }
 	@uv run python -m app.cli grant-super-admin --email '$(email)'
+
+register-app:  ## Register/update an app: make register-app ARGS='--key x --name X --origin https://x.mmlabs.online'
+	@test -n "$(ARGS)" || { echo "usage: make register-app ARGS='--key <key> --name <name> --origin <origin> ...'"; exit 64; }
+	@uv run python -m app.cli register-app $(ARGS)
 
 lint:
 	uv run ruff check .

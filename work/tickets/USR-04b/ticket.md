@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | auth, security, api |
 | Attempts | 0 |
 | Created | 2026-11-12 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/22 |
 
 ## Goal
 A user who forgot their password gets a one-time reset link (via the USR-04 `EmailSender` and dispatcher) and sets a new password; every signed-in session of that user ends.
@@ -44,3 +44,4 @@ USR-04, USR-04c.
 - 2026-11-12 (USR-04 security review S1/S2): add a per-IP rate-limit scope on `/auth/verify-email/resend`; split or reserve the global `EMAIL_DAILY_CAP` per purpose so sign-up spam cannot block reset mail (e.g. verify ≤ 80 %); optionally serialize the global count with a global advisory lock; runbook: alert on `email_not_sent reason=daily_cap`. Also: wire `EmailDispatcher.aclose()` into an app lifespan; retention cleanup for `email_send_log`/`email_tokens`.
 - 2026-11-12: created by the orchestrator from the USR-04 planner's split.
 - 2026-11-13 (owner, USR-04c): forgot requires `X-MM-App` + Origin like signup; the reset link origin is the request's validated Origin; there is no `EMAIL_LINK_BASE_URL` fallback.
+- 2026-11-13: planner moved dispatcher aclose, retention cleanup and the daily-cap alert runbook to **USR-04d**. Forgot requires X-MM-App + Origin (owner note overrides the AC's 'optional', plan deviation).

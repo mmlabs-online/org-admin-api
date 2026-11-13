@@ -27,13 +27,16 @@ from app.modules.auth.deps import (
 )
 from app.modules.auth.email_verification import EmailVerificationService
 from app.modules.auth.hooks import SignupHook
+from app.modules.auth.password_reset import PasswordResetService
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.schemas import (
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     LoginUser,
     LogoutRequest,
     ResendVerificationRequest,
+    ResetPasswordRequest,
     SignupRequest,
     SignupResponse,
     VerifyEmailRequest,
@@ -65,6 +68,7 @@ _ERR: dict[str, Any] = {"description": "Error envelope"}
 )
 async def signup(
     session: SessionDep,
+    _app: AppContextDep,
     body: SignupRequest,
     remote_ip: ClientIpDep,
     policy: Annotated[PasswordPolicy, Depends(get_password_policy)],
@@ -214,6 +218,7 @@ async def verify_email(
     "/verify-email/resend",
     status_code=status.HTTP_202_ACCEPTED,
     response_class=Response,
+    dependencies=[rate_limit("verify_email_resend")],
     responses={401: _ERR, 403: _ERR, 409: _ERR, 422: _ERR, 429: _ERR},
 )
 async def resend_verification(
@@ -235,4 +240,75 @@ async def resend_verification(
     background_tasks.add_task(dispatcher.enqueue, email)
     if device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)
+    response.headers["Cache-Control"] = "no-store"
+
+
+@router.post(
+    "/password/forgot",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_class=Response,
+    dependencies=[rate_limit("forgot")],
+    responses={403: _ERR, 422: _ERR, 429: _ERR},
+)
+async def forgot_password(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    background_tasks: BackgroundTasks,
+    _app: AppContextDep,
+    body: ForgotPasswordRequest,
+    remote_ip: ClientIpDep,
+    link_origin: Annotated[str, Depends(get_link_origin)],
+    verifier: Annotated[TurnstileVerifier, Depends(get_turnstile_verifier)],
+    policy: Annotated[PasswordPolicy, Depends(get_password_policy)],
+    hasher: Annotated[PasswordHasher, Depends(get_password_hasher)],
+    dispatcher: EmailDispatcherDep,
+) -> None:
+    """Public (R3 class 3: per-IP limit + Turnstile) + required app context (owner 2026-11-13):
+    `X-MM-App` of an active app and an `Origin` registered for it (403 otherwise).
+
+    Always 202 for any email (no enumeration); per-email limits are silent. The reset link
+    uses the validated `Origin`; the email is queued after the commit.
+    """
+    settings: Settings = request.app.state.settings
+    email = await PasswordResetService(
+        session,
+        email_hasher=get_email_hasher(request),
+        daily_cap=settings.email_daily_cap,
+        verifier=verifier,
+        policy=policy,
+        hasher=hasher,
+    ).forgot(body, remote_ip, link_origin)
+    if email is not None:
+        background_tasks.add_task(dispatcher.enqueue, email)
+    response.headers["Cache-Control"] = "no-store"
+
+
+@router.post(
+    "/password/reset",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    dependencies=[rate_limit("reset")],
+    responses={422: _ERR, 429: _ERR},
+)
+async def reset_password(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    body: ResetPasswordRequest,
+    verifier: Annotated[TurnstileVerifier, Depends(get_turnstile_verifier)],
+    policy: Annotated[PasswordPolicy, Depends(get_password_policy)],
+    hasher: Annotated[PasswordHasher, Depends(get_password_hasher)],
+) -> None:
+    """Public (R3 class 3, per-IP limit): the one-time token is the credential. Ends every
+    account session of the user; sets no cookie and signs nobody in."""
+    settings: Settings = request.app.state.settings
+    await PasswordResetService(
+        session,
+        email_hasher=get_email_hasher(request),
+        daily_cap=settings.email_daily_cap,
+        verifier=verifier,
+        policy=policy,
+        hasher=hasher,
+    ).reset(body.token, body.new_password.get_secret_value())
     response.headers["Cache-Control"] = "no-store"

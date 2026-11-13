@@ -161,7 +161,7 @@ env file is rewritten every run).
 
 No env var (USR-03e, ADR-0006). The API echoes the origins of **active** apps (`apps.origins`,
 D19) with credentials, for `/api/v1/auth/*` only. Register or update an app's origins with the
-USR-07 CLI (or the admin API later). Changes made through the API process apply at once; changes
+USR-07 CLI, see "Register an app" below (or the admin API later). Changes made through the API process apply at once; changes
 from the CLI or manual SQL apply within 60 s. Loopback origins are ignored in staging/production.
 A stale `CORS_ORIGINS` in the deployment env file is ignored and can be deleted from
 `mmlabs-online/deployment`.
@@ -217,6 +217,9 @@ migration must keep the previous release working:
    No Cloudflare Access application (owner decision, 2026-11-10 — the API has no auth until ADM-002).
 5. Push the branch `release/v0.1.0` from main, merge the release PR it opens, and check
    `https://api.mmlabs.online/healthz`.
+6. **Ops workflow environment:** in `mmlabs-online/deployment` create the GitHub Environment
+   `org-admin-api-ops` (required reviewer: owner; deployment branches: `main` only). The
+   `ops-org-admin-api` workflow (register-app, grant-super-admin) waits for that approval.
 
 ## Operations
 
@@ -245,8 +248,15 @@ config"). Without it settings refuse to load in production and the CLI exits 1
 1. **Sign up yourself** through the public sign-up, then **log in once** (after USR-03) to prove you
    control the password. Never grant to an account someone else could have registered in your
    name (pre-registration hijack).
-2. **Run on the Mac**, from the deployment repo checkout the deploy uses. Start the line with a
-   space so zsh keeps it out of history (`setopt HIST_IGNORE_SPACE`), or run `fc -p` first:
+2. **Run the ops workflow:** in `mmlabs-online/deployment`, Actions → `ops-org-admin-api` → Run
+   workflow (branch `main`) → command `grant-super-admin`, `email` = your address; approve the
+   `org-admin-api-ops` environment; read the output in the run summary. The email is masked in the
+   log, but the input stays readable in the run's event payload by anyone with read access to the
+   deployment repo, which must stay private.
+
+   **Fallback** with a shell on the Mac, from the deployment repo checkout the deploy uses. Start
+   the line with a space so zsh keeps it out of history (`setopt HIST_IGNORE_SPACE`), or run
+   `fc -p` first:
 
    ```bash
     docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
@@ -284,7 +294,88 @@ config"). Without it settings refuse to load in production and the CLI exits 1
 | 64 | usage error (bad arguments or invalid email) |
 
 **After USR-04 ships:** verify the email via the link in the verification email (resend from a
-signed-in app if it expired). Resetting the password (revokes every device session) arrives with
-USR-04b.
+signed-in app if it expired). If you don't know the password, use "forgot password" in an app,
+then reset it from the emailed link (USR-04b): this ends every signed-in session of the account
+(its account sessions on every device) and also marks the email verified. Access tokens already
+issued stay valid for at most 15 minutes (`ACCESS_TOKEN_TTL_SECONDS`).
 
 Locally: `make grant-super-admin email=you@example.com`.
+
+## Register an app (USR-07)
+
+A consuming app (key, name, browser origins, join policy, org mode, `<key>:member` role) is
+registered from the CLI, without the flag-gated RBAC admin API. Rules live in
+`AppService.register`; the CLI only parses and prints.
+
+**Prerequisites:** a release containing USR-07 is deployed; the `org-admin-api-ops` environment
+exists (One-time setup, step 6).
+
+1. In `mmlabs-online/deployment`: Actions → `ops-org-admin-api` → Run workflow (branch `main`) →
+   command `register-app`, inputs `key`, `name`, `origins` (comma- or space-separated), optional
+   `permissions`, `join_policy` / `org_mode` (`keep` = not passed), `dry_run` (default on).
+2. Approve the `org-admin-api-ops` environment; read the output in the run summary.
+3. Always run with `dry_run` on first and check the `+` / `-` lines (a `- origin` line removes an
+   origin), then run again with `dry_run` off.
+
+**Worked example: ricotdin** (owner, 2026-11-12: separate app keys, so staging tokens are never
+valid on the prod backend; both `open`, `none`; no permissions yet):
+
+| Input | ricotdin | ricotdin-staging |
+|---|---|---|
+| `key` | `ricotdin` | `ricotdin-staging` |
+| `name` | `Ricotdin` | `Ricotdin Staging` |
+| `origins` | `https://ricotdin.mmlabs.online` | `https://ricotdin-staging.mmlabs.online` |
+| `join_policy` / `org_mode` | `open` / `none` | `open` / `none` |
+
+Expected output (first real run; a dry run adds the `dry-run: …` line, a re-run prints
+`unchanged app …` and no change lines):
+
+```
+created app ricotdin
+name: Ricotdin
+join_policy: open
+org_mode: none
+origins: https://ricotdin.mmlabs.online
+member role: ricotdin:member = (none)
++ origin https://ricotdin.mmlabs.online
+note: the API applies origin changes within 60 s
+dry-run: rolled back, nothing was saved      (only with dry_run)
+```
+
+The member role starts empty, so ricotdin tokens carry `roles: ["ricotdin:member"]` and no
+permissions. Add ricotdin's permission keys later by re-running with `permissions` (e.g.
+`ricotdin:app:use`).
+
+**Semantics:**
+
+- Origins **replace** the stored set (at least one); same set in another order is unchanged.
+- `join_policy` / `org_mode` change only when passed; `org_mode` of an existing app is never
+  changed (exit 1).
+- Permissions are only **added**, always `is_admin=false`; `<key>:*`, another app's prefix and an
+  existing `is_admin` permission are refused. Adding one rebuilds `<key>:member` from all
+  non-admin permissions, which drops permissions removed from it by hand (D9). A re-run without
+  a new permission never touches the member role.
+- `status` and the default role never change; a **disabled** app is refused (exit 3). The `admin`
+  app is refused.
+- An origin belongs to one app (any status, `admin` included); loopback origins are refused in
+  staging/production.
+- The API applies origin changes within 60 s (CORS cache). Separate app keys mean separate token
+  audiences.
+- Until ADM-004 the workflow run (actor, time, inputs, summary) is the audit trail.
+
+| Exit | Meaning |
+|---|---|
+| 0 | created, updated or unchanged (also a dry run) |
+| 1 | settings, `DB_ECHO`, origin held by another app, `org_mode` change, `is_admin` permission, concurrent change, database; one fixed line, no details |
+| 3 | the app is disabled; nothing changed |
+| 64 | usage or validation error (bad key, name, origin or permission; `admin`; loopback in staging/production) |
+
+**Fallback** with a shell on the Mac (same command the workflow runs):
+
+```bash
+docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+  run --rm --no-deps migrate /app/.venv/bin/python -m app.cli register-app \
+  --key ricotdin --name Ricotdin --origin https://ricotdin.mmlabs.online --join-policy open --org-mode none --dry-run
+```
+
+Locally: `make register-app ARGS='--key ricotdin --name Ricotdin --origin https://ricotdin.mmlabs.online'`.

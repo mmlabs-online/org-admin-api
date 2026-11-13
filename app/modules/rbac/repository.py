@@ -37,6 +37,17 @@ class RbacRepository:
         )
         return [list(origins) for origins in result]
 
+    async def app_keys_holding_origins(self, origins: list[str], exclude_key: str) -> list[str]:
+        """Keys of other apps (any status, `admin` included) holding any of `origins`."""
+        if not origins:
+            return []
+        result = await self.session.scalars(
+            select(App.key)
+            .where(App.origins.overlap(origins), App.key != exclude_key)
+            .order_by(App.key)
+        )
+        return list(result)
+
     def mark_apps_changed(self) -> None:
         self.session.info[APPS_CHANGED_KEY] = True
 

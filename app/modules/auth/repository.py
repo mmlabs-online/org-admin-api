@@ -139,6 +139,30 @@ class EmailTokenRepository:
         )
         return user_id
 
+    async def find_active_user_id(self, token_hash: bytes, purpose: str) -> uuid.UUID | None:
+        """The user of an unused, unexpired token, without consuming it."""
+        user_id: uuid.UUID | None = await self.session.scalar(
+            select(EmailToken.user_id).where(
+                EmailToken.token_hash == token_hash,
+                EmailToken.purpose == purpose,
+                EmailToken.used_at.is_(None),
+                EmailToken.expires_at > func.now(),
+            )
+        )
+        return user_id
+
+    async def count_issued_24h(self) -> tuple[int, int]:
+        """(all, verify) tokens issued in the last 24 h, i.e. emails actually queued."""
+        row = (
+            await self.session.execute(
+                select(
+                    func.count(),
+                    func.count().filter(EmailToken.purpose == "verify"),
+                ).where(EmailToken.created_at > func.now() - timedelta(hours=24))
+            )
+        ).one()
+        return int(row[0]), int(row[1])
+
     async def find_user_id(self, token_hash: bytes, purpose: str) -> uuid.UUID | None:
         """The token's user in any state (used, expired)."""
         user_id: uuid.UUID | None = await self.session.scalar(
@@ -189,13 +213,11 @@ class EmailSendLogRepository:
         now, last, count, oldest = row
         return SendWindow(now, last, int(count), oldest)
 
-    async def count_global_24h(self) -> int:
-        count = await self.session.scalar(
-            select(func.count())
-            .select_from(EmailSendLog)
-            .where(EmailSendLog.sent_at > func.now() - timedelta(hours=24))
+    async def lock_global(self) -> None:
+        """Serialize the global daily-cap check across all emails until the transaction ends."""
+        await self.session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended("email_daily_cap", 0)))
         )
-        return count or 0
 
     async def insert(self, email_hmac: bytes, purpose: str) -> None:
         await self.session.execute(

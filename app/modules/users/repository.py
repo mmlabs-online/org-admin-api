@@ -32,6 +32,10 @@ class UserRepository:
         await self.session.flush()
         await self.session.refresh(user, ["email_verified_at"])
 
+    async def set_password_hash(self, user: User, password_hash: str) -> None:
+        user.password_hash = password_hash
+        await self.session.flush()
+
     async def get_by_email_for_share(self, email: str) -> User | None:
         """Exact (CITEXT) lookup of a normalized email, locked `FOR SHARE` until commit.
 

@@ -31,6 +31,7 @@ Apps can list the accounts signed in on the device, let a user join the app ("Co
 USR-03, USR-03c (token, JWKS), USR-03e (browser CORS) and USR-02.
 
 ## Notes / answers from owner
+- 2026-11-13 (USR-07 security review S1): `register-app` adding a permission can set a NULL `default_role_id` back to `<key>:member` (via `_build_for_app` → `set_default_role_if_null`) silently; docs say the default role never changes. Before join (this ticket) relies on `default_role_id`, either keep a NULL default (restore after rebuild) or print a `~ default_role` change line and fix the docstring and `docs/deploy.md`.
 - 2026-11-12 (USR-03c security review S1/S2): `mmlabs-auth` must use a flushable JWKS cache (no `cache_keys=True`), refetch on unknown `kid` at most once a minute (`cooldown_duration=60`), and the emergency key-rotation runbook must include flushing every consumer's JWKS cache.
 - 2026-11-12 (USR-02c security review F4): the join flow writes `role_assignments`, so it must take `lock_app` first.
 - New ticket (2026-11-11).

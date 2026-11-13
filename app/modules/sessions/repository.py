@@ -92,6 +92,18 @@ class SessionRepository:
             .execution_options(synchronize_session=False)
         )
 
+    async def revoke_all_accounts_of_user(self, user_id: uuid.UUID) -> None:
+        """Revoke every active account session of the user, on every device (password reset).
+
+        Device sessions stay: they may carry other users' accounts.
+        """
+        await self.session.execute(
+            update(AccountSession)
+            .where(AccountSession.user_id == user_id, AccountSession.revoked_at.is_(None))
+            .values(revoked_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
+
     async def count_active_accounts(self, device_id: uuid.UUID) -> int:
         count = await self.session.scalar(
             select(func.count())

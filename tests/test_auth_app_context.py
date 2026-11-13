@@ -1,7 +1,15 @@
+import uuid
+from typing import Any
+
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.session import get_session
+from app.main import create_app
+from app.modules.auth.deps import get_signup_hook, get_turnstile_verifier
+from app.modules.users.models import User
 from tests.auth_factories import (
     LOGIN,
     LOGOUT,
@@ -13,6 +21,7 @@ from tests.auth_factories import (
     make_login_user,
 )
 from tests.conftest import MakeClient
+from tests.fakes import FakeTurnstileVerifier
 
 _PROD = {
     "app_env": "production",
@@ -117,3 +126,41 @@ async def test_logout_checks_origin(client: AsyncClient, db_session: AsyncSessio
     assert _code(resp.json()) == "origin_not_allowed"
     resp = await client.post(LOGOUT, json=body, headers=auth_headers(cookie=raw))
     assert resp.status_code == 204
+
+
+async def test_signup_403_when_signup_hook_overridden(
+    db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier
+) -> None:
+    """The route-level `AppContextDep` keeps the 403 if the email hook dependency is replaced."""
+    await make_login_app(db_session)
+    calls: list[uuid.UUID] = []
+
+    async def recorder(user_id: uuid.UUID, session: AsyncSession) -> None:
+        calls.append(user_id)
+
+    async def _session() -> Any:
+        yield db_session
+
+    app = create_app()
+    app.dependency_overrides[get_session] = _session
+    app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+    app.dependency_overrides[get_signup_hook] = lambda: recorder
+    body = {
+        "email": "dana@example.com",
+        "password": "correct horse battery staple",
+        "turnstile_token": "pass",
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        missing = await c.post("/api/v1/auth/signup", json=body, headers={})
+        foreign = await c.post(
+            "/api/v1/auth/signup",
+            json=body,
+            headers=auth_headers(origin="https://evil.example.com"),
+        )
+    assert missing.status_code == 403
+    assert _code(missing.json()) == "app_header_required"
+    assert foreign.status_code == 403
+    assert _code(foreign.json()) == "origin_not_allowed"
+    assert calls == []
+    assert fake_turnstile.calls == []
+    assert await db_session.scalar(select(func.count()).select_from(User)) == 0
