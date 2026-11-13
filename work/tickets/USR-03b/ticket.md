@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | api, auth, security, db |
 | Attempts | 0 |
@@ -36,3 +36,4 @@ USR-03, USR-03c (token, JWKS), USR-03e (browser CORS) and USR-02.
 - This ticket is large; the planner should propose a split (e.g. API part / TS client / Python package) if over ~400 lines.
 - 2026-11-12 (USR-03 security review N1): `GET /accounts` must apply `accounts_created_before` when the previous cookie value is used.
 - 2026-11-13 (owner): do the join API first; the TS and Python libraries move to **USR-08** and will live in a **separate repo** for the `@mmlabs` libraries (owner creates it).
+- 2026-11-13 (planner): approval flow split to USR-03g (plan O1, owner to confirm); `approval` apps answer 403 `join_approval_unavailable` until then.
