@@ -1,5 +1,7 @@
 import logging
 import secrets
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -25,6 +27,14 @@ from app.modules.users.router import router as users_router
 logger = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    # Read at shutdown (tests may swap it): drains queued mail for up to 5 s (USR-04d).
+    dispatcher: EmailDispatcher = app.state.email_dispatcher
+    await dispatcher.aclose()
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     app = FastAPI(
@@ -34,6 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # temporary). Gated admin routes are not mounted in production, so they are not listed.
         docs_url="/docs",
         redoc_url=None,
+        lifespan=_lifespan,
     )
     # Credentialed CORS for `/api/v1/auth/*` from active apps' origins (ADR-0006).
     origin_registry = AppOriginRegistry(session_factory=SessionLocal, app_env=settings.app_env)

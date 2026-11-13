@@ -78,3 +78,14 @@ async def test_email_send_log_default_sent_at(db_session: AsyncSession) -> None:
     db_session.add(EmailSendLog(email_hmac=sha256("e"), purpose="reset"))
     await db_session.flush()
     assert await db_session.scalar(select(EmailSendLog.sent_at == func.now())) is True
+
+
+async def test_email_tokens_created_at_index(db_session: AsyncSession) -> None:
+    indexdef = await db_session.scalar(
+        text(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() "
+            "AND tablename = 'email_tokens' AND indexname = 'ix_email_tokens_created_at'"
+        )
+    )
+    assert indexdef is not None
+    assert indexdef.endswith("USING btree (created_at)")

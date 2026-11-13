@@ -56,6 +56,7 @@ class EmailToken(UUIDPkMixin, Base):
             "purpose",
             postgresql_where=text("used_at IS NULL"),
         ),
+        Index("ix_email_tokens_created_at", "created_at"),  # daily cap count, retention
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(

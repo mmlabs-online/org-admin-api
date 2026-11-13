@@ -7,17 +7,22 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from httpx import AsyncClient, Response
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.session import get_session
+from app.main import create_app
+from app.modules.auth import email_verification as verification_module
 from app.modules.auth import hooks as hooks_module
+from app.modules.auth.deps import get_email_dispatcher, get_link_origin, get_turnstile_verifier
 from app.modules.auth.models import EmailSendLog, EmailToken
 from app.modules.auth.repository import EmailTokenRepository
 from app.modules.auth.throttle import EmailHasher
 from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.email.sender import OutgoingEmail
 from app.modules.rbac.models import App
+from app.modules.sessions.models import DeviceSession
 from app.modules.users.models import User
 from tests.auth_factories import (
     HMAC_KEY,
@@ -629,3 +634,68 @@ async def test_daily_cap_resend_429_and_signup_still_201(
     assert resp.status_code == 429
     assert resp.headers["Retry-After"] == "3600"
     assert len(fake_email.sent) == 1
+
+
+async def test_resend_cap_logs_reason(
+    make_client: MakeClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+    stoktok: App,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(verification_module.logger, "disabled", False)
+    caplog.set_level(logging.INFO)
+    user, raw, account_id = await _signed_in(db_session, email="resend.capped@example.com")
+    async with make_client(email_daily_cap=1) as c:
+        assert (await _signup(c, email_dispatcher, "first@example.com")).status_code == 201
+        resp = await _resend(c, email_dispatcher, account_id, raw)
+    assert resp.status_code == 429
+    assert resp.headers["Retry-After"] == "3600"
+    assert len(fake_email.sent) == 1  # only the sign-up email
+    assert f"email_not_sent reason=daily_cap purpose=verify user_id={user.id}" in caplog.text
+    assert "resend.capped" not in caplog.text
+
+
+# --- app context before the device (USR-04d) -------------------------------------------------
+
+
+async def test_resend_app_context_checked_before_device(
+    db_session: AsyncSession,
+    fake_turnstile: FakeTurnstileVerifier,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+    stoktok: App,
+) -> None:
+    """The route-level `AppContextDep` answers 403 before `DeviceDep` can rotate the cookie,
+    even when `get_link_origin` (which also depends on it) is overridden."""
+    user = await make_login_user(db_session, verified=False)
+    raw, device, (account,) = await make_device(db_session, user)
+    await shift(db_session, "device_sessions", "rotated_at", device.id, "-25 hours")
+    rotated_at = await _rotated_at(db_session, device.id)
+
+    async def _session() -> Any:
+        yield db_session
+
+    app = create_app()
+    app.dependency_overrides[get_session] = _session
+    app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+    app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
+    app.dependency_overrides[get_link_origin] = lambda: ORIGIN
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await _resend(c, email_dispatcher, account.id, raw, app_key=None)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "app_header_required"
+    assert "set-cookie" not in resp.headers
+    assert await _rotated_at(db_session, device.id) == rotated_at
+    assert fake_email.calls == 0
+    assert await _send_log_count(db_session) == 0
+
+
+async def _rotated_at(db_session: AsyncSession, device_id: uuid.UUID) -> Any:
+    return await db_session.scalar(
+        select(DeviceSession.rotated_at)
+        .where(DeviceSession.id == device_id)
+        .execution_options(populate_existing=True)
+    )

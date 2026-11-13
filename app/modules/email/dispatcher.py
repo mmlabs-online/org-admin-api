@@ -1,11 +1,14 @@
 """In-process email queue: sends after the request, with retry, backoff and a circuit breaker.
 
 The raw token lives only in the queued message (memory); a restart loses queued mail and the
-user presses resend (ADR-0007). Logs carry the event, purpose, user id, attempt and SMTP code
+user presses resend (ADR-0007). On a clean shutdown the app lifespan calls `aclose()`, which
+drains the queue for at most `DRAIN_SECONDS`, then drops the rest with one count-only log line
+(USR-04d). Logs carry the event, purpose, user id, attempt and SMTP code
 only: never the address, link, token or exception text (R11).
 """
 
 import asyncio
+import contextlib
 import logging
 import random
 import time
@@ -19,6 +22,7 @@ MAX_ATTEMPTS = 3
 BACKOFF_SECONDS = (2.0, 8.0)  # before attempts 2 and 3, +/- 20 % jitter
 PAUSE_SECONDS = 3600.0  # after a quota or authentication failure
 QUEUE_MAXSIZE = 1000
+DRAIN_SECONDS = 5.0  # on shutdown; below Docker's default 10 s stop grace period
 
 
 class EmailDispatcher:
@@ -42,9 +46,14 @@ class EmailDispatcher:
         self._queue: asyncio.Queue[OutgoingEmail] = asyncio.Queue(maxsize=maxsize)
         self._worker: asyncio.Task[None] | None = None  # strong reference
         self._paused_until = 0.0
+        self._closed = False
+        self._in_flight = 0
 
     async def enqueue(self, email: OutgoingEmail) -> None:
         """Queue without waiting (async: an `asyncio.Queue` is not thread-safe)."""
+        if self._closed:
+            _log(logging.WARNING, "email_dropped reason=shutdown", email)
+            return
         if self._worker is None or self._worker.done():
             self._worker = asyncio.get_running_loop().create_task(self._run())
         try:
@@ -56,21 +65,38 @@ class EmailDispatcher:
         """Wait until every queued message was handled (tests)."""
         await self._queue.join()
 
-    async def aclose(self) -> None:
-        if self._worker is not None:
-            self._worker.cancel()
-            await asyncio.gather(self._worker, return_exceptions=True)
-            self._worker = None
+    async def aclose(self, timeout: float = DRAIN_SECONDS) -> None:  # noqa: ASYNC109 (drain bound)
+        """Stop accepting mail, drain the queue for at most `timeout` seconds, then cancel the
+        worker and log how many messages were dropped (count only, R11). Idempotent."""
+        already_closed = self._closed
+        self._closed = True
+        worker, self._worker = self._worker, None
+        dropped = 0
+        if worker is not None and not worker.done():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._queue.join(), timeout)
+            dropped = self._queue.qsize() + self._in_flight
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+        while not self._queue.empty():  # so a later `join()` cannot hang
+            self._queue.get_nowait()
+            self._queue.task_done()
+        if dropped:
+            logger.warning("email_dropped reason=shutdown count=%d", dropped)
+        if not already_closed:
+            logger.info("email_dispatcher_closed")
 
     async def _run(self) -> None:
         while True:
             email = await self._queue.get()
+            self._in_flight = 1
             try:
                 await self._deliver(email)
             except Exception as exc:  # the worker never dies
                 event = f"email_failed reason=unexpected error={type(exc).__name__}"
                 _log(logging.ERROR, event, email)
             finally:
+                self._in_flight = 0
                 self._queue.task_done()
 
     async def _deliver(self, email: OutgoingEmail) -> None:

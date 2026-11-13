@@ -1,8 +1,23 @@
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any, cast
 
-from sqlalchemy import and_, case, delete, func, insert, literal, or_, select, update
+from sqlalchemy import (
+    ColumnElement,
+    CursorResult,
+    Delete,
+    and_,
+    case,
+    delete,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -223,3 +238,77 @@ class EmailSendLogRepository:
         await self.session.execute(
             insert(EmailSendLog).values(id=uuid.uuid4(), email_hmac=email_hmac, purpose=purpose)
         )
+
+
+class EmailRetentionRepository:
+    """Batched retention deletes for `email_send_log` and `email_tokens` (USR-04d).
+
+    Ages are measured on the database clock. Each age has a 24 h floor: the per-email window
+    counts send-log rows and the global daily cap counts tokens of the last 24 h.
+    """
+
+    SEND_LOG_MIN_AGE = timedelta(hours=24)
+    TOKEN_MIN_AGE = timedelta(hours=24)
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def set_lock_timeout(self) -> None:
+        """Bound any lock wait of the current transaction (SKIP LOCKED avoids most)."""
+        await self.session.execute(text("SET LOCAL lock_timeout = '2s'"))
+
+    @staticmethod
+    def _check(older_than: timedelta, floor: timedelta) -> None:
+        if older_than < floor:
+            raise ValueError("retention age is below the minimum")
+
+    def _send_log_where(self, older_than: timedelta) -> ColumnElement[bool]:
+        self._check(older_than, self.SEND_LOG_MIN_AGE)
+        return EmailSendLog.sent_at < func.now() - older_than
+
+    def _token_where(self, older_than: timedelta) -> ColumnElement[bool]:
+        self._check(older_than, self.TOKEN_MIN_AGE)
+        return and_(
+            EmailToken.created_at < func.now() - older_than,
+            or_(EmailToken.used_at.is_not(None), EmailToken.expires_at <= func.now()),
+        )
+
+    async def count_send_log(self, older_than: timedelta) -> int:
+        query = select(func.count()).select_from(EmailSendLog)
+        return int(await self.session.scalar(query.where(self._send_log_where(older_than))) or 0)
+
+    async def count_tokens(self, older_than: timedelta) -> int:
+        query = select(func.count()).select_from(EmailToken)
+        return int(await self.session.scalar(query.where(self._token_where(older_than))) or 0)
+
+    async def purge_send_log(self, older_than: timedelta, batch: int) -> int:
+        """Delete up to `batch` old rows, skipping rows another transaction holds."""
+        ids = (
+            select(EmailSendLog.id)
+            .where(self._send_log_where(older_than))
+            .order_by(EmailSendLog.sent_at)
+            .limit(batch)
+            .with_for_update(skip_locked=True)
+            .scalar_subquery()
+        )
+        return await self._delete(delete(EmailSendLog).where(EmailSendLog.id.in_(ids)))
+
+    async def purge_tokens(self, older_than: timedelta, batch: int) -> int:
+        """Delete up to `batch` old used or expired tokens, skipping locked rows."""
+        ids = (
+            select(EmailToken.id)
+            .where(self._token_where(older_than))
+            .order_by(EmailToken.created_at)
+            .limit(batch)
+            .with_for_update(skip_locked=True)
+            .scalar_subquery()
+        )
+        return await self._delete(delete(EmailToken).where(EmailToken.id.in_(ids)))
+
+    async def _delete(self, stmt: Delete) -> int:
+        result = await self.session.execute(stmt.execution_options(synchronize_session=False))
+        return int(cast(CursorResult[Any], result).rowcount)
+
+    async def commit(self) -> None:
+        """End the batch's transaction (release its row locks)."""
+        await self.session.commit()

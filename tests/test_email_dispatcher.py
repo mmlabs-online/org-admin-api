@@ -1,9 +1,11 @@
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
 
 import pytest
 
+from app.main import create_app
 from app.modules.email import dispatcher as dispatcher_module
 from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.email.sender import EmailDeliveryError, OutgoingEmail
@@ -200,3 +202,81 @@ async def test_logs_never_contain_token_link_or_address(
         assert event in caplog.text
     for secret in [ADDRESS, "carol.private", TOKEN, LINK, "example.com"]:
         assert secret not in caplog.text
+
+
+# --- shutdown (USR-04d) -------------------------------------------------------------------------
+
+TIMEOUT = 10
+
+
+async def test_aclose_drains_queued_mail(make: Make, caplog: pytest.LogCaptureFixture) -> None:
+    sender = FakeEmailSender()
+    d = make(sender)
+    emails = [_email() for _ in range(3)]
+    for email in emails:
+        await d.enqueue(email)
+    await asyncio.wait_for(d.aclose(), TIMEOUT)
+    assert sender.sent == emails
+    assert "email_dropped" not in caplog.text
+    assert "email_dispatcher_closed" in caplog.text
+
+
+async def test_aclose_timeout_drops_and_logs_count(
+    make: Make, caplog: pytest.LogCaptureFixture
+) -> None:
+    sender = FakeEmailSender()
+    sender.gate = asyncio.Event()  # never set: the first message blocks in the sender
+    d = make(sender)
+    for _ in range(3):
+        await d.enqueue(_email())
+    await asyncio.wait_for(d.aclose(timeout=0.05), TIMEOUT)
+    assert sender.calls == 1
+    assert sender.sent == []
+    assert "email_dropped reason=shutdown count=3" in caplog.text  # 1 in flight + 2 queued
+    assert "email_dispatcher_closed" in caplog.text
+    await asyncio.wait_for(d.join(), TIMEOUT)  # nothing left unfinished
+    for secret in [ADDRESS, "carol.private", TOKEN, LINK, "example.com"]:
+        assert secret not in caplog.text
+
+
+async def test_enqueue_after_close_dropped(make: Make, caplog: pytest.LogCaptureFixture) -> None:
+    sender = FakeEmailSender()
+    d = make(sender)
+    await d.aclose()
+    email = _email()
+    await d.enqueue(email)
+    assert f"email_dropped reason=shutdown purpose=verify user_id={email.user_id}" in caplog.text
+    await asyncio.sleep(0)
+    assert sender.calls == 0
+    assert d._worker is None  # no worker started
+    assert ADDRESS not in caplog.text
+
+
+async def test_aclose_idempotent(make: Make, caplog: pytest.LogCaptureFixture) -> None:
+    never_started = make(FakeEmailSender())
+    await never_started.aclose()
+    await never_started.aclose()
+    assert caplog.text.count("email_dispatcher_closed") == 1
+
+    sender = FakeEmailSender()
+    d = make(sender)
+    await _send(d)
+    await d.aclose()
+    await d.aclose()
+    assert caplog.text.count("email_dispatcher_closed") == 2
+    assert "email_dropped" not in caplog.text
+    assert len(sender.sent) == 1
+
+
+async def test_app_lifespan_closes_dispatcher(caplog: pytest.LogCaptureFixture) -> None:
+    app = create_app()
+    sender = FakeEmailSender()
+    app.state.email_dispatcher = EmailDispatcher(sender)
+    email = _email()
+    async with app.router.lifespan_context(app):  # ASGITransport does not run the lifespan
+        await app.state.email_dispatcher.enqueue(email)
+    assert sender.sent == [email]
+    assert "email_dispatcher_closed" in caplog.text
+    await app.state.email_dispatcher.enqueue(_email())
+    assert "email_dropped reason=shutdown" in caplog.text
+    assert sender.calls == 1

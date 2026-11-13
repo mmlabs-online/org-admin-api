@@ -4,6 +4,8 @@
   password, never marks an email verified (D16).
 - `python -m app.cli register-app --key <key> --name <name> --origin <origin> ...` (USR-07):
   creates or updates a consuming app and its `<key>:member` role through `AppService.register`.
+- `python -m app.cli cleanup [--dry-run]` (USR-04d): deletes email send-log rows older than 48 h
+  and used or expired email tokens older than 7 d, in batches; prints counts only.
 
 Output never contains the full email, a submitted value, a traceback or the DSN (R11): every
 failure prints one fixed line, and the CLI uses its own engine with `hide_parameters=True`.
@@ -65,6 +67,10 @@ MSG_CONFLICT = "error: the app was changed concurrently; nothing was saved, run 
 MSG_REGISTER_UNEXPECTED = "error: unexpected failure; the registration was not confirmed"
 MSG_DRY_RUN = "dry-run: rolled back, nothing was saved"
 MSG_CORS_NOTE = "note: the API applies origin changes within 60 s"
+
+CLEANUP_USAGE = "usage: python -m app.cli cleanup [--dry-run]"
+MSG_CLEANUP_FAILED = "error: cleanup failed; batches already committed stay deleted, run again"
+MSG_CLEANUP_DRY_RUN = "dry-run: nothing was deleted"
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -139,6 +145,23 @@ async def _cli_session_scope(settings: "Settings") -> AsyncIterator["AsyncSessio
         await engine.dispose()
 
 
+@asynccontextmanager
+async def _cli_cleanup_scope(settings: "Settings") -> AsyncIterator["AsyncSession"]:
+    """Like `_cli_session_scope`, but without `session.begin()`: cleanup commits per batch."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    engine = create_async_engine(
+        str(settings.database_url), hide_parameters=True, echo=False, poolclass=NullPool
+    )
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
 async def amain(
     argv: Sequence[str],
     *,
@@ -147,6 +170,8 @@ async def amain(
 ) -> int:
     if argv[:1] == ["register-app"]:
         return await _register_app(argv[1:], settings=settings, session_scope=session_scope)
+    if argv[:1] == ["cleanup"]:
+        return await _cleanup(argv[1:], settings=settings, session_scope=session_scope)
     try:
         email = _parse_email(argv)
 
@@ -324,6 +349,42 @@ async def _register_app(
     except Exception:
         # Never str(exc): DB errors carry parameters (origins, names) and the DSN.
         print(MSG_REGISTER_UNEXPECTED, file=sys.stderr)
+        return EXIT_FAILURE
+
+
+async def _cleanup(
+    argv: Sequence[str],
+    *,
+    settings: "Settings | None",
+    session_scope: "SessionScope | None",
+) -> int:
+    try:
+        parser = _Parser(prog="python -m app.cli cleanup", allow_abbrev=False, add_help=False)
+        parser.add_argument("--dry-run", action="store_true")
+        dry_run = bool(parser.parse_args(argv).dry_run)
+
+        from app.modules.auth.retention import EmailRetentionService
+
+        settings = _load_settings(settings)
+        scope = session_scope or (lambda: _cli_cleanup_scope(settings))
+        async with scope() as session:
+            counts = await EmailRetentionService(session).run(dry_run=dry_run)
+
+        verb = "would delete" if dry_run else "deleted"
+        for count in counts:
+            print(f"{count.table}: {verb} {count.rows} ({count.retention})")
+        if dry_run:
+            print(MSG_CLEANUP_DRY_RUN)
+        return EXIT_OK
+    except _UsageError:
+        print(CLEANUP_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except _Fail as fail:
+        print(fail.message, file=sys.stderr)
+        return EXIT_FAILURE
+    except Exception:
+        # Never str(exc): DB errors carry the DSN and DETAIL lines.
+        print(MSG_CLEANUP_FAILED, file=sys.stderr)
         return EXIT_FAILURE
 
 

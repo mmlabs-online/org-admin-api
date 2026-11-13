@@ -224,13 +224,15 @@ async def _wait_for_lock_waiter() -> None:
 
 
 async def test_login_blocked_by_reset_lock_reads_new_password(race: Race) -> None:
-    """AC 14: a reset holds `FOR UPDATE` on the user while it changes the hash; a login that
-    reads the user `FOR SHARE` waits, then sees the new hash, so the old password fails."""
+    """AC 14: a reset holds `FOR NO KEY UPDATE` on the user (USR-04d S1) while it changes the
+    hash; a login that reads the user `FOR SHARE` waits, then sees the new hash, so the old
+    password fails."""
     new_hash = await PasswordHasher(Settings()).hash("a brand new passphrase 42")
     async with SessionLocal() as reset:
         try:
             await reset.execute(
-                text("SELECT id FROM users WHERE id = :id FOR UPDATE"), {"id": race.user.id}
+                text("SELECT id FROM users WHERE id = :id FOR NO KEY UPDATE"),
+                {"id": race.user.id},
             )
             attempt = asyncio.create_task(race.post(PASSWORD))
             try:
