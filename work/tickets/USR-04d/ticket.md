@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P1 |
 | Areas | auth, db |
 | Attempts | 0 |
 | Created | 2026-11-13 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/22 |
 
 ## Goal
 Operational hardening of the email subsystem left over from USR-04 / USR-04b reviews.
