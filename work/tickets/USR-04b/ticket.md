@@ -7,7 +7,7 @@
 | Areas | auth, security, api |
 | Attempts | 0 |
 | Created | 2026-11-12 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/22 |
 
 ## Goal
 A user who forgot their password gets a one-time reset link (via the USR-04 `EmailSender` and dispatcher) and sets a new password; every signed-in session of that user ends.
