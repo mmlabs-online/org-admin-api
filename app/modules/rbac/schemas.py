@@ -105,6 +105,24 @@ RoleName = Annotated[
 ]
 
 
+class AppRegister(BaseModel):
+    """Operator CLI input (USR-07): `None` policy/mode = keep the stored value (or the default)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=APP_KEY_RE, max_length=32)
+    name: AppName
+    origins: list[str] = Field(min_length=1, max_length=MAX_ORIGINS)
+    join_policy: JoinPolicy | None = None
+    org_mode: OrgMode | None = None
+    permissions: list[PermissionKey] = Field(default_factory=list, max_length=50)
+
+    @field_validator("origins")
+    @classmethod
+    def _origins(cls, value: list[str]) -> list[str]:
+        return normalize_origins(value)
+
+
 class PermissionCreate(BaseModel):
     """`is_admin` absent or null: false, except `<app>:*` which is always stored `true`."""
 
