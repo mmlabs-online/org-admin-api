@@ -7,7 +7,7 @@
 | Areas | api, auth, security, db |
 | Attempts | 1 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/24 |
 
 ## Goal
 Apps can list the accounts signed in on the device and let a user join the app ("Continue as <account>"), so a verified user can get an app token. The client libraries moved to USR-08 (separate repo).
