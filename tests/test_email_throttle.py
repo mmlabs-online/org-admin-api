@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.modules.auth.email_throttle import cap_allows, resend_retry_after
+from app.modules.auth.email_throttle import cap_refusal, resend_retry_after
 
 NOW = datetime(2026, 11, 12, 12, 0, tzinfo=UTC)
 
@@ -34,19 +34,24 @@ def test_resend_retry_after(
 @pytest.mark.parametrize(
     ("purpose", "total", "verify", "cap", "expected"),
     [
-        ("verify", 239, 239, 300, True),  # verify share: 80 % of 300 = 240
-        ("verify", 240, 240, 300, False),
-        ("verify", 250, 100, 300, True),  # reset sends do not use the verify share
-        ("reset", 299, 240, 300, True),  # reset may use the rest of the cap
-        ("reset", 300, 240, 300, False),
-        ("reset", 300, 0, 300, False),  # the total cap binds every purpose
-        ("verify", 0, 0, 1, True),  # cap 1: the verify share floors at 1
-        ("verify", 1, 1, 1, False),
-        ("reset", 1, 1, 1, False),
-        ("verify", 3, 3, 5, True),  # cap 5: verify share 4
-        ("verify", 4, 4, 5, False),
-        ("reset", 4, 4, 5, True),
+        ("reset", 149, 0, 300, None),  # reset share: 50 % of 300 = 150
+        ("reset", 150, 0, 300, "purpose_cap"),
+        ("verify", 239, 239, 300, None),  # verify share: 80 % of 300 = 240
+        ("verify", 240, 240, 300, "purpose_cap"),
+        ("verify", 250, 100, 300, None),  # reset sends do not use the verify share
+        ("verify", 299, 149, 300, None),  # reset at its ceiling cannot take verify's floor
+        ("reset", 299, 240, 300, None),  # verify sends do not use the reset share
+        ("reset", 300, 0, 300, "daily_cap"),  # the total cap binds every purpose
+        ("verify", 300, 0, 300, "daily_cap"),
+        ("reset", 0, 0, 1, None),  # cap 1: each share floors at 1
+        ("verify", 0, 0, 1, None),
+        ("verify", 1, 0, 1, "daily_cap"),
+        ("reset", 1, 1, 1, "daily_cap"),
+        ("reset", 2, 0, 5, "purpose_cap"),  # cap 5: reset share max(1, 2) = 2
+        ("reset", 4, 3, 5, None),
+        ("verify", 3, 3, 5, None),  # cap 5: verify share 4
+        ("verify", 4, 4, 5, "purpose_cap"),
     ],
 )
-def test_daily_cap_allows(purpose: str, total: int, verify: int, cap: int, expected: bool) -> None:
-    assert cap_allows(purpose, total_24h=total, verify_24h=verify, daily_cap=cap) is expected
+def test_cap_refusal(purpose: str, total: int, verify: int, cap: int, expected: str | None) -> None:
+    assert cap_refusal(purpose, total_24h=total, verify_24h=verify, daily_cap=cap) == expected

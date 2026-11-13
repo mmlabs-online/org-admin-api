@@ -53,6 +53,12 @@ mmlabs site already sends from, which changes D3's "dedicated account".
    transaction-scoped advisory lock. A capped forgot answers 202 and logs
    `email_not_sent reason=daily_cap purpose=reset`. Per-IP limits: forgot 5/60 s, reset 10/60 s,
    resend 5/600 s.
+   *Amended by USR-04d (2026-11-13):* reset may also use at most 50 % of `EMAIL_DAILY_CAP` (at
+   least 1), so forgot floods cannot starve verification: verify always keeps at least 50 % of
+   the cap, reset at least 20 %. The shares are code constants (safety invariants of the split),
+   not settings; `EMAIL_DAILY_CAP` stays the operator knob. Every capped send logs
+   `email_not_sent reason=<daily_cap|purpose_cap> purpose=<verify|reset>` (`daily_cap`: the total
+   cap; `purpose_cap`: the purpose's share), resend included; response bodies are unchanged.
 5. **Delivery.** An in-process `asyncio.Queue` (max 1000) with one worker, fed by a FastAPI
    background task, i.e. only after the request's transaction committed. Up to 3 attempts with
    2 s / 8 s backoff (±20 %) for transient errors (4xx, timeouts, disconnects); permanent 5xx are
@@ -60,6 +66,10 @@ mmlabs site already sends from, which changes D3's "dedicated account".
    drop mail meanwhile. The raw token exists only in that queued message: a restart loses queued
    mail and the user presses resend. A database outbox was rejected: it would need the token
    stored encrypted under another key, not worth it at v1 volume.
+   *Amended by USR-04d (2026-11-13):* on a clean shutdown the app lifespan drains the queue for at
+   most 5 s (below Docker's 10 s stop grace), then drops the rest and logs
+   `email_dropped reason=shutdown count=N`; mail enqueued after that is dropped with the same
+   reason.
 6. **SMTP transport.** stdlib `smtplib` in a worker thread (no new dependency): STARTTLS always
    required with `ssl.create_default_context()` (certificate and hostname checked), 15 s timeout,
    `EmailMessage` (refuses header injection). Errors become `EmailDeliveryError(kind, smtp_code)`
@@ -74,7 +84,10 @@ mmlabs site already sends from, which changes D3's "dedicated account".
 - Quota and sender reputation are shared with the mmlabs site (accepted risk, deviation from D3).
 - Mail queued at a restart is lost; resend limits allow a retry after a minute.
 - Changing provider is a new `EmailSender` plus env keys; no API or schema change.
-- Retention cleanup of `email_send_log` and used tokens is a follow-up (USR-04d).
+- Retention cleanup (USR-04d): `python -m app.cli cleanup` deletes `email_send_log` rows older
+  than 48 h and used or expired `email_tokens` older than 7 d, in batches; both ages have a 24 h
+  floor in code because the per-email window and the daily cap count the last 24 h. Run through
+  the ops workflow; see `docs/deploy.md` ("Email retention cleanup").
 - Every app that offers "forgot password" must serve `/reset-password` (USR-04b).
 - Accepted risks (USR-04b): forgot still differs slightly in timing for known users (the token
   insert and the enqueue); access tokens issued before a reset stay valid ≤ 15 min; data an

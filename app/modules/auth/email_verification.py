@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import RateLimitedError
 from app.modules.auth.email_throttle import (
     DAILY_CAP_RETRY_SECONDS,
-    cap_allows,
+    cap_refusal,
     resend_retry_after,
 )
 from app.modules.auth.errors import EmailAlreadyVerifiedError, TokenInvalidError
@@ -38,20 +38,26 @@ def email_token_hash(raw: str) -> bytes:
 
 
 class DailyCapReachedError(RateLimitedError):
-    """The global daily send cap protecting the shared Gmail quota is reached."""
+    """The global daily send cap protecting the shared Gmail quota, or the purpose's share of
+    it, is reached; `reason` is `daily_cap` or `purpose_cap` (logs only)."""
+
+    def __init__(self, retry_after: int, reason: str) -> None:
+        super().__init__(retry_after)
+        self.reason = reason
 
 
-async def daily_cap_allows(
+async def daily_cap_refusal(
     tokens: EmailTokenRepository, sends: EmailSendLogRepository, purpose: str, daily_cap: int
-) -> bool:
-    """Whether one more `purpose` email fits the global daily cap (USR-04b).
+) -> str | None:
+    """None when one more `purpose` email fits the global daily cap, else the refusal reason
+    (`daily_cap` or `purpose_cap`; USR-04b, USR-04d).
 
     Counts real sends (tokens issued in the last 24 h) under one global advisory lock, so
     concurrent requests cannot all pass the check.
     """
     await sends.lock_global()
     total_24h, verify_24h = await tokens.count_issued_24h()
-    return cap_allows(purpose, total_24h=total_24h, verify_24h=verify_24h, daily_cap=daily_cap)
+    return cap_refusal(purpose, total_24h=total_24h, verify_24h=verify_24h, daily_cap=daily_cap)
 
 
 class EmailVerificationService:
@@ -75,8 +81,9 @@ class EmailVerificationService:
         retry_after = resend_retry_after(window.now, window.last, window.count, window.oldest)
         if retry_after is not None:
             raise RateLimitedError(retry_after)
-        if not await daily_cap_allows(self.tokens, self.sends, VERIFY, self.daily_cap):
-            raise DailyCapReachedError(DAILY_CAP_RETRY_SECONDS)
+        reason = await daily_cap_refusal(self.tokens, self.sends, VERIFY, self.daily_cap)
+        if reason is not None:
+            raise DailyCapReachedError(DAILY_CAP_RETRY_SECONDS, reason)
         await self.sends.insert(email_hmac, VERIFY)
 
         token = secrets.token_urlsafe(32)
@@ -117,4 +124,10 @@ class EmailVerificationService:
             raise SessionInvalidError("Session is invalid")
         if user.email_verified_at is not None:
             raise EmailAlreadyVerifiedError("Email address is already verified")
-        return await self.prepare(user, link_origin)
+        try:
+            return await self.prepare(user, link_origin)
+        except DailyCapReachedError as exc:
+            logger.warning(
+                "email_not_sent reason=%s purpose=verify user_id=%s", exc.reason, user.id
+            )
+            raise

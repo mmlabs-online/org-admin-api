@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.email_throttle import resend_retry_after
-from app.modules.auth.email_verification import VERIFY, daily_cap_allows, email_token_hash
+from app.modules.auth.email_verification import VERIFY, daily_cap_refusal, email_token_hash
 from app.modules.auth.errors import TokenInvalidError, TurnstileFailedError
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.repository import (
@@ -67,8 +67,9 @@ class PasswordResetService:
         window = await self.sends.window(email_hmac, RESET)
         if resend_retry_after(window.now, window.last, window.count, window.oldest) is not None:
             return None
-        if not await daily_cap_allows(self.tokens, self.sends, RESET, self.daily_cap):
-            logger.warning("email_not_sent reason=daily_cap purpose=reset")
+        reason = await daily_cap_refusal(self.tokens, self.sends, RESET, self.daily_cap)
+        if reason is not None:
+            logger.warning("email_not_sent reason=%s purpose=reset", reason)
             return None
         await self.sends.insert(email_hmac, RESET)
 

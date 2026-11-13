@@ -227,12 +227,17 @@ async def resend_verification(
     session: SessionDep,
     background_tasks: BackgroundTasks,
     _cookie: DeviceCookieDoc,
+    _app: AppContextDep,
     body: ResendVerificationRequest,
     link_origin: Annotated[str, Depends(get_link_origin)],
     device: DeviceDep,
     dispatcher: EmailDispatcherDep,
 ) -> None:
-    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`."""
+    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`.
+
+    The route-level `AppContextDep` comes before `DeviceDep`, so a bad app context answers
+    403 before any device lookup or cookie rotation, even if `get_link_origin` changes.
+    """
     settings: Settings = request.app.state.settings
     email = await EmailVerificationService(
         session, email_hasher=get_email_hasher(request), daily_cap=settings.email_daily_cap

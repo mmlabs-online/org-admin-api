@@ -19,10 +19,16 @@ class UserRepository:
         return await self.session.get(User, user_id)
 
     async def get_for_update(self, user_id: uuid.UUID) -> User | None:
+        """Lock the user row `FOR NO KEY UPDATE` until commit (USR-04d S1).
+
+        Conflicts with `FOR SHARE` (login, forgot) and other updates; does not block the FK
+        `KEY SHARE` that an `email_tokens` INSERT takes, so it cannot deadlock with a resend.
+        Callers update only non-key columns, so the lock is never upgraded.
+        """
         return await self.session.scalar(
             select(User)
             .where(User.id == user_id)
-            .with_for_update()
+            .with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         )
 

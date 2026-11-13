@@ -103,7 +103,9 @@ USR-03c.
 
 Verification links are sent through Gmail SMTP (`smtp.gmail.com:587`, STARTTLS required,
 certificate checked) behind `EmailSender` (ADR-0007). Sending happens in-process after the
-request commits, with retry; a restart loses queued mail and users press resend.
+request commits, with retry; a restart loses queued mail and users press resend. On a clean stop
+the API drains queued mail for up to 5 s, then logs `email_dropped reason=shutdown count=N`
+(USR-04d); a message cut off mid-send may still have been delivered.
 
 | Key | Secret | Notes |
 |---|---|---|
@@ -156,6 +158,28 @@ env file is rewritten every run).
 - **Smoke check after deploy:** sign up a test address and look for `email_sent purpose=verify`
   in the API logs (startup logs `email_sender=gmail`). Logs never contain addresses, links or
   tokens.
+
+### Email alerts (runbook)
+
+Check the last day's events (no log aggregation exists today; wiring these patterns into an
+alerting tool is a follow-up):
+
+```bash
+docker compose -p org-admin-api logs --since 24h org-admin-api | grep -E 'email_(not_sent|quota_exceeded|auth_failed|dropped)'
+```
+
+| Event | Meaning | Check | Action |
+|---|---|---|---|
+| `email_quota_exceeded` | Gmail answered `550 5.4.5`; sending paused 1 h | Gmail account's sent volume, the site's own mail | **Same day.** See "Gmail limits" above |
+| `email_auth_failed` | App Password revoked or wrong; sending paused 1 h | GitHub secret and the App Password on the Gmail account | **Same day.** Rotate per "Gmail limits" above |
+| `email_not_sent reason=daily_cap` | Our total `EMAIL_DAILY_CAP` is reached | Sign-up spikes, forgot floods (per-IP 429s) | Find the source; consider `EMAIL_DAILY_CAP` |
+| `email_not_sent reason=purpose_cap purpose=reset` | Reset used its 50 % share | Per-IP 429s and Turnstile failures on forgot | Repeated: likely forgot abuse; verification keeps its share |
+| `email_not_sent reason=purpose_cap purpose=verify` | Verification used its 80 % share | Sign-up volume | Repeated: sign-up spam; reset keeps its share |
+| `email_dropped reason=paused\|queue_full\|shutdown` | Mail dropped while paused, with a full queue, or at a stop | The event before it (quota/auth), traffic, deploy time | Users resend; investigate repeated `queue_full` |
+
+Alert rule: any `email_quota_exceeded` or `email_auth_failed` → act the same day;
+`daily_cap` / `purpose_cap` more than a few per day → investigate. Logs carry event, purpose and
+user id only, never addresses, links or tokens.
 
 ## Browser origins (CORS)
 
@@ -219,7 +243,8 @@ migration must keep the previous release working:
    `https://api.mmlabs.online/healthz`.
 6. **Ops workflow environment:** in `mmlabs-online/deployment` create the GitHub Environment
    `org-admin-api-ops` (required reviewer: owner; deployment branches: `main` only). The
-   `ops-org-admin-api` workflow (register-app, grant-super-admin) waits for that approval.
+   `ops-org-admin-api` workflow (register-app, grant-super-admin, cleanup) waits for that
+   approval.
 
 ## Operations
 
@@ -379,3 +404,48 @@ docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file app
 ```
 
 Locally: `make register-app ARGS='--key ricotdin --name Ricotdin --origin https://ricotdin.mmlabs.online'`.
+
+## Email retention cleanup (USR-04d)
+
+`python -m app.cli cleanup [--dry-run]` deletes:
+
+- `email_send_log` rows older than **48 h** (the per-email window only reads the last 24 h);
+- `email_tokens` rows older than **7 d** that are **used or expired** (the global daily cap counts
+  the tokens of the last 24 h).
+
+Both ages have a 24 h floor in code, so a change can never break the limits. Deletes run in
+batches of 1000 (`FOR UPDATE SKIP LOCKED`, `lock_timeout` 2 s, one commit per batch); the job
+takes no lock on `users` and never waits on live requests. Recommended cadence: **weekly**
+(volume is bounded by `EMAIL_DAILY_CAP`).
+
+1. In `mmlabs-online/deployment`: Actions → `ops-org-admin-api` → Run workflow (branch `main`) →
+   command `cleanup`, with `dry_run` on first (available once the deployment PR that adds the
+   `cleanup` choice is merged).
+2. Approve the `org-admin-api-ops` environment; read the counts in the run summary, then run
+   again with `dry_run` off.
+
+Output (counts only; a dry run says `would delete` and adds `dry-run: nothing was deleted`):
+
+```
+email_send_log: deleted <n> (older than 48 h)
+email_tokens: deleted <n> (used or expired, older than 7 d)
+```
+
+| Exit | Meaning |
+|---|---|
+| 0 | done (also a dry run) |
+| 1 | settings, `DB_ECHO`, database; one fixed line. Batches already committed stay deleted; running again is safe |
+| 64 | usage error (only `--dry-run` is accepted) |
+
+**Fallback** with a shell on the Mac (same command the workflow runs):
+
+```bash
+docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+  run --rm --no-deps migrate /app/.venv/bin/python -m app.cli cleanup --dry-run
+```
+
+Locally: `make cleanup ARGS=--dry-run`.
+
+A scheduled run (a separate `schedule:` workflow that can run only `cleanup`, in its own
+environment without a required reviewer, since the ops approval gate would block a cron run) is
+an open owner decision.

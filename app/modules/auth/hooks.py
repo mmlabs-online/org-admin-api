@@ -49,7 +49,7 @@ class VerificationEmailHook:
         try:
             email = await service.prepare(user, self.link_origin)
         except RateLimitedError as exc:  # sign-up still succeeds; the user can resend later
-            reason = "daily_cap" if isinstance(exc, DailyCapReachedError) else "limited"
+            reason = exc.reason if isinstance(exc, DailyCapReachedError) else "limited"
             logger.warning("email_not_sent reason=%s purpose=verify user_id=%s", reason, user_id)
             return
         self.schedule(email)
