@@ -13,6 +13,8 @@ from app.db.session import SessionLocal
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import CloudflareTurnstileVerifier
+from app.modules.email.dispatcher import EmailDispatcher
+from app.modules.email.sender import GmailSmtpSender, build_email_sender
 from app.modules.health.router import router as health_router
 from app.modules.rbac.assignments_router import router as assignments_router
 from app.modules.rbac.origin_registry import AppOriginRegistry
@@ -49,6 +51,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     hmac_key = settings.identity_hmac_key
     app.state.email_hasher = EmailHasher(
         hmac_key.get_secret_value().encode() if hmac_key else secrets.token_bytes(32)
+    )
+    # Sends after the response, in-process (ADR-0007); SMTP keys are required in production.
+    email_sender = build_email_sender(settings)
+    app.state.email_dispatcher = EmailDispatcher(email_sender)
+    logger.info(
+        "email_sender=%s", "gmail" if isinstance(email_sender, GmailSmtpSender) else "disabled"
     )
     # Settings require the key in staging/production; local/test fall back to an ephemeral one.
     signing_key = settings.jwt_signing_key

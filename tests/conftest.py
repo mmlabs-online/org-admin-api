@@ -33,6 +33,11 @@ TEST_JWT_SIGNING_KEY = base64.b64encode(
 os.environ["JWT_SIGNING_KEY"] = TEST_JWT_SIGNING_KEY
 TEST_JWT_ISSUER = "https://api.test.invalid"
 os.environ["JWT_ISSUER"] = TEST_JWT_ISSUER
+# Email keys are required in staging/production. `.invalid` never resolves, and every test app
+# uses the fake sender (`email_dispatcher`), so no test reaches an SMTP server.
+os.environ["SMTP_HOST"] = "smtp.test.invalid"
+os.environ["SMTP_USERNAME"] = "sender@test.invalid"
+os.environ["SMTP_PASSWORD"] = "test-app-password"
 
 import pytest
 from alembic import command
@@ -44,8 +49,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.core.config import Settings
 from app.db.session import get_session
 from app.main import create_app
-from app.modules.auth.deps import get_turnstile_verifier
-from tests.fakes import FakeTurnstileVerifier
+from app.modules.auth.deps import get_email_dispatcher, get_turnstile_verifier
+from app.modules.email.dispatcher import EmailDispatcher
+from tests.fakes import FakeEmailSender, FakeTurnstileVerifier
 
 MakeClient = Callable[..., AbstractAsyncContextManager[AsyncClient]]
 
@@ -81,6 +87,25 @@ def fake_turnstile() -> FakeTurnstileVerifier:
     return FakeTurnstileVerifier()
 
 
+@pytest.fixture
+def fake_email() -> FakeEmailSender:
+    return FakeEmailSender()
+
+
+async def _no_sleep(_: float) -> None:
+    return None
+
+
+@pytest.fixture
+async def email_dispatcher(fake_email: FakeEmailSender) -> AsyncIterator[EmailDispatcher]:
+    """The dispatcher every test app uses: fake sender, no backoff sleeps."""
+    dispatcher = EmailDispatcher(fake_email, sleep=_no_sleep)
+    try:
+        yield dispatcher
+    finally:
+        await dispatcher.aclose()
+
+
 def _use_test_session(app: FastAPI, db_session: AsyncSession) -> None:
     """The CORS origin registry reads through the test transaction (ADR-0006)."""
 
@@ -92,7 +117,11 @@ def _use_test_session(app: FastAPI, db_session: AsyncSession) -> None:
 
 
 @pytest.fixture
-def make_client(db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier) -> MakeClient:
+def make_client(
+    db_session: AsyncSession,
+    fake_turnstile: FakeTurnstileVerifier,
+    email_dispatcher: EmailDispatcher,
+) -> MakeClient:
     """Build a client for an app with optional settings overrides (same DB session)."""
 
     @asynccontextmanager
@@ -104,6 +133,7 @@ def make_client(db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier)
 
         app.dependency_overrides[get_session] = _override_session
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+        app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
         _use_test_session(app, db_session)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
@@ -116,7 +146,9 @@ MakeStrictApp = Callable[..., FastAPI]
 
 @pytest.fixture
 def make_strict_app(
-    db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier
+    db_session: AsyncSession,
+    fake_turnstile: FakeTurnstileVerifier,
+    email_dispatcher: EmailDispatcher,
 ) -> MakeStrictApp:
     """The app behind `make_strict_client`: the session mirrors `get_session` (commit on
     success, rollback on exception)."""
@@ -134,6 +166,7 @@ def make_strict_app(
 
         app.dependency_overrides[get_session] = _override_session
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
+        app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
         _use_test_session(app, db_session)
         return app
 

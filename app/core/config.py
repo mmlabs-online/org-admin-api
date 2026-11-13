@@ -72,6 +72,18 @@ class Settings(BaseSettings):
     # staging/production; local/test fall back to a random per-process key.
     identity_hmac_key: SecretStr | None = None
 
+    # Email (USR-04, ADR-0007): Gmail SMTP with STARTTLS. Username and App Password are
+    # required in staging/production; locally, without them, nothing is sent. Links always use
+    # the request's validated `Origin` (USR-04c), so there is no link-base setting.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    email_from: str | None = None  # defaults to SMTP_USERNAME
+    email_daily_cap: int = Field(default=300, ge=1)  # all verification/reset sends per 24 h
+    verify_email_rate_limit: int = Field(default=20, ge=1)
+    verify_email_rate_window_seconds: int = Field(default=60, ge=1)
+
     password_min_length: int = Field(default=12, ge=8)
 
     argon2_time_cost: int = Field(default=3, ge=1)
@@ -170,6 +182,21 @@ class Settings(BaseSettings):
                     "JWT_ISSUER must be set in staging/production to https://<host> "
                     "(no path, port or trailing slash)"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _email_gate(self) -> Self:
+        if self.app_env in {"staging", "production"}:
+            missing = [
+                name
+                for name, value in (
+                    ("SMTP_USERNAME", self.smtp_username),
+                    ("SMTP_PASSWORD", self.smtp_password),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(f"{', '.join(missing)} must be set in staging/production")
         return self
 
 

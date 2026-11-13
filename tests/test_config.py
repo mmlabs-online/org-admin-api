@@ -195,3 +195,39 @@ def test_jwt_keys_optional_locally(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_access_token_ttl_bounds(ttl: int) -> None:
     with pytest.raises(ValidationError, match="access_token_ttl_seconds"):
         Settings(access_token_ttl_seconds=ttl)
+
+
+# --- Email (USR-04) --------------------------------------------------------------------------
+
+_PROD_EMAIL = {**_PROD_JWT, "jwt_issuer": _ISSUER, "jwt_signing_key": TEST_JWT_SIGNING_KEY}
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+@pytest.mark.parametrize("key", ["SMTP_USERNAME", "SMTP_PASSWORD"])
+def test_smtp_required_in_production(
+    monkeypatch: pytest.MonkeyPatch, app_env: str, key: str
+) -> None:
+    monkeypatch.setenv("SMTP_PASSWORD", "Sup3rS3cretSmtpMarker")
+    monkeypatch.delenv(key)
+    with pytest.raises(ValidationError, match=key) as exc:
+        Settings(_env_file=None, app_env=app_env, **_PROD_EMAIL)  # type: ignore[call-arg, arg-type]
+    assert "Sup3rS3cretSmtpMarker" not in str(exc.value)
+    monkeypatch.setenv(key, "x")
+    ok = Settings(_env_file=None, app_env=app_env, **_PROD_EMAIL)  # type: ignore[call-arg, arg-type]
+    assert ok.smtp_username and ok.smtp_password
+
+
+def test_smtp_optional_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in ["SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD"]:
+        monkeypatch.delenv(key)
+    settings = Settings(_env_file=None, app_env="local")  # type: ignore[call-arg]
+    assert settings.smtp_username is None
+    assert (settings.smtp_host, settings.smtp_port) == ("smtp.gmail.com", 587)
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_stray_email_link_base_url_ignored(monkeypatch: pytest.MonkeyPatch, app_env: str) -> None:
+    """USR-04c removed the setting; a leftover deploy value must not matter."""
+    monkeypatch.setenv("EMAIL_LINK_BASE_URL", "https://evil.example")
+    settings = Settings(_env_file=None, app_env=app_env, **_PROD_EMAIL)  # type: ignore[call-arg, arg-type]
+    assert not hasattr(settings, "email_link_base_url")

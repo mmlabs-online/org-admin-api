@@ -18,6 +18,20 @@ class UserRepository:
     async def get(self, user_id: uuid.UUID) -> User | None:
         return await self.session.get(User, user_id)
 
+    async def get_for_update(self, user_id: uuid.UUID) -> User | None:
+        return await self.session.scalar(
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+    async def mark_email_verified(self, user: User) -> None:
+        """Set `email_verified_at` from the database clock."""
+        user.email_verified_at = func.now()
+        await self.session.flush()
+        await self.session.refresh(user, ["email_verified_at"])
+
     async def get_by_email_for_share(self, email: str) -> User | None:
         """Exact (CITEXT) lookup of a normalized email, locked `FOR SHARE` until commit.
 

@@ -33,3 +33,14 @@ class AppHeaderRequiredError(PermissionDeniedError):
 
 class OriginNotAllowedError(PermissionDeniedError):
     code = "origin_not_allowed"
+
+
+class TokenInvalidError(AppError):
+    """One answer for unknown, expired, used or superseded email tokens."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = "token_invalid"
+
+
+class EmailAlreadyVerifiedError(ConflictError):
+    code = "email_already_verified"

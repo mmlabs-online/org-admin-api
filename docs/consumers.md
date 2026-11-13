@@ -49,11 +49,64 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/token", {
 |---|---|
 | 401 `session_invalid` | The account (or the whole device session) is gone: re-list the accounts (USR-03b) or sign in again. |
 | 403 `not_member` | Not a member of ricotdin. If `details.join_available`, offer the join flow (USR-03b). |
-| 403 `email_unverified` | Ask the user to verify their email (USR-04). |
+| 403 `email_unverified` | Ask the user to verify their email; offer "resend" (see "Email verification"). |
 | 403 `audience_mismatch` | Bug: `audience` must equal the `X-MM-App` key. |
 | 403 `app_header_required` / `origin_not_allowed` | Bug or misconfiguration: wrong `X-MM-App`, or the page origin is not in the app's `origins`. |
 | 422 `validation_error` / `org_not_supported` | Bug: bad body; `org_id` is not supported until USR-06. |
 | 429 `rate_limited` | Back off for `Retry-After` seconds. |
+
+## Email verification
+
+A new account is unverified; `/token` (and join, USR-03b) answer 403 `email_unverified` until the
+user opens the link from the verification email (D2, ADR-0007).
+
+**Sign-up.** `POST /api/v1/auth/signup` **requires** `X-MM-App` and a browser `Origin` registered
+for that app. Without them it answers 403 `app_header_required` (missing or malformed key) or
+`origin_not_allowed` (unknown or disabled app, missing or unregistered origin) before any account
+is created or any email is queued. Call it from the browser with `credentials: "include"`, like the
+other `/auth/*` calls, so CORS answers the preflight that the custom header triggers. The link
+points at the page origin that made the request; there is no API-wide fallback origin.
+
+> **v1 contract change (USR-04c, 2026-11-13).** Sign-up without `X-MM-App` used to succeed (the
+> link then used a fixed fallback origin); it now answers 403. This change is made inside v1 (R9)
+> because no consumer used sign-up yet.
+
+**Link format (fixed for every app):** `{origin}/verify-email#token=<43 chars>`. **Every registered
+origin of an app must serve `/verify-email`** (and `/reset-password` once USR-04b lands). The token is in the fragment, so it never
+reaches a server log. The page:
+
+1. reads `location.hash`, then removes it at once (`history.replaceState(null, "", "/verify-email")`);
+2. is served with `Referrer-Policy: no-referrer`;
+3. calls
+
+   ```js
+   await fetch("https://api.mmlabs.online/api/v1/auth/verify-email", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify({ token }),
+   });
+   ```
+
+   (public endpoint: no cookie or `X-MM-App` needed; never send the token in a query string);
+4. on 204 shows "email verified" and, if the user is signed in, fetches a new `/token`.
+
+| Status / code | What to do |
+|---|---|
+| 204 | Verified (also when the email was already verified, e.g. a double click). |
+| 422 `token_invalid` | Link unknown, expired (24 h), already used or replaced by a newer one: offer "resend". |
+| 422 `validation_error` | Bug or truncated link. |
+| 429 `rate_limited` | Back off for `Retry-After` seconds. |
+
+**Resend** (cookie class, like `/token`): `POST /api/v1/auth/verify-email/resend` with
+`{account_id}`, `credentials: "include"` and `X-MM-App`. The new link points at the calling page's
+origin and invalidates earlier links.
+
+| Status / code | What to do |
+|---|---|
+| 202 | Sent (asynchronously; delivery is not confirmed). |
+| 401 `session_invalid` | Sign in again. |
+| 409 `email_already_verified` | Nothing to do; fetch a new `/token`. |
+| 429 `rate_limited` | At most 1 per minute and 5 per day per email (sign-up counts as the first); show `Retry-After`. |
 
 ## Verifying (backend) checklist
 
