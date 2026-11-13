@@ -25,7 +25,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-04 | Email verification via Gmail SMTP (sender, dispatcher, verify, resend) | DONE | P1 | auth, security, db, api | 1 | 2026-11-12 |
 | USR-04c | Require X-MM-App on signup; remove the EMAIL_LINK_BASE_URL fallback | DONE | P1 | auth, security | 1 | 2026-11-13 |
 | USR-07 | Register an app in production from the CLI (first consumer: ricotdin) | DONE | P1 | api, auth, security | 1 | 2026-11-13 |
-| USR-04b | Password forgot/reset with all-session revocation | BACKLOG | P1 | auth, security, api | 0 | 2026-11-12 |
+| USR-04b | Password forgot/reset with all-session revocation | PLANNING | P1 | auth, security, api | 0 | 2026-11-12 |
 | USR-03b | Accounts list, join flow, @mmlabs/auth-client and mmlabs-auth | BACKLOG | P1 | architecture, api, auth, security | 0 | 2026-11-11 |
 | ADM-002 | Lock admin endpoints (aud=admin + require_permission) | BACKLOG | P1 | auth, security, api | 0 | 2026-11-11 |
 | ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | BACKLOG | P1 | db, api, security | 0 | 2026-11-11 |
