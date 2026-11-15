@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | auth, security, api |
 | Attempts | 0 |
@@ -38,3 +38,4 @@ USR-02, USR-02b, USR-02c, USR-02d, USR-02e, USR-03 (staff get an `aud=admin` tok
 - 2026-11-11: consumes USR-02 (roles) and USR-03 (tokens); generic RBAC moved to USR-02 (former ADM-003). 2FA for staff: OQ3.
 - 2026-11-11 (D16): staff need a verified email to get an `aud=admin` token, which is only possible after USR-04. **Release this ticket together with or after USR-04**, otherwise the admin endpoints are locked for everyone in production.
 - 2026-11-15 (owner): no service calls /api/v1/organizations today; locking it needs no coordinated cutover.
+- 2026-11-15 (planner): split into ADM-002 (this), ADM-002b (guards + remove flags) and ADM-002c (admin origins CLI). The flags stay in this ticket, so users/RBAC routers remain unmounted in production.
