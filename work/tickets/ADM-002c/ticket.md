@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | auth, security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/26 |
 
 ## Goal
 Staff can obtain an `aud=admin` token in production: the `admin` app needs a registered Origin for `/api/v1/auth/login` and `/api/v1/auth/token`.

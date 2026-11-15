@@ -37,3 +37,4 @@ ADM-002.
 
 ## Notes / answers from owner
 - Carried from ADM-002 security review: 🟡1 `strict_aud: True` in `app/core/access_token.py` (+ list-`aud` test cases, and the same in `docs/consumers.md` / mmlabs-auth); 🟡2 seed migration should `DO UPDATE SET is_admin = true` on existing rows (new migration, local DBs only); note in deploy.md that `JWT_PUBLIC_KEYS_EXTRA` must hold only this service's retired/next keys (they can verify admin tokens).
+- Carried from ADM-002c security review: 🟡1 `set-admin-origins --clear` must work on a drifted admin row (skip the drift refusal when origins is empty; still lock and write only origins; test + ADR-0008/deploy.md wording); 🟡2 deploy.md runbook must keep the admin Bearer token out of shell history/`ps` (capture into a variable, send via `-H @file` 0600, unset/rm); 💭 run the runbook block in a subshell with `trap` cleanup, end with `/auth/logout`; 💭 refuse signup/forgot for `X-MM-App: admin`.

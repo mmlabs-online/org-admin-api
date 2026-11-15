@@ -407,6 +407,24 @@ async def test_origin_taken_by_admin_app(
     assert await _app(db_session) is None
 
 
+async def test_register_app_refuses_origin_set_by_set_admin_origins(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    admin_origin = "https://admin.mmlabs.online"
+    code = await amain(
+        ["set-admin-origins", "--origin", admin_origin],
+        settings=Settings(),
+        session_scope=_scope(db_session),
+    )
+    assert code == 0
+    capsys.readouterr()
+    assert await _run(db_session, *_ricotdin(origin=admin_origin)) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == MSG_ORIGIN_TAKEN + "\n"
+    assert await _app(db_session) is None
+
+
 async def test_permissions_added_to_member_role(
     db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
 ) -> None:

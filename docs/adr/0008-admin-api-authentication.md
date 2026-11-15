@@ -43,5 +43,22 @@ device cookie `__Host-mm_device` reaches every path, so admin auth must not read
 - An admin call costs one user lookup and one permission query.
 - Tokens are never logged; denials log reason, `jti` and `user_id` when known, never email.
 - Adding an admin route without `require_permission` fails the test suite.
-- Until ADM-002c sets admin origins in production, no admin token can be obtained there: the
-  admin API is closed to everyone (fail-closed, intended).
+- No admin token can be obtained in an environment until `set-admin-origins` (ADM-002c) sets
+  the admin origins there: the admin API is closed to everyone until then (fail-closed, intended).
+
+## Amendment — admin origins (ADM-002c, 2026-11-15)
+Completes §7. The `admin` app's origins follow this policy, enforced in
+`AppService.set_admin_origins`:
+
+- **CLI-only write path:** `python -m app.cli set-admin-origins` (ops workflow). `register-app`
+  keeps refusing `admin`; the admin API gets an `admin:*` guard on admin origin changes in ADM-002b.
+- **Dedicated host:** D19 origins only, the apex `https://mmlabs.online` refused; production uses
+  `https://admin.mmlabs.online`, reserved for the future admin UI (no DNS or tunnel route until it
+  exists, never routed to another service). Loopback is refused in staging/production.
+- **At most 2** distinct origins (rename or migration overlap), replace semantics.
+- **Never shared:** an origin held by any other app (any status) is refused.
+- **Origins only:** status, join policy, org mode, default role and the admin roles never change.
+  The command **fails closed on drift**: a missing admin row, or one not `active`/`closed`/`none`
+  without a default role, is refused and never repaired.
+- **Break-glass `--clear`:** empties the set; no new admin token after at most 60 s, issued tokens
+  last up to their TTL (revoke the role or disable the user to cut them sooner).

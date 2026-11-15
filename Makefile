@@ -1,4 +1,4 @@
-.PHONY: install dev db-up db-down migrate migration grant-super-admin register-app cleanup lint format typecheck test check
+.PHONY: install dev db-up db-down migrate migration grant-super-admin register-app set-admin-origins cleanup lint format typecheck test check
 
 install:        ## Install deps (incl. dev)
 	uv sync
@@ -25,6 +25,10 @@ grant-super-admin:  ## Grant admin:super-admin: make grant-super-admin email=you
 register-app:  ## Register/update an app: make register-app ARGS='--key x --name X --origin https://x.mmlabs.online'
 	@test -n "$(ARGS)" || { echo "usage: make register-app ARGS='--key <key> --name <name> --origin <origin> ...'"; exit 64; }
 	@uv run python -m app.cli register-app $(ARGS)
+
+set-admin-origins:  ## Set the admin app origins: make set-admin-origins ARGS='--origin https://admin.mmlabs.online'
+	@test -n "$(ARGS)" || { echo "usage: make set-admin-origins ARGS='(--origin <origin> ... | --clear) [--dry-run]'"; exit 64; }
+	@uv run python -m app.cli set-admin-origins $(ARGS)
 
 cleanup:  ## Email retention cleanup: make cleanup [ARGS=--dry-run]
 	@uv run python -m app.cli cleanup $(ARGS)
