@@ -138,3 +138,34 @@ No violations found.
 
 ### Security items (added by the orchestrator after appsec Attempt 2)
 Appsec found no 🔴, so the PASS stands. Two cheap 🟡 security hardening items go into one final rework (attempt 3), because the CLI path has no Turnstile or rate limit: (1) grant with a non-privileged actor so `_guard_privileged` still protects the CLI path (audit actor stays `system:cli`), with the monkeypatch test; (2) a test that only `app/cli.py` imports `app.modules.auth.provisioning`. Plus the one-phrase S8 doc fix in `docs/identity-architecture.md`. Nothing else.
+
+## Attempt 3 — 2026-11-15
+Verdict: PASS
+
+Scope: only the three security items listed under "Security items (added by the orchestrator after appsec Attempt 2)". Diff reviewed: `git diff af4e125 HEAD -- app tests docs` (commit a703242).
+
+### Checks (run by reviewer)
+- make check (ruff, format, mypy, pytest): ruff "All checks passed!", "418 files already formatted", mypy "Success: no issues found in 99 source files", pytest "1447 passed, 1 warning" (pty forkpty DeprecationWarning). Matches impl-log Attempt 3.
+- alembic check: not applicable (no migrations changed).
+
+### Acceptance criteria (security items)
+- [x] (1) Grant with a non-privileged actor; audit actor stays `system:cli` — evidence: `app/modules/auth/provisioning.py:81` passes `actor=SYSTEM_JOIN` (`SystemActor("system:join", privileged=False)`, `app/modules/rbac/actor.py:22`) to `_grant_locked`. In `_grant_locked` (`app/modules/rbac/service.py:1080-1135`) the actor is used only by `_guard_privileged` (`require_super`, so admin-app roles and roles holding an `is_admin` permission are refused) and by `granted_by = actor_user_id(actor)`, which is `None` for every `SystemActor` — same value as before. `_grant_locked` never audits. Both audit rows (`user.created` at provisioning.py:68-74, `app.joined` at :84-91) and the log line (:93) still use `SYSTEM_CLI` / `system:cli`. Nothing records `system:join` for this path.
+- [x] Monkeypatch test proves the guard — evidence: `tests/test_cli_create_account.py::test_cli_grant_still_refuses_admin_role` passes on HEAD. Mutation check by the reviewer: reverting only provisioning.py:81 to `actor=SYSTEM_CLI` makes it fail ("1 failed", the CLI printed "created account ... joined: stoktok"). Restored with `git checkout -- app/modules/auth/provisioning.py`; `git status` clean afterwards. The test also asserts exit 1, the generic message, no user, no new assignment, no audit row (whole transaction rolled back).
+- [x] (2) Only `app/cli.py` imports `app.modules.auth.provisioning` — evidence: `test_only_cli_imports_provisioning` passes. Reviewer ran the same scanner logic on a synthetic tree: it flagged `import app.modules.auth.provisioning`, `import ... as p`, `from app.modules.auth import provisioning`, `from app.modules.auth.provisioning import X`, `from .provisioning import X`, `from . import provisioning`, `from ..auth import provisioning`, `from ..auth.provisioning import Y`, and it did not flag `from app.modules.auth.provisioning_other import Z`. Relative resolution is also correct for `__init__.py` (the `__init__` part is dropped by `[: -level]`).
+- [x] S8 doc fix — evidence: `docs/identity-architecture.md:201` now lists "create-account: `user.created` + `app.joined`" under CLI writes (`system:cli`), which matches the two `audit.record(..., actor=SYSTEM_CLI)` calls in provisioning.py.
+
+### Scope
+Changed code/docs files: `app/modules/auth/provisioning.py`, `tests/test_cli_create_account.py`, `docs/identity-architecture.md` — exactly the three items. The other files in the commit are workflow files (`work/...`). No out-of-plan changes.
+
+### Issues
+None.
+
+### Rules R1–R11
+No violations found. R4: the audit rows are unchanged and still in the same transaction. R7: the diff stays within the three items. R8: green, and the new behaviour has a test that the mutation check shows really guards it.
+
+### Nits (do not block)
+- 💭 `docs/identity-architecture.md:201` is now longer than the ~100-column wrap of the paragraph around it; the line also reads "... `app.joined`) and `app.joined` (ADM-004)", which is accurate (the self-service join) but repeats itself a little.
+- 💭 The import guard does not see dynamic imports (`importlib.import_module("app.modules.auth.provisioning")`). That is acceptable for a regression tripwire.
+
+### Follow-ups (out of scope)
+- Carried over from Attempt 2: a deployment-repo guard so `create-account` never becomes an ops-workflow command; a per-run test database to avoid parallel pytest interference.
