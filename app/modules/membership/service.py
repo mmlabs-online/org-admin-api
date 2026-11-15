@@ -5,7 +5,10 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.recorder import AuditRecorder
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import AuditContext, EndUser
+from app.modules.audit.diff import change
+from app.modules.audit.service import AuditLogger
 from app.modules.auth.errors import OriginNotAllowedError
 from app.modules.membership.errors import (
     AppMismatchError,
@@ -35,16 +38,22 @@ class JoinResult:
 
 
 class JoinService:
-    def __init__(self, session: AsyncSession, recorder: AuditRecorder) -> None:
+    def __init__(self, session: AsyncSession) -> None:
         self.rbac = RbacRepository(session)
         self.authz = AuthzService(session)
         self.assignments = AssignmentService(session)
         self.accounts = SessionRepository(session)
         self.users = UserRepository(session)
-        self.recorder = recorder
+        self.audit = AuditLogger(session)
 
     async def join(
-        self, calling_app: App, device: ResolvedDevice, key: str, data: JoinRequest
+        self,
+        calling_app: App,
+        device: ResolvedDevice,
+        key: str,
+        data: JoinRequest,
+        *,
+        ctx: AuditContext,
     ) -> JoinResult:
         if key != calling_app.key:  # only an app can join users into itself
             raise AppMismatchError("App does not match the calling app")
@@ -90,12 +99,13 @@ class JoinService:
         ra, _ = await self.assignments._grant_locked(
             app, role, user.id, None, None, actor=SYSTEM_JOIN
         )
-        await self.recorder.record(
-            "app.join",
-            actor_user_id=user.id,
-            app_id=app.id,
-            role_id=role.id,
-            assignment_id=ra.id,
+        await self.audit.record(
+            AuditAction.APP_JOINED,
+            actor=EndUser(user.id),
+            ctx=ctx,
+            target=(AuditTarget.ROLE_ASSIGNMENT, ra.id),
+            app_key=app.key,
+            changes={"role_key": change(None, role.key)},
         )
         logger.info("app_joined user_id=%s app=%s role_id=%s", user.id, app.key, role.id)
         return JoinResult(created=True)

@@ -10,7 +10,12 @@ from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.actions import AuditAction
+from app.modules.audit.context import AuditContext
+from app.modules.audit.diff import change
+from app.modules.audit.service import AuditLogger
 from app.modules.auth.repository import EmailRetentionRepository
+from app.modules.rbac.actor import SYSTEM_CLI
 
 SEND_LOG_RETENTION = timedelta(hours=48)
 TOKEN_RETENTION = timedelta(days=7)
@@ -27,6 +32,7 @@ class PurgeCount:
 class EmailRetentionService:
     def __init__(self, session: AsyncSession, *, batch_size: int = BATCH_SIZE) -> None:
         self.repo = EmailRetentionRepository(session)
+        self.audit = AuditLogger(session)
         self.batch_size = batch_size
 
     async def run(self, *, dry_run: bool) -> list[PurgeCount]:
@@ -71,4 +77,12 @@ class EmailRetentionService:
                     if deleted < self.batch_size:
                         break
             counts.append(PurgeCount(table, rows, label))
+        if not dry_run:  # one summary row: counts per table, never row contents
+            await self.audit.record(
+                AuditAction.EMAIL_RETENTION_PURGED,
+                actor=SYSTEM_CLI,
+                ctx=AuditContext.NONE,
+                changes={c.table: change(None, c.rows) for c in counts},
+            )
+            await repo.commit()
         return counts

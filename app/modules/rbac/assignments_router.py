@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
+from app.modules.audit.deps import AuditContextDep
 from app.modules.rbac.models import APP_KEY_RE
 from app.modules.rbac.schemas import AssignmentCreate, AssignmentRead
 from app.modules.rbac.service import AssignmentService
@@ -45,9 +46,13 @@ async def list_role_assignments(
     **require_permission("admin:roles:assign"),
 )
 async def assign_role(
-    session: SessionDep, principal: AdminDep, user_id: uuid.UUID, body: AssignmentCreate
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    user_id: uuid.UUID,
+    body: AssignmentCreate,
 ) -> AssignmentRead:
-    return await AssignmentService(session).assign(user_id, body, actor=principal)
+    return await AssignmentService(session).assign(user_id, body, actor=principal, ctx=ctx)
 
 
 _REVOKE = require_permission("admin:roles:assign")
@@ -60,6 +65,10 @@ _REVOKE["responses"][409] = {"description": "Last active super-admin"}
     **_REVOKE,
 )
 async def revoke_role(
-    session: SessionDep, principal: AdminDep, user_id: uuid.UUID, assignment_id: uuid.UUID
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    user_id: uuid.UUID,
+    assignment_id: uuid.UUID,
 ) -> None:
-    await AssignmentService(session).revoke(user_id, assignment_id, actor=principal)
+    await AssignmentService(session).revoke(user_id, assignment_id, actor=principal, ctx=ctx)

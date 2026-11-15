@@ -488,7 +488,8 @@ dry-run: rolled back, nothing was saved      (only with dry_run)
   roles never change. If the admin row is missing or has drifted from its seed (not `active`,
   `closed`, `none` with no default role), the command refuses and repairs nothing (exit 1).
 - The API applies origin changes within 60 s (CORS cache).
-- Until ADM-004 the workflow run (actor, time, inputs, summary) is the audit trail.
+- The CLI writes a `system:cli` audit row (ADM-004); the workflow run (actor, time, inputs,
+  summary) stays the operator trail.
 
 | Exit | Meaning |
 |---|---|
@@ -567,7 +568,8 @@ permissions. Add ricotdin's permission keys later by re-running with `permission
   staging/production.
 - The API applies origin changes within 60 s (CORS cache). Separate app keys mean separate token
   audiences.
-- Until ADM-004 the workflow run (actor, time, inputs, summary) is the audit trail.
+- The CLI writes a `system:cli` audit row (ADM-004); the workflow run (actor, time, inputs,
+  summary) stays the operator trail.
 
 | Exit | Meaning |
 |---|---|
@@ -585,6 +587,19 @@ docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file app
 ```
 
 Locally: `make register-app ARGS='--key ricotdin --name Ricotdin --origin https://ricotdin.mmlabs.online'`.
+
+## Audit log (ADM-004)
+
+- `audit_log` is append-only: a trigger (`audit_log_immutable()`) refuses UPDATE, DELETE and
+  TRUNCATE for every role, the owner included; only DDL defeats it (ADR-0009). Retention is
+  indefinite in v1 (a purge comes with ADM-004b).
+- **Never downgrade production past revision `c3f1a9d27b60`**: its `downgrade()` drops the table
+  and destroys the log.
+- Read it with `GET /api/v1/audit-logs` (`admin:audit:read`, held only through `admin:*`).
+  Every response carries `X-Request-ID` (a valid inbound value, else a generated UUID4); the
+  same id is stored on the audit row.
+- Follow-up (deployment repo): run the API as a DB role with only INSERT/SELECT on `audit_log`,
+  separate from the migration owner.
 
 ## Email retention cleanup (USR-04d)
 
