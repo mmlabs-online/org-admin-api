@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | REWORK |
 | Priority | P1 |
 | Areas | auth, security, db |
-| Attempts | 1 |
+| Attempts | 2 |
 | Created | 2026-11-15 |
 | PR | https://github.com/mmlabs-online/org-admin-api/pull/29 |
 

@@ -86,3 +86,6 @@ No violations found.
   - Optional: an early read-only check before the password prompts.
   - Optional: `RLIMIT_CORE=0`.
 - Test infrastructure: two `pytest` runs against `org_admin_test` at the same time interfere, because the migration tests downgrade and upgrade the shared schema. Consider a per-run test database name, or a lock, so parallel sessions cannot produce false failures.
+
+## Orchestrator note — 2026-11-15 (after merging `main`)
+PR #29 conflicted with `main`, which gained ADM-002b and **ADM-004 (audit log)**. Merged `main` into the branch (commit 67f1121): textual conflicts in `docs/deploy.md` (both sections kept) and `work/backlog.md` resolved; the USR-09 ADR is renumbered **0009 → 0010** because ADM-004 took ADR-0009 (`docs/adr/0009-audit-log.md`); references updated. `make check` now fails: `mypy` — `app/modules/auth/provisioning.py:65-66` calls `_grant_locked` with the old signature (ADM-004 added an actor `AdminPrincipal | SystemActor` and changed the arity). Also, with ADM-004 landed, R4 now applies: `create-account` must write real audit entries in the same transaction (actor `SYSTEM_CLI`) instead of the log-line placeholder. → REWORK attempt 2.
