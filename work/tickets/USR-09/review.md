@@ -89,3 +89,49 @@ No violations found.
 
 ## Orchestrator note — 2026-11-15 (after merging `main`)
 PR #29 conflicted with `main`, which gained ADM-002b and **ADM-004 (audit log)**. Merged `main` into the branch (commit 67f1121): textual conflicts in `docs/deploy.md` (both sections kept) and `work/backlog.md` resolved; the USR-09 ADR is renumbered **0009 → 0010** because ADM-004 took ADR-0009 (`docs/adr/0009-audit-log.md`); references updated. `make check` now fails: `mypy` — `app/modules/auth/provisioning.py:65-66` calls `_grant_locked` with the old signature (ADM-004 added an actor `AdminPrincipal | SystemActor` and changed the arity). Also, with ADM-004 landed, R4 now applies: `create-account` must write real audit entries in the same transaction (actor `SYSTEM_CLI`) instead of the log-line placeholder. → REWORK attempt 2.
+
+## Attempt 2 — 2026-11-15
+Verdict: PASS
+
+Reviewed the rework commits `git diff 67f1121 HEAD` (dcd2644, af4e125) and, for the merge, `git diff 7d8f0ec HEAD -- app tests docs` plus `git diff b4c2504 HEAD` (main tip → HEAD), so the USR-09 delta on top of `main` is isolated from the ADM-002b/ADM-004 changes merged in.
+
+### Checks (run by reviewer)
+- make check (ruff, format, mypy, pytest): ruff "All checks passed!", format "418 files already formatted", mypy "Success: no issues found in 99 source files", pytest **"1445 passed, 1 warning in 96.25s"**, exit 0. Matches impl-log Attempt 2 (1445 passed; the warning is the stdlib forkpty DeprecationWarning). No other pytest process was running against `org_admin_test`.
+- alembic check: not applicable. No model or migration change in the USR-09 delta. `audit_log.action` only has the `ck_audit_log_action_format` regex check (`^[a-z_]+(\.[a-z_]+)+$`, ≤ 64), and `user.created` matches it, so the new enum value needs no migration.
+
+### Acceptance criteria
+AC1–AC6 still hold as in Attempt 1. The full suite is green, and `tests/test_cli_create_account.py` and `tests/test_auth_join.py` both pass. The rework adds the following R4 evidence:
+- [x] **`_grant_locked` gets the new actor:** `app/modules/auth/provisioning.py:79-81` calls `_grant_locked(app, role, user.id, None, None, actor=SYSTEM_CLI)`, matching the keyword-only signature at `app/modules/rbac/service.py:1080-1089`. `granted_by` stays NULL because `actor_user_id(SystemActor)` is None, which `test_create_with_join_then_login_and_token` asserts. `SYSTEM_CLI` is privileged, but the role reaching `_grant_locked` has already passed `join_default_role`, which refuses roles with admin permissions, so this widens nothing.
+- [x] **`user.created` row:** written at `provisioning.py:70-77` in the same session and transaction, after the insert succeeds. The row has actor `SYSTEM_CLI`, `AuditContext.NONE`, target `(user, user.id)`, and changes `status` None→active and `verified` None→True. `test_create_verified_user_no_join` (l.170) asserts `actor_kind=system`, `actor_user_id=None`, `actor_label=system:cli`, the target, and the exact changes. It also asserts that the email, its local part, the password, the hash and `argon2` are absent from changes, ip, ua and request_id.
+- [x] **`app.joined` row (with `--join`):** written at `provisioning.py:83-90` with target `(role_assignment, ra.id)`, `app_key`, and `role_key` None→key. This is the same shape JoinService writes (`membership/service.py`), except the actor is `system:cli` instead of `EndUser`. `test_create_with_join_then_login_and_token` (l.212) asserts it.
+- [x] **Every refusal rolls back the audit rows:** `test_existing_email_exit_1_unchanged` (l.271, 4 cases), `test_join_refusals_create_nothing` (l.450, 7 cases) and `test_failure_after_insert_rolls_back_user` (l.479; `user.created` was flushed before the forced `_grant_locked` failure and is rolled back) each assert `_audit(...) == []`.
+- [x] **ADM-004 conventions followed:** writes go only through `AuditLogger.record` (the single write path), in the caller's transaction, with no commit. The actor is a `SystemActor`, so the row gets `actor_kind=system` and `actor_label`, and `AuditContext.NONE` leaves ip, ua and request id empty, as for the other CLI commands (ADM-004 plan AC5). `changes` come from `diff.change`. The key names `status`, `verified` and `role_key` pass the `_FORBIDDEN_KEY` guard. Two rows for two distinct state changes is consistent with the catalogue. The old `# R4` placeholder comment is gone, and the ids-only log line is kept.
+
+### Out-of-plan change: judged acceptable
+- `app/modules/audit/actions.py`: adds `USER_CREATED = "user.created"`. It is needed because the catalogue had no create action for users, and the ADM-004 plan names `actions.py` as the single catalogue. It follows the past-tense `<target>.<verb>` convention. Because `GET /api/v1/audit-logs?action=` is typed `AuditAction`, the new value becomes filterable. That is additive and not a v1 break (R9). No migration is needed (see Checks).
+
+### Merge resolution (67f1121)
+- **JoinService still behaves as on `main`.** `git diff b4c2504 HEAD -- app/modules/membership/service.py` shows only the helper extraction, with the same checks, messages and order. The ADM-004 parts `_grant_locked(..., actor=SYSTEM_JOIN)` and `audit.record(APP_JOINED, actor=EndUser(user.id), ctx=ctx, ...)` are byte-identical to main. `tests/test_auth_join.py` has no diff against main and passes, including its `app.joined` audit assertion at l.79.
+- **ADR numbering is consistent.** `docs/adr/` has `0009-audit-log.md` (ADM-004) and `0010-operator-vouched-verified-email.md`. Every live reference uses ADR-0010: `app/cli.py:5`, `app/modules/auth/provisioning.py:1,48`, `docs/deploy.md:272,597`, `docs/identity-architecture.md:259` (D16), `docs/adr/0007-…:7`. The ADR-0009 references in `deploy.md:641` and `identity-architecture.md:197` correctly mean the audit log. The only "ADR-0009" mentions of this ADR are in the historical ticket files (plan, consults, impl-log Attempt 1, security-review, review Attempt 1), which record what was true at the time, so they are fine.
+- **Merged `docs/deploy.md` reads correctly.** Both sections are present in order: "Create an account from the CLI (bootstrap only)" (l.595) followed by main's "Audit log (ADM-004)". Setup step 6, the grant-super-admin wording and the `created_at`/`email_verified: yes` note are coherent. The post-run paragraph (l.629-632) now describes the audit rows and keeps the manual operator note, consistent with ADR-0010 risk b).
+
+### Issues
+None blocking.
+
+### Rules R1–R11
+No violations found.
+- R1: the audit write is in the service (`provisioning.py`) through `AuditLogger`/repository.
+- R2: no schema change.
+- R4: now satisfied with real rows in the same transaction.
+- R5/R11: no email, password or hash in audit rows (tested), and the forbidden-key guard applies.
+- R7: one justified out-of-plan file.
+- R8: green.
+
+### Nits (do not block)
+- `docs/identity-architecture.md:197-201` (S8) lists "every CLI write (`system:cli`: register-app, set-admin-origins, grant-super-admin, cleanup summary)" but does not mention `create-account` (`user.created`, `app.joined`). Add it to that list so the system overview matches the code, ADR-0010 and deploy.md.
+- These carry over from Attempt 1 and are still open: Ctrl-C at the email retype, the one long line in deploy.md step 1, "Re-running it is safe" now being ambiguous between two commands, and "chon B" without diacritics in the ADR.
+
+### Follow-ups (out of scope)
+- From the impl-log: an operator identity on CLI audit rows (`--operator` or an env label).
+- Security-review 🟡 (still open): a regression test that `app.modules.auth.provisioning` is imported only by `app/cli.py`.
+- Carried over: a deployment-repo guard so `create-account` never becomes an ops-workflow command; a per-run test database to avoid parallel pytest interference.
