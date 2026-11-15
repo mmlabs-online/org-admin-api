@@ -25,7 +25,7 @@ USER_AGENT_MAX = 512
 _FORBIDDEN_KEY = re.compile(r"hash|token|password|cookie|email|secret", re.IGNORECASE)
 # Table names of the retention summary: row counts, never values (`email_retention.purged` only).
 _ALLOWED_KEYS = frozenset({"email_send_log", "email_tokens"})
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 AuditActor = Actor | EndUser | AnonymousActor
 
@@ -176,8 +176,13 @@ class AuditLogger:
             await self.repo.rollback()
             await self.repo.add(row)
             await self.repo.commit()
-        except Exception:
-            logger.warning("audit_write_failed action=%s outcome=%s", action.value, outcome.value)
+        except Exception as exc:
+            logger.warning(
+                "audit_write_failed action=%s outcome=%s error=%s",
+                action.value,
+                outcome.value,
+                type(exc).__name__,
+            )
             with contextlib.suppress(Exception):
                 await self.repo.rollback()
 
@@ -233,9 +238,12 @@ class AuditLogger:
                         changes=changes,
                     )
                 )
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "audit_write_failed action=%s outcome=%s", action.value, AuditOutcome.SUCCESS.value
+                "audit_write_failed action=%s outcome=%s error=%s",
+                action.value,
+                AuditOutcome.SUCCESS.value,
+                type(exc).__name__,
             )
 
 

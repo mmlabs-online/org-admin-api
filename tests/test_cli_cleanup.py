@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import func, select, text
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cli import CLEANUP_USAGE, MSG_CLEANUP_FAILED, MSG_DB_ECHO, amain
 from app.core.config import Settings
 from app.modules.audit.models import AuditLog
+from app.modules.audit.service import AuditLogger
 from app.modules.auth.models import EmailSendLog, EmailToken
 from app.modules.auth.repository import EmailRetentionRepository
 from app.modules.auth.retention import EmailRetentionService, PurgeCount
@@ -217,13 +219,51 @@ async def _audit_rows(db_session: AsyncSession) -> list[AuditLog]:
 async def test_cleanup_audit_summary(db_session: AsyncSession) -> None:
     await _seed(db_session)
     assert await _run(db_session) == 0
-    (row,) = await _audit_rows(db_session)
-    assert (row.actor_kind, row.actor_user_id, row.actor_label) == ("system", None, "system:cli")
-    assert (row.target_type, row.target_id, row.app_key, row.ip) == (None, None, None, None)
-    assert row.changes == {
-        "email_send_log": {"from": None, "to": 1},
-        "email_tokens": {"from": None, "to": 2},
-    }
+    rows = await _audit_rows(db_session)
+    for row in rows:
+        assert (row.actor_kind, row.actor_user_id, row.actor_label) == (
+            "system",
+            None,
+            "system:cli",
+        )
+        assert (row.target_type, row.target_id, row.app_key, row.ip) == (None, None, None, None)
+    changes = sorted((r.changes for r in rows if r.changes), key=lambda c: next(iter(c)))
+    assert changes == [
+        {"email_send_log": {"from": None, "to": 1}},
+        {"email_tokens": {"from": None, "to": 2}},
+    ]
+
+
+async def test_cleanup_audit_row_per_batch(db_session: AsyncSession) -> None:
+    for _ in range(3):
+        await _send_log(db_session, "3 days")
+    await EmailRetentionService(db_session, batch_size=1).run(dry_run=False)
+    rows = await _audit_rows(db_session)
+    # 3 deleting batches; the final empty batch (and the empty token table) write nothing.
+    assert [r.changes for r in rows] == [{"email_send_log": {"from": None, "to": 1}}] * 3
+
+
+async def test_cleanup_zero_rows_no_audit_row(db_session: AsyncSession) -> None:
+    await _send_log(db_session, "47 hours")
+    assert await _run(db_session) == 0
+    assert await _audit_rows(db_session) == []
+
+
+async def test_cleanup_summary_failure_rolls_back_batch(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _send_log(db_session, "3 days")
+    await db_session.commit()  # release the setup savepoint; the outer transaction still rolls back
+
+    async def boom(self: AuditLogger, *args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("summary insert failed")
+
+    monkeypatch.setattr(AuditLogger, "record", boom)
+    with pytest.raises(RuntimeError, match="summary insert failed"):
+        await EmailRetentionService(db_session).run(dry_run=False)
+    await db_session.rollback()  # what closing the CLI session does
+    assert await _counts(db_session) == (1, 0)
+    assert await _audit_rows(db_session) == []
 
 
 async def test_cleanup_dry_run_no_audit_row(db_session: AsyncSession) -> None:

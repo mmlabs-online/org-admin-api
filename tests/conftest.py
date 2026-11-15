@@ -65,6 +65,8 @@ def _migrate_db() -> None:
     """Build the schema with the real migrations (downgrade first => clean slate)."""
     cfg = Config("alembic.ini")
     cfg.attributes["url"] = TEST_DATABASE_URL
+    # Committed `auth.login_failed` rows (concurrency tests) would block af3eb84d2d5e's guard.
+    cfg.attributes["allow_outcome_loss"] = True
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
 

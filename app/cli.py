@@ -11,6 +11,9 @@
   replaces the origins of the `admin` app through `AppService.set_admin_origins`; nothing else.
 - `python -m app.cli cleanup [--dry-run]` (USR-04d): deletes email send-log rows older than 48 h
   and used or expired email tokens older than 7 d, in batches; prints counts only.
+- `python -m app.cli audit-purge --older-than-days <90-3650> [--dry-run]` (ADM-004c): deletes
+  audit rows older than N days (the trigger refuses 90 days or newer), in batches, each with its
+  `audit_log.purged` summary row; prints counts and the cutoff only. Never an HTTP route.
 
 Output never contains the full email, a submitted value, a traceback or the DSN (R11): every
 failure prints one fixed line, and the CLI uses its own engine with `hide_parameters=True`.
@@ -20,6 +23,7 @@ import argparse
 import asyncio
 import getpass
 import logging
+import re
 import sys
 import warnings
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -95,6 +99,12 @@ MSG_ADMIN_CLOSED = (
 CLEANUP_USAGE = "usage: python -m app.cli cleanup [--dry-run]"
 MSG_CLEANUP_FAILED = "error: cleanup failed; batches already committed stay deleted, run again"
 MSG_CLEANUP_DRY_RUN = "dry-run: nothing was deleted"
+
+AUDIT_PURGE_USAGE = "usage: python -m app.cli audit-purge --older-than-days <90-3650> [--dry-run]"
+MSG_AUDIT_PURGE_FAILED = (
+    "error: audit purge failed; batches already committed stay deleted with their summary rows,"
+    " run again"
+)
 
 CREATE_USAGE = "usage: python -m app.cli create-account --email <email> [--join <app_key>]"
 MSG_NO_TTY = "error: run from an interactive terminal (no -T, ssh -t); nothing was created"
@@ -221,6 +231,8 @@ async def amain(
         return await _set_admin_origins(argv[1:], settings=settings, session_scope=session_scope)
     if argv[:1] == ["cleanup"]:
         return await _cleanup(argv[1:], settings=settings, session_scope=session_scope)
+    if argv[:1] == ["audit-purge"]:
+        return await _audit_purge(argv[1:], settings=settings, session_scope=session_scope)
     try:
         email = _parse_email(argv)
 
@@ -664,6 +676,52 @@ async def _cleanup(
     except Exception:
         # Never str(exc): DB errors carry the DSN and DETAIL lines.
         print(MSG_CLEANUP_FAILED, file=sys.stderr)
+        return EXIT_FAILURE
+
+
+async def _audit_purge(
+    argv: Sequence[str],
+    *,
+    settings: "Settings | None",
+    session_scope: "SessionScope | None",
+) -> int:
+    try:
+        from app.modules.audit.purge import MAX_DAYS, MIN_DAYS, AuditPurgeService
+
+        parser = _Parser(prog="python -m app.cli audit-purge", allow_abbrev=False, add_help=False)
+        parser.add_argument("--older-than-days", required=True)
+        parser.add_argument("--dry-run", action="store_true")
+        args = parser.parse_args(argv)
+        # ASCII digits only: int() would also take non-ASCII digits, signs and spaces.
+        if re.fullmatch(r"[0-9]{1,4}", args.older_than_days) is None:
+            raise _UsageError
+        days = int(args.older_than_days)
+        if not MIN_DAYS <= days <= MAX_DAYS:
+            raise _UsageError
+        dry_run = bool(args.dry_run)
+
+        settings = _load_settings(settings)
+        scope = session_scope or (lambda: _cli_cleanup_scope(settings))
+        async with scope() as session:
+            result = await AuditPurgeService(session).run(days, dry_run=dry_run)
+
+        verb = "would delete" if dry_run else "deleted"
+        print(
+            f"audit_log: {verb} {result.deleted}"
+            f" (older than {result.older_than_days} d, cutoff {result.cutoff.isoformat()})"
+        )
+        if dry_run:
+            print(MSG_CLEANUP_DRY_RUN)
+        return EXIT_OK
+    except _UsageError:
+        print(AUDIT_PURGE_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except _Fail as fail:
+        print(fail.message, file=sys.stderr)
+        return EXIT_FAILURE
+    except Exception:
+        # Never str(exc): DB errors carry the DSN and DETAIL lines.
+        print(MSG_AUDIT_PURGE_FAILED, file=sys.stderr)
         return EXIT_FAILURE
 
 

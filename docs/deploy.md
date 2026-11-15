@@ -638,10 +638,12 @@ Locally: `uv run python -m app.cli create-account --email you@example.com [--joi
 ## Audit log (ADM-004)
 
 - `audit_log` is append-only: a trigger (`audit_log_immutable()`) refuses UPDATE, DELETE and
-  TRUNCATE for every role, the owner included; only DDL defeats it (ADR-0009). Retention is
-  indefinite until ADM-004c ships the purge.
-- **Never downgrade production past revision `c3f1a9d27b60`**: its `downgrade()` drops the table
-  and destroys the log.
+  TRUNCATE for every role, the owner included; only DDL defeats it (ADR-0009). Since ADM-004c
+  the only exception is the operator purge of rows older than 90 days (below).
+- **Never downgrade production past revision `c3f1a9d27b60` or `af3eb84d2d5e`**: the first drops
+  the table and destroys the log; the second drops `outcome`, so failure and denied rows would read
+  as successes (its `downgrade()` refuses offline and while such rows exist). The purge migration
+  `d7e4b2a91c3f` may be downgraded: it only restores the stricter function.
 - Read it with `GET /api/v1/audit-logs` (`admin:audit:read`, held only through `admin:*`).
   Every response carries `X-Request-ID`; the same id is stored on the audit row. A valid inbound
   value is kept only from a peer in `TRUSTED_PROXY_CIDRS` (cloudflared), else a UUID4 is
@@ -650,9 +652,60 @@ Locally: `uv run python -m app.cli create-account --email you@example.com [--joi
   logins (`auth.login_failed`, anonymous actor, no email) and denied privileged attempts
   (`outcome=denied`) are recorded, plus logins, logouts, device-session reuse, password resets and
   email verifications. An audit write failure on a failure path is logged as
-  `audit_write_failed action=<a> outcome=<o>` and the intended 401/403/409 is still returned.
+  `audit_write_failed action=<a> outcome=<o> error=<ExceptionClass>` and the intended 401/403/409
+  is still returned.
 - Follow-up (deployment repo): run the API as a DB role with only INSERT/SELECT on `audit_log`,
   separate from the migration owner.
+- Future audit DDL on a large table: `ADD CONSTRAINT ... NOT VALID` then `VALIDATE CONSTRAINT`,
+  and `CREATE INDEX CONCURRENTLY` (outside a transaction), so writes are not blocked.
+
+## Audit purge (ADM-004c)
+
+`python -m app.cli audit-purge --older-than-days <N> [--dry-run]` deletes audit rows older than
+N days. Policy default: **365 d** (owner decision pending spec Q6 / Decree 13/2023). The CLI
+accepts 90–3650 (ASCII digits only); the trigger refuses any row 90 days old or newer whatever the
+CLI does (hard-coded floor, not configurable).
+
+- The cutoff (`now() - N days`, database clock) is computed once and reused by every batch.
+  Batches of 1000 (`FOR UPDATE SKIP LOCKED`, `lock_timeout` 2 s, one commit per batch); each batch
+  that deletes rows writes one `audit_log.purged` row (`system:cli`,
+  `{cutoff, older_than_days, deleted}`) in the same transaction. `audit_log.purged` rows are never
+  purged (the purge trail is kept forever).
+- A run that deletes nothing writes no row: **keep the workflow run summary** as the operator
+  trail.
+- A dry run only counts, in a READ ONLY transaction; it never sets the purge latch.
+- The `audit.allow_purge` setting is a safety latch, not access control: anyone with the DB owner
+  role can set it. The 90-day floor is the real protection until the runtime and migration roles
+  are split (follow-up above).
+- Purged rows remain in database backups until the backup retention expires (whether Decree 13
+  requires erasing them from backups is an open owner question).
+- After a large first purge, run `VACUUM (ANALYZE) audit_log`; autovacuum handles later runs.
+
+1. In `mmlabs-online/deployment`: Actions → `ops-org-admin-api` → Run workflow (branch `main`) →
+   command `audit-purge`, `older_than_days` 365 (or 180/90), `dry_run` on first (available once the
+   deployment PR that adds the `audit-purge` choice is merged). It is never scheduled.
+2. Approve the `org-admin-api-ops` environment; read the count in the run summary, then run again
+   with `dry_run` off.
+
+Output (counts and cutoff only; a dry run says `would delete` and adds
+`dry-run: nothing was deleted`):
+
+```
+audit_log: deleted <n> (older than <N> d, cutoff <iso timestamp>)
+```
+
+| Exit | Meaning |
+|---|---|
+| 0 | done (also a dry run) |
+| 1 | settings, `DB_ECHO`, database; one fixed line. Batches already committed stay deleted with their summary rows; running again is safe |
+| 64 | usage error (missing or invalid `--older-than-days`, outside 90–3650, unknown flag) |
+
+**Fallback** with a shell on the Mac (same command the workflow runs):
+
+```bash
+docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+  run --rm --no-deps migrate /app/.venv/bin/python -m app.cli audit-purge --older-than-days 365 --dry-run
+```
 
 ## Email retention cleanup (USR-04d)
 
