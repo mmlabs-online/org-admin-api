@@ -1,24 +1,25 @@
 """Admin (Bearer) endpoints — R3 class 1.
 
-Unauthenticated until ADM-002; mounted only when `admin_users_api_enabled` (see `create_app`).
+Bearer `aud=admin` + `require_permission` (ADR-0008). Still flag-gated until ADM-002b: mounted
+only when `admin_users_api_enabled` (see `create_app`).
 """
 
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
-from app.core.permissions import permission
+from app.modules.admin_auth.deps import current_admin, require_permission
 from app.modules.users.models import UserStatus
 from app.modules.users.schemas import UserRead, UserStatusUpdate
 from app.modules.users.service import UserService
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(current_admin)])
 
 
-@router.get("", response_model=Page[UserRead], openapi_extra=permission("admin:users:read"))
+@router.get("", response_model=Page[UserRead], **require_permission("admin:users:read"))
 async def list_users(
     session: SessionDep,
     page: PageDep,
@@ -36,12 +37,12 @@ async def list_users(
     )
 
 
-@router.get("/{user_id}", response_model=UserRead, openapi_extra=permission("admin:users:read"))
+@router.get("/{user_id}", response_model=UserRead, **require_permission("admin:users:read"))
 async def get_user(session: SessionDep, user_id: uuid.UUID) -> UserRead:
     return UserRead.model_validate(await UserService(session).get(user_id))
 
 
-@router.patch("/{user_id}", response_model=UserRead, openapi_extra=permission("admin:users:write"))
+@router.patch("/{user_id}", response_model=UserRead, **require_permission("admin:users:write"))
 async def update_user_status(
     session: SessionDep, user_id: uuid.UUID, body: UserStatusUpdate
 ) -> UserRead:

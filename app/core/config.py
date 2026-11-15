@@ -102,9 +102,9 @@ class Settings(BaseSettings):
     argon2_parallelism: int = Field(default=4, ge=1)
     argon2_max_concurrency: int = Field(default=2, ge=1)
 
-    # Temporary: exposes user PII and a disable action without auth. Removed by ADM-002.
+    # Temporary: exposes user PII and a disable action before its guards. Removed by ADM-002b.
     admin_users_api_enabled: bool = False
-    # Temporary: privilege-changing RBAC endpoints without auth. Removed by ADM-002.
+    # Temporary: privilege-changing RBAC endpoints before their guards. Removed by ADM-002b.
     admin_rbac_api_enabled: bool = False
 
     @field_validator("trusted_proxy_cidrs")
@@ -150,7 +150,7 @@ class Settings(BaseSettings):
         }
         for name, on in flags.items():
             if on and self.app_env in {"staging", "production"}:
-                raise ValueError(f"{name} must not be set in staging/production before ADM-002")
+                raise ValueError(f"{name} must not be set in staging/production before ADM-002b")
         # `env_ignore_empty=True`: an empty `APP_ENV=` counts as unset.
         if any(flags.values()) and "app_env" not in self.model_fields_set:
             raise ValueError("APP_ENV must be set explicitly when an admin API flag is on")

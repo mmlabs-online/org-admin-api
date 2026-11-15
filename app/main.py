@@ -41,7 +41,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=settings.app_name,
         version="0.1.0",
         # Swagger UI is public in every environment, production included (owner, 2026-11-11;
-        # temporary). Gated admin routes are not mounted in production, so they are not listed.
+        # temporary). Admin routes need a Bearer token (ADR-0008); the flag-gated users/RBAC
+        # routes are not mounted in production, so they are not listed (ADM-002b decides).
         docs_url="/docs",
         redoc_url=None,
         lifespan=_lifespan,
@@ -87,9 +88,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(jwks_router)
     app.include_router(api_router, prefix=settings.api_prefix)
-    if settings.admin_users_api_enabled:  # unauthenticated until ADM-002 (see Settings)
+    if settings.admin_users_api_enabled:  # guards still pending, ADM-002b (see Settings)
         app.include_router(users_router, prefix=settings.api_prefix)
-    if settings.admin_rbac_api_enabled:  # unauthenticated until ADM-002 (see Settings)
+    if settings.admin_rbac_api_enabled:  # guards still pending, ADM-002b (see Settings)
         app.include_router(rbac_router, prefix=settings.api_prefix)
         app.include_router(assignments_router, prefix=settings.api_prefix)
     return app

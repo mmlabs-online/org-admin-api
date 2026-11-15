@@ -10,13 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_keys import KeySet
 from app.modules.rbac.authz import AuthzService
-from app.modules.rbac.models import ADMIN_APP_KEY, App, JoinPolicy
+from app.modules.rbac.models import App, JoinPolicy
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.repository import SessionRepository
 from app.modules.sessions.service import ResolvedDevice
 from app.modules.tokens.errors import (
     AudienceMismatchError,
-    AudienceNotSupportedError,
     EmailUnverifiedError,
     NotMemberError,
     OrgNotSupportedError,
@@ -55,8 +54,6 @@ class TokenService:
     async def issue(self, app: App, device: ResolvedDevice, data: TokenRequest) -> IssuedToken:
         if data.audience != app.key:
             raise AudienceMismatchError("Audience does not match the calling app")
-        if app.key == ADMIN_APP_KEY:
-            raise AudienceNotSupportedError("Tokens for this audience are not available yet")
         if data.org_id is not None:
             raise OrgNotSupportedError(
                 "Organization-scoped tokens are not supported yet",

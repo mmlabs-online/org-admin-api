@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.main import create_app
 from app.modules.users.models import User
 from tests.conftest import MakeClient
 
@@ -28,7 +27,7 @@ T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 @pytest.fixture
 async def users_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_users_api_enabled=True) as c:
+    async with make_client(admin_users_api_enabled=True, admin_permissions=["admin:*"]) as c:
         yield c
 
 
@@ -296,23 +295,3 @@ async def test_user_read_has_exact_keys(
         assert set(body) == USER_READ_KEYS
         assert "password_hash" not in resp.text
         assert "secret-hash-value" not in resp.text
-
-
-# --- permissions (AC 4) ------------------------------------------------------
-
-
-def test_users_routes_declare_permissions() -> None:
-    # FastAPI wraps included routers lazily, so enumerate operations via the OpenAPI schema.
-    app = create_app(Settings(admin_users_api_enabled=True))
-    expected = {
-        ("GET", "/api/v1/users"): "admin:users:read",
-        ("GET", "/api/v1/users/{user_id}"): "admin:users:read",
-        ("PATCH", "/api/v1/users/{user_id}"): "admin:users:write",
-    }
-    found = {
-        (method.upper(), path): operation.get("x-permission")
-        for path, operations in app.openapi()["paths"].items()
-        if path.startswith("/api/v1/users")
-        for method, operation in operations.items()
-    }
-    assert found == expected

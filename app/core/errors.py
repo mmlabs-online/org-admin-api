@@ -49,6 +49,11 @@ class UnprocessableError(AppError):
     code = "unprocessable"
 
 
+class UnauthorizedError(AppError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "unauthorized"
+
+
 class PermissionDeniedError(AppError):
     status_code = status.HTTP_403_FORBIDDEN
     code = "permission_denied"

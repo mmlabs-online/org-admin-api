@@ -9,6 +9,8 @@ from httpx import AsyncClient
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.access_token import verify_access_token
+from app.core.jwt_keys import build_key_set
 from app.modules.rbac.models import App, Role
 from app.modules.sessions.models import AccountSession, DeviceSession
 from app.modules.sessions.service import DeviceSessionService
@@ -25,7 +27,7 @@ from tests.auth_factories import (
     sha256,
     shift,
 )
-from tests.conftest import TEST_JWT_ISSUER, MakeClient
+from tests.conftest import TEST_JWT_ISSUER, TEST_JWT_SIGNING_KEY, MakeClient
 from tests.jwt_verifier import verify_reference
 from tests.rbac_factories import assign, make_role, super_admin_role
 
@@ -292,19 +294,56 @@ async def test_token_audience_mismatch(
     assert _error(resp)["code"] == "audience_mismatch"
 
 
-async def test_token_admin_audience_refused(client: AsyncClient, db_session: AsyncSession) -> None:
+async def _admin_with_origin(db_session: AsyncSession) -> App:
     admin = await db_session.scalar(select(App).where(App.key == "admin"))
     assert admin is not None
     admin.origins = [ORIGIN]
     await db_session.flush()
-    _, raw, account = await _member(db_session, await super_admin_role(db_session))
+    return admin
+
+
+async def test_token_admin_audience_issued(client: AsyncClient, db_session: AsyncSession) -> None:
+    await _admin_with_origin(db_session)
+    user, raw, account = await _member(db_session, await super_admin_role(db_session))
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, audience="admin"),
+        headers=auth_headers(app_key="admin", cookie=raw),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["audience"] == "admin"
+    key_set = build_key_set(TEST_JWT_SIGNING_KEY, [])  # the app's signing key
+    claims = verify_access_token(
+        resp.json()["access_token"], key_set, audience="admin", issuer=TEST_JWT_ISSUER
+    )
+    assert claims["sub"] == str(user.id)
+    assert claims["roles"] == ["admin:super-admin"]
+
+
+async def test_token_admin_not_member(client: AsyncClient, db_session: AsyncSession) -> None:
+    await _admin_with_origin(db_session)
+    user = await make_login_user(db_session)
+    raw, _, (account,) = await make_device(db_session, user)
     resp = await client.post(
         TOKEN,
         json=_body(account.id, audience="admin"),
         headers=auth_headers(app_key="admin", cookie=raw),
     )
     assert resp.status_code == 403
-    assert _error(resp)["code"] == "audience_not_supported"
+    assert _error(resp)["code"] == "not_member"
+    assert _error(resp)["details"] == {"join_available": False}
+
+
+async def test_token_admin_unverified(client: AsyncClient, db_session: AsyncSession) -> None:
+    await _admin_with_origin(db_session)
+    _, raw, account = await _member(db_session, await super_admin_role(db_session), verified=False)
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, audience="admin"),
+        headers=auth_headers(app_key="admin", cookie=raw),
+    )
+    assert resp.status_code == 403
+    assert _error(resp)["code"] == "email_unverified"
 
 
 async def test_token_org_id_422(

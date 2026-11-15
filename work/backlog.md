@@ -27,7 +27,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-07 | Register an app in production from the CLI (first consumer: ricotdin) | DONE | P1 | api, auth, security | 1 | 2026-11-13 |
 | USR-04b | Password forgot/reset with all-session revocation | DONE | P1 | auth, security, api | 1 | 2026-11-13 |
 | USR-03b | Accounts list and join flow (API) | DONE | P1 | api, auth, security, db | 1 | 2026-11-13 |
-| ADM-002 | Lock admin endpoints (aud=admin + require_permission) | IN_PROGRESS | P1 | auth, security, api | 0 | 2026-11-15 |
+| ADM-002 | Lock admin endpoints (aud=admin + require_permission) | REVIEW | P1 | auth, security, api | 0 | 2026-11-15 |
 | ADM-002c | Set admin app origins from the CLI | BACKLOG | P1 | auth, security | 0 | 2026-11-15 |
 | ADM-002b | Enforce admin RBAC guards and mount the users/RBAC APIs | BACKLOG | P1 | auth, security, api | 0 | 2026-11-15 |
 | ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | BACKLOG | P1 | db, api, security | 0 | 2026-11-11 |

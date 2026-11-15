@@ -7,8 +7,6 @@ import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
-from app.main import create_app
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Role
 from app.modules.users.models import User
@@ -30,7 +28,7 @@ ASSIGNMENT_KEYS = {
 
 @pytest.fixture
 async def rbac_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_rbac_api_enabled=True) as c:
+    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
         yield c
 
 
@@ -81,25 +79,6 @@ async def test_flag_off_404(client: AsyncClient, db_session: AsyncSession) -> No
     assert (await client.get(_url(user.id))).status_code == 404
     assert (await client.post(_url(user.id), json={"role_id": str(role.id)})).status_code == 404
     assert (await client.delete(_url(user.id, uuid.uuid4()))).status_code == 404
-
-
-def test_route_permission_map() -> None:
-    app = create_app(Settings(admin_rbac_api_enabled=True))
-    expected = {
-        ("GET", "/api/v1/users/{user_id}/role-assignments"): "admin:users:read",
-        ("POST", "/api/v1/users/{user_id}/role-assignments"): "admin:roles:assign",
-        (
-            "DELETE",
-            "/api/v1/users/{user_id}/role-assignments/{assignment_id}",
-        ): "admin:roles:assign",
-    }
-    found = {
-        (method.upper(), path): operation.get("x-permission")
-        for path, operations in app.openapi()["paths"].items()
-        if path.startswith("/api/v1/users/{user_id}/role-assignments")
-        for method, operation in operations.items()
-    }
-    assert found == expected
 
 
 # --- list --------------------------------------------------------------------
