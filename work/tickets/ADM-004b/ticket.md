@@ -7,7 +7,7 @@
 | Areas | db, api, security, auth |
 | Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/30 |
 
 ## Goal
 Complete the audit log: security-relevant identity events and denied privileged attempts are recorded, using one failure-path write mechanism that never changes the intended error.
