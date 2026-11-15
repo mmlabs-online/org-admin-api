@@ -7,7 +7,7 @@
 | Areas | auth, security, api |
 | Attempts | 1 |
 | Created | 2026-11-10 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/25 |
 
 ## Goal
 Admin endpoints under `/api/v1/*` accept only Bearer access tokens with audience `admin` and require the named `admin:*` permission; health and public identity endpoints stay public.
