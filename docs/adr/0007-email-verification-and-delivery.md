@@ -4,6 +4,8 @@ Status: Accepted (USR-04 plan, 2026-11-12)
 Date: 2026-11-12
 
 ## Context
+*Amended by ADR-0009:* operator-vouched CLI path.
+
 D2 requires a verified email before joining an app or getting an app token; D16 rules out any
 interim "mark verified" path. D3 picks Gmail SMTP behind an `EmailSender` interface, async with
 retry, resend limited to 1/min and 5/day per email. There is no hosted login UI (R10), so a link

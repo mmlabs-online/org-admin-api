@@ -35,7 +35,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-04d | Email hardening: dispatcher shutdown, retention cleanup, daily-cap alert | DONE | P1 | auth, db | 1 | 2026-11-13 |
 | USR-03g | Join approval flow (join_requests + staff approve/reject) | BACKLOG | P2 | api, auth, security, db | 0 | 2026-11-13 |
 | USR-08 | Client libraries @mmlabs/auth-client (TS) and mmlabs-auth (Python) — separate repo | BACKLOG | P2 | architecture, auth, security | 0 | 2026-11-13 |
-| USR-09 | Create a staff-vouched account from the CLI (bootstrap for a new app's first user) | IN_PROGRESS | P1 | auth, security, db | 0 | 2026-11-15 |
+| USR-09 | Create a staff-vouched account from the CLI (bootstrap for a new app's first user) | REVIEW | P1 | auth, security, db | 0 | 2026-11-15 |
 | USR-05 | Apps self-register their permission manifest | BACKLOG | P2 | api, auth, security | 0 | 2026-11-11 |
 | ADM-006 | Org product entitlements | BACKLOG | P2 | architecture, db, api | 0 | 2026-11-10 |
 
