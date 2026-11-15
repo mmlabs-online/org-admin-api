@@ -25,7 +25,13 @@ USER_AGENT_MAX = 512
 _FORBIDDEN_KEY = re.compile(r"hash|token|password|cookie|email|secret", re.IGNORECASE)
 # Table names of the retention summary: row counts, never values (`email_retention.purged` only).
 _ALLOWED_KEYS = frozenset({"email_send_log", "email_tokens"})
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# C0/C1 controls plus invisible/bidi format characters (explicit list, not `Cf`: reviewable and
+# Unicode-version independent). Starlette decodes headers as latin-1, so over HTTP only U+00AD
+# of the non-C0/C1 set can occur; the rest guards non-HTTP callers.
+_CONTROL_CHARS = re.compile(
+    r"[\x00-\x1f\x7f-\x9f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064"
+    r"\u2066-\u206f\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]"
+)
 
 AuditActor = Actor | EndUser | AnonymousActor
 

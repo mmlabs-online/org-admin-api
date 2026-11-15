@@ -20,6 +20,9 @@ from tests.conftest import TEST_DATABASE_URL
 
 Scope = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
+# `_add`/`_aged` insert backdated rows (ADM-004d stamp trigger).
+pytestmark = pytest.mark.backdate_audit
+
 PURGED = "audit_log.purged"
 LINE = re.compile(r"^audit_log: (deleted|would delete) (\d+) \(older than (\d+) d, cutoff (\S+)\)$")
 

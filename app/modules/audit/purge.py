@@ -118,5 +118,7 @@ class AuditPurgeService:
                 )
             await repo.commit()
             total += deleted
+            # A short batch can also mean FOR UPDATE SKIP LOCKED skipped rows another transaction
+            # holds: the run then ends early. Re-running is safe (fresh cutoff, same floor).
             if deleted < self.batch_size:
                 return PurgeResult(cutoff, days, total)

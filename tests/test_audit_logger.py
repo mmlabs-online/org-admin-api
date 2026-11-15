@@ -305,6 +305,17 @@ async def test_ipv4_mapped_normalised(db_session: AsyncSession) -> None:
         ("\x00" + "u" * 600, "u" * 512),
         ("a\x85b\x9bc\x80", "abc"),
         ("\x9f", None),
+        ("a\u202eb", "ab"),
+        ("a\u2028b\u2029c", "abc"),
+        ("x\u200by", "xy"),
+        ("\ufeffUA", "UA"),
+        ("so\u00adft", "soft"),
+        ("a\u061cb\u180ec", "abc"),
+        ("\u2066x\u2069", "x"),
+        ("a\u2060\u2064b", "ab"),
+        ("a\ufff9b", "ab"),
+        ("a\U000e0041b", "ab"),
+        ("\u202e", None),
     ],
 )
 async def test_user_agent_control_chars_stripped(
@@ -314,3 +325,14 @@ async def test_user_agent_control_chars_stripped(
         AuditAction.USER_ENABLED, actor=PRINCIPAL, ctx=AuditContext(user_agent=ua)
     )
     assert (await _only_row(db_session)).user_agent == stored
+
+
+async def test_user_agent_normal_chrome_unchanged(db_session: AsyncSession) -> None:
+    ua = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
+        " Chrome/131.0.0.0 Safari/537.36"
+    )
+    await AuditLogger(db_session).record(
+        AuditAction.USER_ENABLED, actor=PRINCIPAL, ctx=AuditContext(user_agent=ua)
+    )
+    assert (await _only_row(db_session)).user_agent == ua

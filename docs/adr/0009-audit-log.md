@@ -117,3 +117,13 @@ Supersedes §8's "Retention is indefinite in v1" and the ADM-004b amendment's re
 - **Backups** keep purged rows until backup retention expires. Retention period, per-class
   retention and backup erasure remain owner questions (spec Q6, Decree 13/2023); the default
   policy is 365 days.
+
+## Amendment — DB guards (ADM-004d, 2026-11-15)
+
+- **Purge trail.** `audit_log_immutable()` (migration `e91b6c3d58a2`) refuses DELETE of
+  `audit_log.purged` rows unconditionally, latch and age notwithstanding.
+- **Insert stamp.** A `BEFORE INSERT` trigger sets `occurred_at := now()` (transaction time, so
+  rows of one transaction still share it); no backdated rows. Only owner DDL bypasses it; tests
+  disable it inside a rolled-back transaction (`backdate_audit` marker).
+- **Latch wording.** Any DB role can set `audit.allow_purge`, not only the owner (corrects the
+  ADM-004c amendment).
