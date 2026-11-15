@@ -19,6 +19,7 @@ from app.modules.auth.deps import (
     DeviceDep,
     DeviceSessionsDep,
     EmailDispatcherDep,
+    MailLinkAppContextDep,
     get_email_hasher,
     get_link_origin,
     get_password_hasher,
@@ -73,7 +74,7 @@ _ERR: dict[str, Any] = {"description": "Error envelope"}
 )
 async def signup(
     session: SessionDep,
-    _app: AppContextDep,
+    _app: MailLinkAppContextDep,
     body: SignupRequest,
     remote_ip: ClientIpDep,
     policy: Annotated[PasswordPolicy, Depends(get_password_policy)],
@@ -83,7 +84,7 @@ async def signup(
 ) -> SignupResponse:
     """Public by design (R3 class 3): per-IP rate limit + Turnstile, plus the required app
     context: `X-MM-App` of an active app and an `Origin` registered for it (403 otherwise,
-    before any account is created).
+    before any account is created). `X-MM-App: admin` gets the same 403 (ADM-002d).
 
     The verification link uses the validated `Origin`; the email is queued after the commit.
     """
@@ -303,7 +304,7 @@ async def resend_verification(
     session: SessionDep,
     background_tasks: BackgroundTasks,
     _cookie: DeviceCookieDoc,
-    _app: AppContextDep,
+    _app: MailLinkAppContextDep,
     body: ResendVerificationRequest,
     link_origin: Annotated[str, Depends(get_link_origin)],
     device: DeviceDep,
@@ -311,8 +312,9 @@ async def resend_verification(
 ) -> None:
     """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`.
 
-    The route-level `AppContextDep` comes before `DeviceDep`, so a bad app context answers
-    403 before any device lookup or cookie rotation, even if `get_link_origin` changes.
+    The route-level `MailLinkAppContextDep` comes before `DeviceDep`, so a bad app context
+    answers 403 before any device lookup or cookie rotation, even if `get_link_origin` changes.
+    `X-MM-App: admin` gets the same 403 (ADM-002d).
     """
     settings: Settings = request.app.state.settings
     email = await EmailVerificationService(
@@ -336,7 +338,7 @@ async def forgot_password(
     response: Response,
     session: SessionDep,
     background_tasks: BackgroundTasks,
-    _app: AppContextDep,
+    _app: MailLinkAppContextDep,
     body: ForgotPasswordRequest,
     remote_ip: ClientIpDep,
     link_origin: Annotated[str, Depends(get_link_origin)],
@@ -347,6 +349,7 @@ async def forgot_password(
 ) -> None:
     """Public (R3 class 3: per-IP limit + Turnstile) + required app context (owner 2026-11-13):
     `X-MM-App` of an active app and an `Origin` registered for it (403 otherwise).
+    `X-MM-App: admin` gets the same 403 (ADM-002d).
 
     Always 202 for any email (no enumeration); per-email limits are silent. The reset link
     uses the validated `Origin`; the email is queued after the commit.

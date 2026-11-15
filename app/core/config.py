@@ -13,6 +13,7 @@ _ARGON2_MIN_MEMORY_KIB = 19456
 _ARGON2_MIN_TIME_COST = 2
 _IDENTITY_HMAC_KEY_MIN_LENGTH = 32
 _JWT_ISSUER_RE = r"^https://[a-z0-9.-]+$"  # staging/production: no path, port or trailing slash
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
 
 class Settings(BaseSettings):
@@ -117,6 +118,18 @@ class Settings(BaseSettings):
         for cidr in value:
             ipaddress.ip_network(cidr, strict=False)
         return value
+
+    @model_validator(mode="after")
+    def _app_env_explicit_gate(self) -> Self:
+        """The `local` default applies only to a loopback DB: any other host (or a socket DSN)
+        needs an explicit `APP_ENV`, so a deployment never falls back to local behaviour. The
+        error never formats the URL (R5)."""
+        if "app_env" in self.model_fields_set:
+            return self
+        hosts = [h.get("host") for h in self.database_url.hosts()]
+        if not hosts or any(h not in _LOOPBACK_HOSTS for h in hosts):
+            raise ValueError("APP_ENV must be set explicitly when DATABASE_URL is not localhost")
+        return self
 
     @model_validator(mode="after")
     def _trusted_proxy_gate(self) -> Self:

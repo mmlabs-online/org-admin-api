@@ -119,6 +119,12 @@ def test_reference_rejects_wrong_audience(jwks: dict[str, Any], signer: KeySet) 
         _verify(signer.sign(_claims()), jwks, audience="ricotdin")
 
 
+def test_reference_rejects_list_audience(jwks: dict[str, Any], signer: KeySet) -> None:
+    # `strict_aud` (ADM-002d): a list `aud` is rejected even when it holds the audience.
+    with pytest.raises(jwt.InvalidAudienceError):
+        _verify(signer.sign(_claims(aud=["stoktok"])), jwks, audience="stoktok")
+
+
 def test_reference_rejects_wrong_issuer(jwks: dict[str, Any], signer: KeySet) -> None:
     with pytest.raises(jwt.InvalidIssuerError):
         _verify(signer.sign(_claims()), jwks, issuer="https://api.test.invalid.evil")

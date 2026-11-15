@@ -420,10 +420,12 @@ async def test_row_carries_request_context(
             f"{V1}/organizations", json={"slug": "org-ctx", "name": "Ctx"}, headers=headers
         )
     assert resp.status_code == 201
-    assert resp.headers["x-request-id"] == "req-abc.123_X"
+    echoed = resp.headers["x-request-id"]
+    assert echoed != "req-abc.123_X"
+    assert uuid.UUID(echoed).version == 4
     row = (await _rows(db_session))[-1]
     assert (row.request_id, row.user_agent, str(row.ip)) == (
-        "req-abc.123_X",
+        echoed,
         "audit-test/1.0",
         "127.0.0.1",
     )

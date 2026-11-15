@@ -19,6 +19,7 @@ services:
     build: .
     command: ["sh", "-c", "/app/.venv/bin/alembic upgrade head && /app/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment:
+      APP_ENV: local  # required explicitly: the DB host is not loopback (ADM-002d)
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/org_admin
     ports:
       - "8000:8000"

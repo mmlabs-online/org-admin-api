@@ -213,3 +213,74 @@ def test_stray_email_link_base_url_ignored(monkeypatch: pytest.MonkeyPatch, app_
     monkeypatch.setenv("EMAIL_LINK_BASE_URL", "https://evil.example")
     settings = Settings(_env_file=None, app_env=app_env, **_PROD_EMAIL)  # type: ignore[call-arg, arg-type]
     assert not hasattr(settings, "email_link_base_url")
+
+
+# --- explicit APP_ENV outside a loopback DB (ADM-002d) ----------------------------------------
+
+_DSN = "postgresql+asyncpg://u:p@{host}:5432/org_admin"
+_PROD_ALL = {**_PROD_EMAIL, "smtp_username": "a@example.com", "smtp_password": "x"}
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        _DSN.format(host="db"),
+        _DSN.format(host="10.0.0.5"),
+        "postgresql+asyncpg://u:p@localhost:5432,db:5432/org_admin",
+    ],
+)
+def test_app_env_required_for_remote_db(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    monkeypatch.delenv("APP_ENV")
+    with pytest.raises(ValidationError, match="APP_ENV must be set"):
+        Settings(_env_file=None, database_url=url)  # type: ignore[call-arg]
+
+
+def test_app_env_socket_dsn_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `PostgresDsn` already rejects an empty host, so a socket DSN never reaches the gate.
+    monkeypatch.delenv("APP_ENV")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, database_url="postgresql+asyncpg://u:p@/x?host=/run/pg")  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]"])
+def test_app_env_default_ok_for_loopback(monkeypatch: pytest.MonkeyPatch, host: str) -> None:
+    monkeypatch.delenv("APP_ENV")
+    settings = Settings(_env_file=None, database_url=_DSN.format(host=host))  # type: ignore[call-arg]
+    assert settings.app_env == "local"
+
+
+@pytest.mark.parametrize("app_env", ["local", "test", "production"])
+def test_app_env_explicit_ok_for_remote_db(monkeypatch: pytest.MonkeyPatch, app_env: str) -> None:
+    monkeypatch.delenv("APP_ENV")
+    extra = _PROD_ALL if app_env == "production" else {}
+    settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        app_env=app_env,  # type: ignore[arg-type]
+        database_url=_DSN.format(host="db"),  # type: ignore[arg-type]
+        **extra,  # type: ignore[arg-type]
+    )
+    assert settings.app_env == app_env
+
+
+def test_app_env_from_env_counts_as_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("DATABASE_URL", _DSN.format(host="db"))
+    assert Settings(_env_file=None).app_env == "local"  # type: ignore[call-arg]
+
+
+def test_app_env_empty_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "")
+    monkeypatch.setenv("DATABASE_URL", _DSN.format(host="db"))
+    with pytest.raises(ValidationError, match="APP_ENV must be set"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_app_env_error_does_not_echo_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APP_ENV")
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql+asyncpg://u:DsnSecretMarker42@dbhost.internal:5432/x"
+    )
+    with pytest.raises(ValidationError, match="APP_ENV must be set") as exc:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "DsnSecretMarker42" not in str(exc.value)
+    assert "dbhost.internal" not in str(exc.value)

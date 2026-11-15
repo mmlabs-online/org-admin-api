@@ -58,8 +58,9 @@ Completes §7. The `admin` app's origins follow this policy, enforced in
 - **At most 2** distinct origins (rename or migration overlap), replace semantics.
 - **Never shared:** an origin held by any other app (any status) is refused.
 - **Origins only:** status, join policy, org mode, default role and the admin roles never change.
-  The command **fails closed on drift**: a missing admin row, or one not `active`/`closed`/`none`
-  without a default role, is refused and never repaired.
+  The command **fails closed on drift** (except `--clear`, see the ADM-002d amendment): a missing
+  admin row, or one not `active`/`closed`/`none` without a default role, is refused and never
+  repaired.
 - **Break-glass `--clear`:** empties the set; no new admin token after at most 60 s, issued tokens
   last up to their TTL (revoke the role or disable the user to cut them sooner).
 
@@ -102,3 +103,22 @@ longer decides privileged writes:
   a database-level guard).
 - **API docs:** `/docs` and `/openapi.json` are off in production unless `API_DOCS_ENABLED=true`;
   on elsewhere by default.
+
+## Amendment — hardening (ADM-002d, 2026-11-15)
+
+- **String-only `aud`.** `verify_access_token` decodes with PyJWT `strict_aud=True`: a list `aud`
+  (even `["admin"]`) fails with reason `audience`. The consumers guide and `mmlabs-auth` require
+  the same.
+- **Admin-app permissions are always `is_admin`.** Create stores `true` when `is_admin` is
+  omitted or null and refuses an explicit `false` (422 `admin_app_permission_must_be_admin`);
+  PATCH `is_admin: false` gets the same 422. Migration `a7c3e5f19b42` backfills stored rows
+  (no-op downgrade, no audit row).
+- **`--clear` skips the drift check.** `set-admin-origins --clear` empties the origins of a
+  drifted admin row: the break-glass must work exactly when something is wrong. It still locks
+  the app, refuses a missing row, writes only `origins` and writes the audit row. Non-empty
+  origins on a drifted row are still refused.
+- **No admin context on mail-link routes.** Signup, password forgot and verify-email resend
+  refuse `X-MM-App: admin` with the same 403 `origin_not_allowed` as an unregistered app, before
+  Turnstile, any write or any email. Login, token, logout, verify-email and reset are unchanged.
+- **Admin `org_mode` pinned.** PATCH `org_mode` other than `none` on the admin app → 409, like
+  status, join policy and default role.

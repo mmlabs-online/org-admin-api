@@ -24,7 +24,7 @@ def verify_reference(
         audience=audience,
         issuer=issuer,
         leeway=leeway,
-        options={"require": ["exp", "iat", "sub", "jti", "iss", "aud"]},
+        options={"require": ["exp", "iat", "sub", "jti", "iss", "aud"], "strict_aud": True},
     )
     if claims.get("email_verified") is not True:
         raise jwt.InvalidTokenError("email_verified")

@@ -123,6 +123,15 @@ class EmailTokenRepository:
             .execution_options(synchronize_session=False)
         )
 
+    async def invalidate_all(self, user_id: uuid.UUID) -> None:
+        """Mark every unused token of the user, any purpose, as used (user disabled)."""
+        await self.session.execute(
+            update(EmailToken)
+            .where(EmailToken.user_id == user_id, EmailToken.used_at.is_(None))
+            .values(used_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
+
     async def issue(
         self, user_id: uuid.UUID, purpose: str, token_hash: bytes, ttl: timedelta
     ) -> None:

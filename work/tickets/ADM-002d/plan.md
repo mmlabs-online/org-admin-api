@@ -131,6 +131,8 @@ Ticket scope: items 1–10 of `work/tickets/ADM-002d/ticket.md`, which come from
        if app.key == ADMIN_APP_KEY:
            raise OriginNotAllowedError("Origin is not allowed")
        return app
+
+
    MailLinkAppContextDep = Annotated[App, Depends(get_mail_link_app_context)]
    ```
    - `get_link_origin(_app: MailLinkAppContextDep, origin: …)`.
@@ -140,6 +142,7 @@ Ticket scope: items 1–10 of `work/tickets/ADM-002d/ticket.md`, which come from
 6. **Item 6.** Add to `config.py`:
    ```python
    _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+
 
    @model_validator(mode="after")
    def _app_env_explicit_gate(self) -> Self:

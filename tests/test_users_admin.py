@@ -5,8 +5,13 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.auth.email_verification import VERIFY, email_token_hash
+from app.modules.auth.models import EmailToken
+from app.modules.auth.password_reset import RESET
+from app.modules.auth.repository import EmailTokenRepository
 from app.modules.users.models import User
 from tests.conftest import MakeClient
 
@@ -199,6 +204,60 @@ async def test_patch_disables_and_reenables(
     assert resp.json()["status"] == "active"
     await db_session.refresh(user)
     assert user.status == "active"
+
+
+async def _issue(db_session: AsyncSession, user: User, purpose: str) -> str:
+    raw = f"{purpose}-{uuid.uuid4().hex}"
+    await EmailTokenRepository(db_session).issue(
+        user.id, purpose, email_token_hash(raw), timedelta(minutes=30)
+    )
+    return raw
+
+
+async def _unused_tokens(db_session: AsyncSession, user: User) -> int:
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(EmailToken)
+        .where(EmailToken.user_id == user.id, EmailToken.used_at.is_(None))
+    )
+    return count or 0
+
+
+async def test_disable_invalidates_email_tokens(
+    users_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await _user(db_session, "tokens@x.io")
+    reset = await _issue(db_session, user, RESET)
+    verify = await _issue(db_session, user, VERIFY)
+    assert await _unused_tokens(db_session, user) == 2
+
+    for status in ("disabled", "active"):
+        resp = await users_client.patch(f"{BASE}/{user.id}", json={"status": status})
+        assert resp.status_code == 200, resp.text
+    assert await _unused_tokens(db_session, user) == 0
+
+    resp = await users_client.post(
+        "/api/v1/auth/password/reset",
+        json={"token": reset, "new_password": "a brand new long passphrase"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "token_invalid"
+    resp = await users_client.post("/api/v1/auth/verify-email", json={"token": verify})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "token_invalid"
+
+
+async def test_disable_leaves_other_users_tokens(
+    users_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await _user(db_session, "target@x.io")
+    other = await _user(db_session, "bystander@x.io")
+    await _issue(db_session, user, RESET)
+    await _issue(db_session, other, RESET)
+    resp = await users_client.patch(f"{BASE}/{user.id}", json={"status": "disabled"})
+    assert resp.status_code == 200
+    assert await _unused_tokens(db_session, user) == 0
+    assert await _unused_tokens(db_session, other) == 1
 
 
 async def test_patch_same_status_is_noop(

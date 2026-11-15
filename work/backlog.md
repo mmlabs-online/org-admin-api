@@ -30,7 +30,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-002 | Lock admin endpoints (aud=admin + require_permission) | DONE | P1 | auth, security, api | 1 | 2026-11-15 |
 | ADM-002c | Set admin app origins from the CLI | DONE | P1 | auth, security | 1 | 2026-11-15 |
 | ADM-002b | Enforce admin RBAC guards and mount the users/RBAC APIs | DONE | P1 | auth, security, api | 1 | 2026-11-15 |
-| ADM-002d | Admin auth hardening and runbook fixes | IN_PROGRESS | P2 | auth, security | 0 | 2026-11-15 |
+| ADM-002d | Admin auth hardening and runbook fixes | REVIEW | P2 | auth, security | 0 | 2026-11-15 |
 | ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | DONE | P1 | db, api, security | 1 | 2026-11-15 |
 | ADM-004b | Audit identity events, denied privileged attempts and retention | DONE | P1 | db, api, security, auth | 1 | 2026-11-15 |
 | ADM-004c | Audit retention purge | DONE | P1 | db, security | 1 | 2026-11-15 |

@@ -137,7 +137,8 @@ class AdminOriginsSet(BaseModel):
 
 
 class PermissionCreate(BaseModel):
-    """`is_admin` absent or null: false, except `<app>:*` which is always stored `true`."""
+    """`is_admin` absent or null: false, except `<app>:*` and admin-app permissions, which are
+    always stored `true`."""
 
     model_config = ConfigDict(extra="forbid")
 

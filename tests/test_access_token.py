@@ -65,6 +65,12 @@ def test_wrong_audience_rejected(aud: object) -> None:
     assert _reason(mint(SUB, aud=aud)) == "audience"
 
 
+@pytest.mark.parametrize("aud", [["admin"], ["stoktok", "admin"]])
+def test_list_audience_rejected(aud: list[str]) -> None:
+    # `strict_aud`: a list `aud` fails even when it contains "admin" (ADM-002d).
+    assert _reason(mint(SUB, aud=aud)) == "audience"
+
+
 def test_wrong_issuer_rejected() -> None:
     assert _reason(mint(SUB, iss="https://evil.invalid")) == "issuer"
 

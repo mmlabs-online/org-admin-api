@@ -7,6 +7,7 @@ from app.core.client_ip import client_ip
 from app.core.config import Settings
 from app.modules.audit.deps import AuditContextDep
 from app.modules.auth.cookies import clear_device_cookie_header, read_device_cookies
+from app.modules.auth.errors import OriginNotAllowedError
 from app.modules.auth.hooks import SignupHook, VerificationEmailHook
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.service import AppContextService
@@ -14,7 +15,7 @@ from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import TurnstileVerifier
 from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.email.sender import OutgoingEmail
-from app.modules.rbac.models import App
+from app.modules.rbac.models import ADMIN_APP_KEY, App
 from app.modules.rbac.origins import normalize_origin
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.service import DeviceSessionService, ResolvedDevice
@@ -77,6 +78,17 @@ async def get_app_context(
 AppContextDep = Annotated[App, Depends(get_app_context)]
 
 
+async def get_mail_link_app_context(app: AppContextDep) -> App:
+    """App context for routes that mail a link to the request's Origin (signup, forgot,
+    resend): the `admin` app is refused with the same 403 as an unregistered app (no oracle)."""
+    if app.key == ADMIN_APP_KEY:
+        raise OriginNotAllowedError("Origin is not allowed")
+    return app
+
+
+MailLinkAppContextDep = Annotated[App, Depends(get_mail_link_app_context)]
+
+
 def get_email_dispatcher(request: Request) -> EmailDispatcher:
     dispatcher: EmailDispatcher = request.app.state.email_dispatcher
     return dispatcher
@@ -85,8 +97,9 @@ def get_email_dispatcher(request: Request) -> EmailDispatcher:
 EmailDispatcherDep = Annotated[EmailDispatcher, Depends(get_email_dispatcher)]
 
 
-def get_link_origin(_app: AppContextDep, origin: Annotated[str, Header()]) -> str:
-    """`AppContextDep` already proved `Origin` is registered for the `X-MM-App` app."""
+def get_link_origin(_app: MailLinkAppContextDep, origin: Annotated[str, Header()]) -> str:
+    """`MailLinkAppContextDep` already proved `Origin` is registered for the `X-MM-App` app
+    (never `admin`)."""
     return normalize_origin(origin)
 
 

@@ -1,3 +1,4 @@
+import inspect
 import uuid
 
 import pytest
@@ -170,3 +171,9 @@ async def test_build_permission_fk_race_is_409(
         await RoleCatalogService(db_session).build_default_role("stoktok")
     # The savepoint kept the session usable.
     assert await db_session.scalar(select(func.count()).select_from(App)) == 2
+
+
+def test_build_default_role_has_no_actor_param() -> None:
+    # ADM-002d: the unused `actor` parameter is gone (mypy guards the callers).
+    params = inspect.signature(RoleCatalogService.build_default_role).parameters
+    assert list(params) == ["self", "app_key"]

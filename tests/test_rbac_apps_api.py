@@ -353,6 +353,7 @@ async def test_admin_app_cannot_be_deleted(rbac_client: AsyncClient) -> None:
         {"join_policy": "approval"},
         {"default_role_id": "SUPER_ADMIN"},
         {"status": "disabled"},
+        {"org_mode": "required"},
     ],
 )
 async def test_admin_app_locked_fields_409(
@@ -377,15 +378,17 @@ async def test_admin_app_same_value_patch_ok(rbac_client: AsyncClient) -> None:
             "join_policy": "closed",
             "status": "active",
             "default_role_id": None,
+            "org_mode": "none",
             "name": "mmlabs Admin",
         },
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert (body["join_policy"], body["status"], body["default_role_id"]) == (
+    assert (body["join_policy"], body["status"], body["default_role_id"], body["org_mode"]) == (
         "closed",
         "active",
         None,
+        "none",
     )
 
 
