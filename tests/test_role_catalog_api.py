@@ -8,8 +8,6 @@ from httpx import AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
-from app.main import create_app
 from app.modules.rbac.models import App, Role, RolePermission
 from tests.conftest import MakeClient
 from tests.rbac_factories import grant, make_app, make_permission
@@ -201,16 +199,18 @@ async def test_catalog_404_cases_identical(client: AsyncClient, db_session: Asyn
 # --- mounting ----------------------------------------------------------------
 
 
-async def test_catalog_reachable_flag_off(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_catalog_reachable_without_token(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
     await _setup(db_session)
     assert (await client.get(URL)).status_code == 200
 
 
-async def test_catalog_reachable_flag_on_no_clash(
+async def test_catalog_and_admin_roles_routes_no_clash(
     make_client: MakeClient, db_session: AsyncSession
 ) -> None:
     await _setup(db_session)
-    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
+    async with make_client(admin_permissions=["admin:*"]) as c:
         resp = await c.get(URL)
         assert resp.status_code == 200
         assert set(resp.json()) == {"app", "roles"}
@@ -219,32 +219,11 @@ async def test_catalog_reachable_flag_on_no_clash(
         assert "id" in created.json()
 
 
-async def test_post_roles_flag_off_is_405(client: AsyncClient, db_session: AsyncSession) -> None:
-    await make_app(db_session, "stoktok")
-    resp = await client.post(URL, json={"key": "stoktok:editor", "name": "Editor"})
-    assert resp.status_code == 405
-    assert resp.json() == {
-        "error": {"code": "method_not_allowed", "message": "Method Not Allowed", "details": None}
-    }
-    assert "GET" in resp.headers["Allow"]
-
-
 async def test_encoded_slash_key_404_envelope(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/apps/a%2Fb/roles")
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "not_found"
     assert "detail" not in resp.json()
-
-
-def test_only_catalog_route_listed_by_default() -> None:
-    app = create_app(Settings())
-    found = {
-        (method.upper(), path): operation.get("x-permission")
-        for path, operations in app.openapi()["paths"].items()
-        if path.startswith("/api/v1/apps")
-        for method, operation in operations.items()
-    }
-    assert found == {("GET", "/api/v1/apps/{key}/roles"): None}
 
 
 # --- rate limit --------------------------------------------------------------

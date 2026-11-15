@@ -48,7 +48,7 @@ INVALID_CHALLENGE = 'Bearer realm="admin", error="invalid_token"'
 
 @pytest.fixture
 async def flags_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_users_api_enabled=True, admin_rbac_api_enabled=True) as c:
+    async with make_client() as c:
         yield c
 
 

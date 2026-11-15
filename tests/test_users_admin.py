@@ -5,10 +5,8 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
 from app.modules.users.models import User
 from tests.conftest import MakeClient
 
@@ -27,7 +25,7 @@ T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 @pytest.fixture
 async def users_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_users_api_enabled=True, admin_permissions=["admin:*"]) as c:
+    async with make_client(admin_permissions=["admin:*"]) as c:
         yield c
 
 
@@ -52,35 +50,6 @@ async def _user(
 
 def _emails(body: dict[str, Any]) -> list[str]:
     return [item["email"] for item in body["items"]]
-
-
-# --- exposure (AC 5) ---------------------------------------------------------
-
-
-async def test_users_api_not_mounted_by_default(client: AsyncClient) -> None:
-    some_id = uuid.uuid4()
-    assert (await client.get(BASE)).status_code == 404
-    assert (await client.get(f"{BASE}/{some_id}")).status_code == 404
-    resp = await client.patch(f"{BASE}/{some_id}", json={"status": "disabled"})
-    assert resp.status_code == 404
-
-
-@pytest.mark.parametrize("app_env", ["staging", "production"])
-def test_users_api_flag_refused_in_staging_and_production(app_env: str) -> None:
-    with pytest.raises(ValidationError, match="ADMIN_USERS_API_ENABLED"):
-        Settings(
-            app_env=app_env,  # type: ignore[arg-type]
-            admin_users_api_enabled=True,
-            trusted_proxy_cidrs=["172.18.0.0/16"],
-            argon2_memory_kib=65536,  # meet the Argon2 floor so only the flag fails
-            argon2_time_cost=3,
-        )
-
-
-@pytest.mark.parametrize("app_env", ["local", "test"])
-def test_users_api_flag_allowed_in_local_and_test(app_env: str) -> None:
-    settings = Settings(app_env=app_env, admin_users_api_enabled=True)  # type: ignore[arg-type]
-    assert settings.admin_users_api_enabled is True
 
 
 # --- list (AC 1) -------------------------------------------------------------

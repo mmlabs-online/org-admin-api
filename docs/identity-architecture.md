@@ -150,9 +150,9 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `GET /api/v1/auth/orgs?account_id=&app=` | cookie | the account's orgs for an org-scoped app | USR-06 |
 | `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06 |
 | Admin: `/api/v1/organizations` (CRUD) | Bearer `aud=admin` + `require_permission` (`admin:organizations:read\|write`) | organizations | ADM-001, ADM-002 |
-| Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`); flag-gated until ADM-002b | staff user management | USR-01, ADM-002 |
-| Admin: `/api/v1/apps`, `/apps/{key}/permissions`, `/apps/{key}/roles` (writes) | Bearer `aud=admin` + `require_permission` (`admin:apps:read\|write`, `admin:roles:manage`); flag-gated until ADM-002b | apps, permissions, roles | USR-02, ADM-002 |
-| Admin: `/api/v1/users/{id}/role-assignments` | Bearer `aud=admin` + `require_permission` (`admin:users:read`, `admin:roles:assign`); flag-gated until ADM-002b | role assignments | USR-02, ADM-002 |
+| Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`; `admin:*` for privileged users) | staff user management | USR-01, ADM-002 |
+| Admin: `/api/v1/apps`, `/apps/{key}/permissions`, `/apps/{key}/roles` (writes) | Bearer `aud=admin` + `require_permission` (`admin:apps:read\|write`, `admin:roles:manage`; `admin:*` for the admin app and `is_admin` changes) | apps, permissions, roles | USR-02, ADM-002 |
+| Admin: `/api/v1/users/{id}/role-assignments` | Bearer `aud=admin` + `require_permission` (`admin:users:read`, `admin:roles:assign`; `admin:*` for privileged roles) | role assignments | USR-02, ADM-002 |
 
 Admin auth (ADR-0008): the Bearer token comes from the `Authorization` header only, never the
 device cookie. It is verified like `docs/consumers.md` prescribes (`typ`, ES256, `kid`, `iss`,
@@ -161,6 +161,14 @@ verified) and its admin permissions are read from the database on every request.
 `unauthorized` (`WWW-Authenticate: Bearer realm="admin"`, no details) for a missing or bad token
 or an unusable user; 403 `permission_denied` with `details.required` for a missing permission.
 `admin:*` grants every admin permission.
+
+Privileged writes need `admin:*` on top of the route permission (ADM-002b, ADR-0008 amendment):
+anything on the `admin` app, any change across the `is_admin` boundary, granting or revoking a
+role that is an admin-app role or holds an `is_admin` permission, and the status of a user holding
+one. Codes: 403 `admin_wildcard_required` (`details.required = "admin:*"`), 403
+`self_assignment_forbidden` / `self_status_change_forbidden` (nobody changes their own admin roles
+or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_super_admin_only`,
+409 `conflict`/`origin_taken`. Disabling a user revokes its account sessions on every device.
 
 Token (D7): JWT, ES256 (P-256, ADR-0005), ~15 min, header `kid` + `typ: at+jwt`.
 Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,

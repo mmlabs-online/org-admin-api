@@ -1,7 +1,7 @@
 """Admin (Bearer) endpoints for a user's role assignments — R3 class 1.
 
-Bearer `aud=admin` + `require_permission` (ADR-0008). Still flag-gated until ADM-002b: mounted
-only when `admin_rbac_api_enabled` (see `create_app`).
+Bearer `aud=admin` + `require_permission` (ADR-0008). Privileged roles also need `admin:*`, and
+nobody grants or revokes their own admin-app roles (ADM-002b guards in `AssignmentService`).
 """
 
 import uuid
@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
-from app.modules.admin_auth.deps import current_admin, require_permission
+from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
 from app.modules.rbac.models import APP_KEY_RE
 from app.modules.rbac.schemas import AssignmentCreate, AssignmentRead
 from app.modules.rbac.service import AssignmentService
@@ -45,15 +45,21 @@ async def list_role_assignments(
     **require_permission("admin:roles:assign"),
 )
 async def assign_role(
-    session: SessionDep, user_id: uuid.UUID, body: AssignmentCreate
+    session: SessionDep, principal: AdminDep, user_id: uuid.UUID, body: AssignmentCreate
 ) -> AssignmentRead:
-    return await AssignmentService(session).assign(user_id, body)
+    return await AssignmentService(session).assign(user_id, body, actor=principal)
+
+
+_REVOKE = require_permission("admin:roles:assign")
+_REVOKE["responses"][409] = {"description": "Last active super-admin"}
 
 
 @router.delete(
     "/{user_id}/role-assignments/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    **require_permission("admin:roles:assign"),
+    **_REVOKE,
 )
-async def revoke_role(session: SessionDep, user_id: uuid.UUID, assignment_id: uuid.UUID) -> None:
-    await AssignmentService(session).revoke(user_id, assignment_id)
+async def revoke_role(
+    session: SessionDep, principal: AdminDep, user_id: uuid.UUID, assignment_id: uuid.UUID
+) -> None:
+    await AssignmentService(session).revoke(user_id, assignment_id, actor=principal)

@@ -27,8 +27,14 @@ ASSIGNMENT_KEYS = {
 
 
 @pytest.fixture
-async def rbac_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
+async def actor(db_session: AsyncSession) -> User:
+    """The signed-in super-admin (a real row: `granted_by` references users)."""
+    return await make_user(db_session)
+
+
+@pytest.fixture
+async def rbac_client(make_client: MakeClient, actor: User) -> AsyncIterator[AsyncClient]:
+    async with make_client(admin_permissions=["admin:*"], admin_user=actor) as c:
         yield c
 
 
@@ -68,17 +74,6 @@ async def _make_org(db_session: AsyncSession) -> Organization:
     db_session.add(org)
     await db_session.flush()
     return org
-
-
-# --- exposure ----------------------------------------------------------------
-
-
-async def test_flag_off_404(client: AsyncClient, db_session: AsyncSession) -> None:
-    user = await make_user(db_session)
-    _, role = await _stoktok(db_session)
-    assert (await client.get(_url(user.id))).status_code == 404
-    assert (await client.post(_url(user.id), json={"role_id": str(role.id)})).status_code == 404
-    assert (await client.delete(_url(user.id, uuid.uuid4()))).status_code == 404
 
 
 # --- list --------------------------------------------------------------------
@@ -189,7 +184,9 @@ async def test_list_pagination_limit_over_100_422(
 # --- assign ------------------------------------------------------------------
 
 
-async def test_assign_app_scope_201(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_assign_app_scope_201(
+    rbac_client: AsyncClient, db_session: AsyncSession, actor: User
+) -> None:
     user = await make_user(db_session)
     _, viewer = await _stoktok(db_session)
 
@@ -200,7 +197,7 @@ async def test_assign_app_scope_201(rbac_client: AsyncClient, db_session: AsyncS
     assert body["app"] == "stoktok"
     assert body["role_key"] == "stoktok:viewer"
     assert body["org_id"] is None
-    assert body["granted_by"] is None
+    assert body["granted_by"] == str(actor.id)
     assert body["expires_at"] is None
     assert body["active"] is True
 
@@ -411,6 +408,7 @@ async def test_revoke_other_users_assignment_404(
 
 
 async def _super_admin(db_session: AsyncSession, user: User, **kwargs: Any) -> uuid.UUID:
+    user.email_verified_at = datetime.now(UTC)  # only verified holders count (ADM-002b)
     return (await assign(db_session, user, await super_admin_role(db_session), **kwargs)).id
 
 
@@ -420,7 +418,7 @@ async def test_revoke_last_super_admin_409(
     user = await make_user(db_session)
     ra_id = await _super_admin(db_session, user)
 
-    _assert_error(await rbac_client.delete(_url(user.id, ra_id)), 409, "conflict")
+    _assert_error(await rbac_client.delete(_url(user.id, ra_id)), 409, "last_super_admin")
     assert (await rbac_client.get(_url(user.id))).json()["total"] == 1
 
 
@@ -433,7 +431,7 @@ async def test_revoke_one_of_two_super_admins_204(
     second_ra = await _super_admin(db_session, second)
 
     assert (await rbac_client.delete(_url(first.id, first_ra))).status_code == 204
-    _assert_error(await rbac_client.delete(_url(second.id, second_ra)), 409, "conflict")
+    _assert_error(await rbac_client.delete(_url(second.id, second_ra)), 409, "last_super_admin")
 
 
 async def test_revoke_super_admin_other_holder_disabled_409(
@@ -446,7 +444,7 @@ async def test_revoke_super_admin_other_holder_disabled_409(
     ra_id = await _super_admin(db_session, active)
     await _super_admin(db_session, disabled)
 
-    _assert_error(await rbac_client.delete(_url(active.id, ra_id)), 409, "conflict")
+    _assert_error(await rbac_client.delete(_url(active.id, ra_id)), 409, "last_super_admin")
 
 
 async def test_revoke_expired_super_admin_204(
