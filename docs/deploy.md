@@ -639,11 +639,21 @@ Locally: `uv run python -m app.cli create-account --email you@example.com [--joi
 
 - `audit_log` is append-only: a trigger (`audit_log_immutable()`) refuses UPDATE, DELETE and
   TRUNCATE for every role, the owner included; only DDL defeats it (ADR-0009). Since ADM-004c
-  the only exception is the operator purge of rows older than 90 days (below).
-- **Never downgrade production past revision `c3f1a9d27b60` or `af3eb84d2d5e`**: the first drops
-  the table and destroys the log; the second drops `outcome`, so failure and denied rows would read
-  as successes (its `downgrade()` refuses offline and while such rows exist). The purge migration
-  `d7e4b2a91c3f` may be downgraded: it only restores the stricter function.
+  the only exception is the operator purge of rows older than 90 days (below). Since ADM-004d the
+  DB also stamps `occurred_at := now()` on every INSERT (no backdated rows) and refuses to delete
+  `audit_log.purged` rows even under the purge latch.
+- **Never downgrade production past revision `e91b6c3d58a2`, `c3f1a9d27b60` or `af3eb84d2d5e`**:
+  the first drops the purge-trail and insert-stamp guards (allowed in dev/test only); the second
+  drops the table and destroys the log (its `downgrade()` refuses offline and while any row
+  exists); the third drops `outcome`, so failure and denied rows would read as successes (its
+  `downgrade()` refuses offline and while such rows exist). `d7e4b2a91c3f`'s own downgrade only
+  restores the stricter function, but reaching it passes through `e91b6c3d58a2`.
+- **Restore** audit data only as a full restore into an empty database: pg_dump creates triggers
+  after the data, so timestamps survive (the deployment repo's `RESTORE.md` already does
+  `DROP DATABASE` + full `pg_restore`). A data-only restore into a migrated schema must be
+  `pg_restore --data-only --disable-triggers` run as superuser; otherwise the insert trigger
+  rewrites every `occurred_at` to the restore time. Never set `session_replication_role` on the
+  live database.
 - Read it with `GET /api/v1/audit-logs` (`admin:audit:read`, held only through `admin:*`).
   Every response carries `X-Request-ID`; the same id is stored on the audit row. A valid inbound
   value is kept only from a peer in `TRUSTED_PROXY_CIDRS` (cloudflared), else a UUID4 is
@@ -670,13 +680,15 @@ CLI does (hard-coded floor, not configurable).
   Batches of 1000 (`FOR UPDATE SKIP LOCKED`, `lock_timeout` 2 s, one commit per batch); each batch
   that deletes rows writes one `audit_log.purged` row (`system:cli`,
   `{cutoff, older_than_days, deleted}`) in the same transaction. `audit_log.purged` rows are never
-  purged (the purge trail is kept forever).
+  purged (the purge trail is kept forever; enforced by the trigger since ADM-004d).
 - A run that deletes nothing writes no row: **keep the workflow run summary** as the operator
   trail.
 - A dry run only counts, in a READ ONLY transaction; it never sets the purge latch.
-- The `audit.allow_purge` setting is a safety latch, not access control: anyone with the DB owner
-  role can set it. The 90-day floor is the real protection until the runtime and migration roles
-  are split (follow-up above).
+- The `audit.allow_purge` setting is a safety latch, not access control: any DB role can set it
+  (`SET`, `SET LOCAL`, or `options=-c` in a DSN). The 90-day floor is the real protection until
+  the runtime and migration roles are split (follow-up above).
+- Never put `-c audit.allow_purge=on` (or any `options`) in `DATABASE_URL`: every API transaction
+  would carry the latch.
 - Purged rows remain in database backups until the backup retention expires (whether Decree 13
   requires erasing them from backups is an open owner question).
 - After a large first purge, run `VACUUM (ANALYZE) audit_log`; autovacuum handles later runs.

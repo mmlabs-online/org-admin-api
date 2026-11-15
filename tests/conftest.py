@@ -45,6 +45,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.core.config import Settings
@@ -67,16 +68,36 @@ def _migrate_db() -> None:
     cfg.attributes["url"] = TEST_DATABASE_URL
     # Committed `auth.login_failed` rows (concurrency tests) would block af3eb84d2d5e's guard.
     cfg.attributes["allow_outcome_loss"] = True
+    # Committed rows would also block c3f1a9d27b60's guard (ADM-004d).
+    cfg.attributes["allow_audit_log_loss"] = True
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "backdate_audit: disable the audit_log occurred_at stamp trigger (db_session)"
+    )
+
+
 @pytest.fixture
-async def db_session() -> AsyncIterator[AsyncSession]:
-    """Each test runs inside a transaction that is rolled back afterwards."""
+async def db_session(request: pytest.FixtureRequest) -> AsyncIterator[AsyncSession]:
+    """Each test runs inside a transaction that is rolled back afterwards.
+
+    `@pytest.mark.backdate_audit` disables the `audit_log_stamp_occurred_at` trigger inside that
+    transaction (before the session exists, so no savepoint rollback undoes it), so the test can
+    insert backdated rows; the rollback re-enables it. Warning: `DISABLE TRIGGER` holds an ACCESS
+    EXCLUSIVE lock on `audit_log` until the rollback, so a marked test that touches `audit_log`
+    on a second connection hangs. Never mark the concurrency tests or any test that commits on a
+    second connection.
+    """
     engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.connect() as conn:
         trans = await conn.begin()
+        if request.node.get_closest_marker("backdate_audit"):
+            await conn.execute(
+                text("ALTER TABLE audit_log DISABLE TRIGGER audit_log_stamp_occurred_at")
+            )
         session = AsyncSession(
             bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
         )

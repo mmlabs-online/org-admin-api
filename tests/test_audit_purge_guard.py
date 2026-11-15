@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
 PURGE_MODULE = APP / "modules" / "audit" / "purge.py"
 (PURGE_MIGRATION,) = (ROOT / "migrations" / "versions").glob("*_d7e4b2a91c3f_*.py")
+(GUARDS_MIGRATION,) = (ROOT / "migrations" / "versions").glob("*_e91b6c3d58a2_*.py")
 FORBIDDEN = ("disable trigger", "session_replication_role", "alter table audit_log", "set_config(")
 
 
@@ -24,7 +25,7 @@ def test_allow_purge_only_in_purge_module_and_migration() -> None:
         for path in _py(APP) + _py(ROOT / "migrations")
         if "allow_purge" in path.read_text().lower()
     }
-    assert hits == {PURGE_MODULE, PURGE_MIGRATION}
+    assert hits == {PURGE_MODULE, PURGE_MIGRATION, GUARDS_MIGRATION}
 
 
 def test_no_trigger_bypass_in_app() -> None:
@@ -57,5 +58,7 @@ def test_no_purge_route() -> None:
 
 
 def test_min_days_matches_migration_floor() -> None:
-    (floor,) = re.findall(r"interval '(\d+) days'", PURGE_MIGRATION.read_text())
-    assert int(floor) == MIN_DAYS
+    for migration in (PURGE_MIGRATION, GUARDS_MIGRATION):
+        floors = re.findall(r"interval '(\d+) days'", migration.read_text())
+        assert floors
+        assert {int(floor) for floor in floors} == {MIN_DAYS}

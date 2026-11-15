@@ -9,14 +9,16 @@ outlive deletes), a trigger that refuses UPDATE, DELETE and TRUNCATE (written by
 check` cannot see triggers or functions), and the `admin:audit:read` permission on app `admin`
 (`is_admin=true`, granted to no role).
 
-`downgrade()` destroys the audit log: production never downgrades past this revision.
+`downgrade()` destroys the audit log: production never downgrades past this revision. It refuses
+offline and while `audit_log` has any row (ADM-004d), like `af3eb84d2d5e`.
 """
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.engine import Connection
 
 # revision identifiers, used by Alembic.
 revision: str = "c3f1a9d27b60"
@@ -130,8 +132,28 @@ def upgrade() -> None:
     op.execute(insert.bindparams(app_id=ADMIN_APP_ID, key=PERMISSION[0], description=PERMISSION[1]))
 
 
+AUDIT_LOG_LOSS = (
+    "downgrade of c3f1a9d27b60 is refused: audit_log has rows (it would destroy the audit log)"
+)
+
+
+def _refuse_if_rows(bind: Connection) -> None:
+    """Raises while `audit_log` has any row (purge trail rows included)."""
+    if bind.scalar(sa.text("SELECT EXISTS (SELECT 1 FROM audit_log)")):
+        raise RuntimeError(AUDIT_LOG_LOSS)
+
+
 def downgrade() -> None:
-    """Downgrade schema. Destroys the audit log."""
+    """Downgrade schema. Destroys the audit log.
+
+    Refuses offline (`--sql` cannot check the rows) and while any row exists, unless the
+    programmatic `allow_audit_log_loss` config attribute is set (tests only; the `alembic` CLI
+    cannot set it).
+    """
+    if context.is_offline_mode():
+        raise RuntimeError("offline downgrade of c3f1a9d27b60 is refused: it cannot check rows")
+    if not context.config.attributes.get("allow_audit_log_loss"):
+        _refuse_if_rows(op.get_bind())
     op.execute(
         sa.text(
             "DELETE FROM permissions WHERE app_id = CAST(:app_id AS uuid) AND key = :key"

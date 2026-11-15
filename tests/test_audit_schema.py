@@ -162,7 +162,7 @@ async def test_outcome_partial_index_used(db_session: AsyncSession) -> None:
 
 # Retention purge (ADM-004c): DELETE needs the `audit.allow_purge` latch AND a row older than
 # 90 days. `SET LOCAL` inside a savepoint that rolls back is undone; a released one keeps it, so
-# the passing test resets the flag in `finally`.
+# the passing test resets the flag in `finally`. Backdated rows need `backdate_audit` (ADM-004d).
 AGED = text(
     "INSERT INTO audit_log (id, actor_kind, action, occurred_at) VALUES (:id, 'anonymous',"
     " 'auth.login_failed', now() - CAST(CAST(:age AS text) AS interval))"
@@ -184,11 +184,13 @@ async def _refused_with_flag(
             await db_session.execute(text(sql), params)
 
 
+@pytest.mark.backdate_audit
 async def test_delete_old_row_without_flag_refused(db_session: AsyncSession) -> None:
     row_id = await _aged(db_session, "91 days")
     await _append_only(db_session, "DELETE FROM audit_log WHERE id = :id", id=row_id)
 
 
+@pytest.mark.backdate_audit
 async def test_purge_flag_deletes_old_row(db_session: AsyncSession) -> None:
     row_id = await _aged(db_session, "91 days")
     try:
@@ -201,16 +203,19 @@ async def test_purge_flag_deletes_old_row(db_session: AsyncSession) -> None:
         await db_session.execute(text("SET LOCAL audit.allow_purge = 'off'"))
 
 
+@pytest.mark.backdate_audit
 async def test_purge_flag_refuses_recent_row(db_session: AsyncSession) -> None:
     row_id = await _aged(db_session, "89 days")
     await _refused_with_flag(db_session, "DELETE FROM audit_log WHERE id = :id", id=row_id)
 
 
+@pytest.mark.backdate_audit
 async def test_purge_flag_boundary_90_days_refused(db_session: AsyncSession) -> None:
     row_id = await _aged(db_session, "90 days")  # same transaction now(): exactly the floor
     await _refused_with_flag(db_session, "DELETE FROM audit_log WHERE id = :id", id=row_id)
 
 
+@pytest.mark.backdate_audit
 @pytest.mark.parametrize("value", ["off", "", "true", "ON", "1"])
 async def test_purge_flag_other_values_refused(db_session: AsyncSession, value: str) -> None:
     row_id = await _aged(db_session, "91 days")
@@ -219,6 +224,7 @@ async def test_purge_flag_other_values_refused(db_session: AsyncSession, value: 
     )
 
 
+@pytest.mark.backdate_audit
 async def test_update_refused_with_flag(db_session: AsyncSession) -> None:
     row_id = await _aged(db_session, "91 days")
     await _refused_with_flag(
@@ -226,6 +232,35 @@ async def test_update_refused_with_flag(db_session: AsyncSession) -> None:
     )
 
 
+@pytest.mark.backdate_audit
 async def test_truncate_refused_with_flag(db_session: AsyncSession) -> None:
     await _aged(db_session, "91 days")
     await _refused_with_flag(db_session, "TRUNCATE audit_log")
+
+
+@pytest.mark.backdate_audit
+async def test_purge_flag_refuses_purge_trail_row(db_session: AsyncSession) -> None:
+    row_id = uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO audit_log (id, actor_kind, actor_label, action, occurred_at) VALUES (:id,"
+            " 'system', 'system:cli', 'audit_log.purged', now() - interval '400 days')"
+        ),
+        {"id": row_id},
+    )
+    await _refused_with_flag(db_session, "DELETE FROM audit_log WHERE id = :id", id=row_id)
+
+
+async def test_insert_occurred_at_stamped(db_session: AsyncSession) -> None:
+    row_id = uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO audit_log (id, actor_kind, action, occurred_at) VALUES (:id,"
+            " 'anonymous', 'auth.login_failed', TIMESTAMPTZ '2020-01-01 00:00:00+00')"
+        ),
+        {"id": row_id},
+    )
+    occurred = await db_session.scalar(
+        text("SELECT occurred_at FROM audit_log WHERE id = :id"), {"id": row_id}
+    )
+    assert occurred == await db_session.scalar(text("SELECT now()"))

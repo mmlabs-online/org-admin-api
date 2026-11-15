@@ -13,6 +13,9 @@ from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import Permission, RolePermission
 from tests.conftest import MakeClient
 
+# `_add`/`_aged` insert backdated rows (ADM-004d stamp trigger).
+pytestmark = pytest.mark.backdate_audit
+
 URL = "/api/v1/audit-logs"
 T0 = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 READ_KEYS = {
