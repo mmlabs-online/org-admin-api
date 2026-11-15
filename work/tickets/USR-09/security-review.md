@@ -26,3 +26,22 @@ Reviewed `git diff 4c01328 HEAD` (shallow clone has no merge base for `...`), th
 
 ### Follow-ups (out of scope)
 ADM-004 durable audit with `system:cli` actor for `create-account` and `grant-super-admin`; deployment-repo guard so `create-account` never becomes an ops-workflow choice; optional `RLIMIT_CORE=0`; optional read-only pre-check before the password prompts.
+
+## Attempt 2 — 2026-11-15 (appsec-engineer)
+
+Scope `git diff 7d8f0ec HEAD -- app tests docs` (USR-09 code in af4e125; the rest is the ADM-002b/ADM-004 merge 67f1121). `make check` not run by appsec (no Postgres in its sandbox); the reviewer ran it green (1445 passed). **No 🔴.**
+
+### 🟡 should-fix
+- **CLI grant uses a privileged actor** (`app/modules/auth/provisioning.py:79-81`, `SYSTEM_CLI` is `privileged=True`, `app/modules/rbac/actor.py:21`). `_guard_privileged` (`app/modules/rbac/service.py:1137-1147`) is the only actor-dependent check in `_grant_locked`; a privileged actor passes it for admin-app roles or roles with `is_admin` permissions. Not exploitable today (`lock_joinable_app` refuses admin `membership/service.py:41`; `join_default_role` refuses admin-permission roles under the app lock `:51-61`; `expires_at`/`org_id` None; new user), but HTTP join keeps the extra layer with `SYSTEM_JOIN` (`privileged=False`, `:106-108`) while the CLI path loses it. Fix: grant with a non-privileged actor (e.g. `SYSTEM_JOIN`, or a new `SystemActor("system:cli", privileged=False)`), audit actor stays `system:cli`. Test: monkeypatch `join_default_role` to return an admin-permission role → `AdminWildcardRequiredError`, no user, assignment or audit row.
+- **Carried from attempt 1:** nothing enforces that only `app/cli.py` imports `app.modules.auth.provisioning` (`provisioning.py:1`, `:48`). Fix: `ast` walk over `app/` in `tests/test_cli_create_account.py`.
+
+### 💭 notes
+- `changes` keys don't follow ADR-0009 §4 (`provisioning.py:74`: `verified` not in `diff.USER`; `"active"` hard-coded). No leak. Optional: `USER_CREATE = ("status", "verified")` in `diff.py` and use `user.status`.
+- `docs/identity-architecture.md:199-201` (S8) omits `create-account` from the CLI audit list.
+- `user.created` is recorded before the grant's guards (`provisioning.py:70`), unlike ADR-0009 §3's "after its last guard"; harmless (rollback asserted).
+
+### 🟢 verified
+No email/password/hash in audit rows (tests `tests/test_cli_create_account.py:191-202`); ADM-004 rules kept (`AuditLogger.record` only; `actor_consistent` `app/modules/audit/models.py:25-29`; `USER_CREATED` needs no migration); same transaction, nothing left after refusals (`tests/test_cli_create_account.py:306, 476, 493`); `app.joined` matches HTTP join; merged `JoinService` keeps every check in order (`membership/service.py:76-118`); ADM-002b guards intact for HTTP join; ADR-0009/0010 numbering consistent.
+
+### Follow-ups
+Operator identity for CLI audit rows; runtime DB role with INSERT/SELECT only on `audit_log` (ADR-0009 §1); deployment-repo guard so `create-account` never becomes an ops-workflow command; optional `RLIMIT_CORE=0`.

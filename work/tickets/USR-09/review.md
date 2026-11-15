@@ -135,3 +135,6 @@ No violations found.
 - From the impl-log: an operator identity on CLI audit rows (`--operator` or an env label).
 - Security-review 🟡 (still open): a regression test that `app.modules.auth.provisioning` is imported only by `app/cli.py`.
 - Carried over: a deployment-repo guard so `create-account` never becomes an ops-workflow command; a per-run test database to avoid parallel pytest interference.
+
+### Security items (added by the orchestrator after appsec Attempt 2)
+Appsec found no 🔴, so the PASS stands. Two cheap 🟡 security hardening items go into one final rework (attempt 3), because the CLI path has no Turnstile or rate limit: (1) grant with a non-privileged actor so `_guard_privileged` still protects the CLI path (audit actor stays `system:cli`), with the monkeypatch test; (2) a test that only `app/cli.py` imports `app.modules.auth.provisioning`. Plus the one-phrase S8 doc fix in `docs/identity-architecture.md`. Nothing else.
