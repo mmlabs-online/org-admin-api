@@ -29,7 +29,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-03b | Accounts list and join flow (API) | DONE | P1 | api, auth, security, db | 1 | 2026-11-13 |
 | ADM-002 | Lock admin endpoints (aud=admin + require_permission) | DONE | P1 | auth, security, api | 1 | 2026-11-15 |
 | ADM-002c | Set admin app origins from the CLI | DONE | P1 | auth, security | 1 | 2026-11-15 |
-| ADM-002b | Enforce admin RBAC guards and mount the users/RBAC APIs | BACKLOG | P1 | auth, security, api | 0 | 2026-11-15 |
+| ADM-002b | Enforce admin RBAC guards and mount the users/RBAC APIs | PLANNING | P1 | auth, security, api | 0 | 2026-11-15 |
 | ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | BACKLOG | P1 | db, api, security | 0 | 2026-11-11 |
 | USR-06 | Organizations and org-aware tokens (first consumer: calechip) | BACKLOG | P2 | architecture, db, api, auth, security | 0 | 2026-11-11 |
 | USR-04d | Email hardening: dispatcher shutdown, retention cleanup, daily-cap alert | DONE | P1 | auth, db | 1 | 2026-11-13 |
