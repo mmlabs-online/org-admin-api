@@ -23,6 +23,7 @@ Split from ADM-002b (see `work/tickets/ADM-002b/plan.md`).
 7. (ADM-002b security 💭4) Invalidate the user's outstanding reset/verification email tokens on disable.
 8. (ADM-002b security 💭6) Pin `org_mode == none` in the admin-app invariant of `AppService.update`.
 9. (ADM-002b 💭7) Make `build_default_role`'s actor required or remove it.
+10. (ADM-004b/ADM-004c security) Stored request id: use `CF-Ray` from a trusted peer or always generate it (keep the inbound `X-Request-ID` only in the echoed header); update ADR-0009 amendment and deploy.md.
 
 ## Acceptance criteria
 - [ ] Each item above has a test (docs items: reviewer checks the runbook)
