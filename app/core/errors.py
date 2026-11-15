@@ -59,6 +59,31 @@ class PermissionDeniedError(AppError):
     code = "permission_denied"
 
 
+class AdminWildcardRequiredError(PermissionDeniedError):
+    """The action needs `admin:*` on top of the route permission (ADM-002b)."""
+
+    code = "admin_wildcard_required"
+
+    def __init__(self) -> None:
+        super().__init__("Requires admin:*", details={"required": "admin:*"})
+
+
+class SelfAssignmentForbiddenError(PermissionDeniedError):
+    code = "self_assignment_forbidden"
+
+
+class SelfStatusChangeForbiddenError(PermissionDeniedError):
+    code = "self_status_change_forbidden"
+
+
+class LastSuperAdminError(ConflictError):
+    code = "last_super_admin"
+
+
+class RoleHasAssignmentsError(ConflictError):
+    code = "role_has_assignments"
+
+
 class RateLimitedError(AppError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "rate_limited"

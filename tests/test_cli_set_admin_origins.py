@@ -31,6 +31,7 @@ from app.cli import (
 )
 from app.core.config import Settings
 from app.core.errors import ConflictError, UnprocessableError
+from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
 from app.modules.rbac.repository import APPS_CHANGED_KEY, RbacRepository
 from app.modules.rbac.schemas import AdminOriginsSet
@@ -616,3 +617,35 @@ def test_subprocess_set_admin_origins_usage_exit_64() -> None:
     assert proc.returncode == 64
     assert proc.stdout == ""
     assert proc.stderr == SET_ADMIN_ORIGINS_USAGE + "\n"
+
+
+async def _audit_rows(session: AsyncSession) -> list[AuditLog]:
+    rows = await session.scalars(select(AuditLog).where(AuditLog.action == "app.admin_origins_set"))
+    return list(rows)
+
+
+async def test_set_admin_origins_audit_updated(db_session: AsyncSession) -> None:
+    await _set(db_session, ADMIN)
+    assert await _run(db_session, "--origin", ADMIN2) == 0
+    admin = await _admin(db_session)
+    (row,) = await _audit_rows(db_session)
+    assert (row.actor_kind, row.actor_label, row.request_id) == ("system", "system:cli", None)
+    assert (row.target_type, row.target_id, row.app_key) == ("app", admin.id, "admin")
+    assert row.changes == {"origins": {"from": [ADMIN], "to": [ADMIN2]}}
+
+
+async def test_set_admin_origins_audit_unchanged_none(db_session: AsyncSession) -> None:
+    await _set(db_session, ADMIN)
+    assert await _run(db_session, "--origin", ADMIN) == 0
+    assert await _audit_rows(db_session) == []
+
+
+async def test_set_admin_origins_audit_dry_run_none(db_session: AsyncSession) -> None:
+    await _set(db_session)
+    code = await amain(
+        ["set-admin-origins", "--origin", ADMIN, "--dry-run"],
+        settings=Settings(),
+        session_scope=_savepoint_scope(db_session),
+    )
+    assert code == 0
+    assert await _audit_rows(db_session) == []

@@ -6,7 +6,7 @@ from fastapi.security import APIKeyCookie
 from app.api.deps import SessionDep
 from app.core.config import Settings
 from app.core.rate_limit import rate_limit
-from app.modules.audit.recorder import AuditRecorder, LogAuditRecorder
+from app.modules.audit.deps import AuditContextDep
 from app.modules.auth.cookies import (
     DEVICE_COOKIE,
     clear_device_cookie,
@@ -62,13 +62,6 @@ _device_cookie_scheme = APIKeyCookie(
 DeviceCookieDoc = Annotated[str | None, Security(_device_cookie_scheme)]
 
 _ERR: dict[str, Any] = {"description": "Error envelope"}
-
-_audit_recorder = LogAuditRecorder()
-
-
-def get_audit_recorder() -> AuditRecorder:
-    """Placeholder until ADM-004; tests override it."""
-    return _audit_recorder
 
 
 @router.post(
@@ -257,12 +250,12 @@ async def join_app(
     _cookie: DeviceCookieDoc,
     body: JoinRequest,
     device: DeviceDep,
-    recorder: Annotated[AuditRecorder, Depends(get_audit_recorder)],
+    ctx: AuditContextDep,
 ) -> JoinResponse:
     """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`; `{key}` must be the
     calling app. "Continue as <account>" is the consent (D8). 200 for a new or an existing
     membership (idempotent)."""
-    await JoinService(session, recorder).join(app, device, key, body)
+    await JoinService(session).join(app, device, key, body, ctx=ctx)
     settings: Settings = request.app.state.settings
     if device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)

@@ -1,4 +1,4 @@
-"""create-account CLI (USR-09, ADR-0009): verified user, join, refusals, secrecy, one txn."""
+"""create-account CLI (USR-09, ADR-0010): verified user, join, refusals, secrecy, one txn."""
 
 import getpass
 import io

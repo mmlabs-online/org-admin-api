@@ -102,10 +102,14 @@ class Settings(BaseSettings):
     argon2_parallelism: int = Field(default=4, ge=1)
     argon2_max_concurrency: int = Field(default=2, ge=1)
 
-    # Temporary: exposes user PII and a disable action before its guards. Removed by ADM-002b.
-    admin_users_api_enabled: bool = False
-    # Temporary: privilege-changing RBAC endpoints before their guards. Removed by ADM-002b.
-    admin_rbac_api_enabled: bool = False
+    # Swagger UI and `/openapi.json`: unset = on everywhere except production (ADM-002b).
+    api_docs_enabled: bool | None = None
+
+    @property
+    def docs_enabled(self) -> bool:
+        if self.api_docs_enabled is not None:
+            return self.api_docs_enabled
+        return self.app_env != "production"
 
     @field_validator("trusted_proxy_cidrs")
     @classmethod
@@ -140,20 +144,6 @@ class Settings(BaseSettings):
             or self.argon2_time_cost < _ARGON2_MIN_TIME_COST
         ):
             raise ValueError("Argon2 parameters are below the minimum for staging/production")
-        return self
-
-    @model_validator(mode="after")
-    def _admin_apis_gate(self) -> Self:
-        flags = {
-            "ADMIN_USERS_API_ENABLED": self.admin_users_api_enabled,
-            "ADMIN_RBAC_API_ENABLED": self.admin_rbac_api_enabled,
-        }
-        for name, on in flags.items():
-            if on and self.app_env in {"staging", "production"}:
-                raise ValueError(f"{name} must not be set in staging/production before ADM-002b")
-        # `env_ignore_empty=True`: an empty `APP_ENV=` counts as unset.
-        if any(flags.values()) and "app_env" not in self.model_fields_set:
-            raise ValueError("APP_ENV must be set explicitly when an admin API flag is on")
         return self
 
     @model_validator(mode="after")

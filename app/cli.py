@@ -2,7 +2,7 @@
 
 - `python -m app.cli grant-super-admin --email <email>` (USR-02f): creates no users, takes no
   password, never marks an email verified (D16).
-- `python -m app.cli create-account --email <email> [--join <app_key>]` (USR-09, ADR-0009): the
+- `python -m app.cli create-account --email <email> [--join <app_key>]` (USR-09, ADR-0010): the
   only CLI path that creates a user and marks its email verified; TTY-only password, never
   touches an existing account.
 - `python -m app.cli register-app --key <key> --name <name> --origin <origin> ...` (USR-07):

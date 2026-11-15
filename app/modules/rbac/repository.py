@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import (
+    ADMIN_APP_KEY,
     App,
     AppStatus,
     Permission,
@@ -208,6 +209,15 @@ class RbacRepository:
         stmt = select(exists().where(RolePermission.permission_id == permission_id))
         return bool(await self.session.scalar(stmt))
 
+    async def permission_held_by_assigned_role(self, permission_id: uuid.UUID) -> bool:
+        """Some role holding the permission has an assignment (any scope, expired included)."""
+        stmt = select(
+            exists()
+            .where(RolePermission.permission_id == permission_id)
+            .where(RoleAssignment.role_id == RolePermission.role_id)
+        )
+        return bool(await self.session.scalar(stmt))
+
     async def role_holds_permission(self, role_id: uuid.UUID, permission_id: uuid.UUID) -> bool:
         stmt = select(
             exists().where(
@@ -399,6 +409,22 @@ class RbacRepository:
             .execution_options(populate_existing=True)
         )
 
+    async def user_has_privileged_assignment(self, user_id: uuid.UUID) -> bool:
+        """Any assignment (expired included: it can be renewed) of an admin-app role or of a role
+        holding an `is_admin` permission."""
+        holds_admin_permission = (
+            exists()
+            .where(RolePermission.role_id == Role.id)
+            .where(Permission.id == RolePermission.permission_id, Permission.is_admin.is_(True))
+        )
+        stmt = select(
+            exists()
+            .where(RoleAssignment.user_id == user_id)
+            .where(Role.id == RoleAssignment.role_id, App.id == Role.app_id)
+            .where(or_(App.key == ADMIN_APP_KEY, holds_admin_permission))
+        )
+        return bool(await self.session.scalar(stmt))
+
     async def add_assignment(self, ra: RoleAssignment) -> RoleAssignment:
         """Insert in a savepoint so a unique or FK violation leaves the transaction usable."""
         async with self.session.begin_nested():
@@ -413,13 +439,15 @@ class RbacRepository:
 
     @staticmethod
     def _counting_super_admin(role_id: uuid.UUID) -> ColumnElement[bool]:
-        """App scope, not expired (database clock), held by an `active` user."""
+        """App scope, not expired (database clock), held by an `active`, verified user (only
+        such a user can get an admin token, D16)."""
         return and_(
             RoleAssignment.role_id == role_id,
             RoleAssignment.org_id.is_(None),
             or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
             User.id == RoleAssignment.user_id,
             User.status == UserStatus.ACTIVE.value,
+            User.email_verified_at.is_not(None),
         )
 
     async def count_other_active_super_admins(

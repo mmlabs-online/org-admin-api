@@ -54,6 +54,7 @@ from app.modules.admin_auth.deps import current_admin
 from app.modules.admin_auth.service import AdminPrincipal
 from app.modules.auth.deps import get_email_dispatcher, get_turnstile_verifier
 from app.modules.email.dispatcher import EmailDispatcher
+from app.modules.users.models import User
 from tests.fakes import FakeEmailSender, FakeTurnstileVerifier
 
 MakeClient = Callable[..., AbstractAsyncContextManager[AsyncClient]]
@@ -119,12 +120,25 @@ def _use_test_session(app: FastAPI, db_session: AsyncSession) -> None:
     app.state.origin_registry.session_factory = _registry_session
 
 
-def _override_admin(app: FastAPI, admin_permissions: Sequence[str] | None) -> None:
-    """Stand in for a verified staff principal (real verification: `test_admin_auth.py`)."""
+def _override_admin(
+    app: FastAPI, admin_permissions: Sequence[str] | None, admin_user: User | None
+) -> None:
+    """Stand in for a verified staff principal (real verification: `test_admin_auth.py`).
+
+    The principal is `admin_user` when given (self-guards, `granted_by`), else a random id.
+    """
     if admin_permissions is None:
         return
-    principal = AdminPrincipal(uuid.uuid4(), frozenset(admin_permissions), "test")
+    user_id = admin_user.id if admin_user is not None else uuid.uuid4()
+    principal = AdminPrincipal(user_id, frozenset(admin_permissions), "test")
     app.dependency_overrides[current_admin] = lambda: principal
+
+
+def _settings(overrides: dict[str, Any]) -> Settings | None:
+    """Unknown keys fail loudly (`extra="ignore"` would silently drop a stale flag)."""
+    unknown = set(overrides) - set(Settings.model_fields)
+    assert not unknown, f"unknown settings overrides: {sorted(unknown)}"
+    return Settings(**overrides) if overrides else None
 
 
 @pytest.fixture
@@ -137,9 +151,11 @@ def make_client(
 
     @asynccontextmanager
     async def _make(
-        admin_permissions: Sequence[str] | None = None, **settings_overrides: Any
+        admin_permissions: Sequence[str] | None = None,
+        admin_user: User | None = None,
+        **settings_overrides: Any,
     ) -> AsyncIterator[AsyncClient]:
-        app = create_app(Settings(**settings_overrides) if settings_overrides else None)
+        app = create_app(_settings(settings_overrides))
 
         async def _override_session() -> AsyncIterator[AsyncSession]:
             yield db_session
@@ -148,7 +164,7 @@ def make_client(
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
         app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
         _use_test_session(app, db_session)
-        _override_admin(app, admin_permissions)
+        _override_admin(app, admin_permissions, admin_user)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
 
@@ -167,8 +183,12 @@ def make_strict_app(
     """The app behind `make_strict_client`: the session mirrors `get_session` (commit on
     success, rollback on exception)."""
 
-    def _make(admin_permissions: Sequence[str] | None = None, **settings_overrides: Any) -> FastAPI:
-        app = create_app(Settings(**settings_overrides) if settings_overrides else None)
+    def _make(
+        admin_permissions: Sequence[str] | None = None,
+        admin_user: User | None = None,
+        **settings_overrides: Any,
+    ) -> FastAPI:
+        app = create_app(_settings(settings_overrides))
 
         async def _override_session() -> AsyncIterator[AsyncSession]:
             try:
@@ -182,7 +202,7 @@ def make_strict_app(
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
         app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
         _use_test_session(app, db_session)
-        _override_admin(app, admin_permissions)
+        _override_admin(app, admin_permissions, admin_user)
         return app
 
     return _make
@@ -196,9 +216,11 @@ def make_strict_client(make_strict_app: MakeStrictApp) -> MakeClient:
 
     @asynccontextmanager
     async def _make(
-        admin_permissions: Sequence[str] | None = None, **settings_overrides: Any
+        admin_permissions: Sequence[str] | None = None,
+        admin_user: User | None = None,
+        **settings_overrides: Any,
     ) -> AsyncIterator[AsyncClient]:
-        app = make_strict_app(admin_permissions, **settings_overrides)
+        app = make_strict_app(admin_permissions, admin_user, **settings_overrides)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
 

@@ -1,4 +1,4 @@
-# ADR-0009: Operator-vouched verified email (CLI `create-account`)
+# ADR-0010: Operator-vouched verified email (CLI `create-account`)
 
 Status: Accepted (USR-09 plan, 2026-11-15)
 Date: 2026-11-15

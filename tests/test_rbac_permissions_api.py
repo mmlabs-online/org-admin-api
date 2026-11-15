@@ -19,7 +19,7 @@ PERMISSION_READ_KEYS = {"id", "key", "description", "is_admin"}
 
 @pytest.fixture
 async def rbac_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
+    async with make_client(admin_permissions=["admin:*"]) as c:
         yield c
 
 
@@ -40,17 +40,6 @@ async def _create_app_with_member(rbac_client: AsyncClient, db_session: AsyncSes
     role = await db_session.scalar(select(Role).where(Role.key == "stoktok:member"))
     assert role is not None
     return role
-
-
-# --- exposure ----------------------------------------------------------------
-
-
-async def test_permissions_api_not_mounted_by_default(client: AsyncClient) -> None:
-    pid = uuid.uuid4()
-    assert (await client.get(URL)).status_code == 404
-    assert (await client.post(URL, json={"key": "stoktok:a:b"})).status_code == 404
-    assert (await client.patch(f"{URL}/{pid}", json={})).status_code == 404
-    assert (await client.delete(f"{URL}/{pid}")).status_code == 404
 
 
 # --- list --------------------------------------------------------------------

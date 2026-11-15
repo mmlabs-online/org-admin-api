@@ -3,7 +3,7 @@
 Public by design: never add `current_admin` or `require_permission` here (ADR-0008); the
 route-classification test allow-lists it.
 
-Always mounted (not behind `admin_rbac_api_enabled`); per-IP rate limit `role_catalog`.
+Per-IP rate limit `role_catalog`.
 """
 
 from fastapi import APIRouter, Request, Response

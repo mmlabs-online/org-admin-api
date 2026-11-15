@@ -32,6 +32,7 @@ from app.cli import (
 )
 from app.core.config import Settings
 from app.core.errors import ConflictError
+from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import App, Permission, Role, RolePermission
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.schemas import AppRegister
@@ -628,3 +629,46 @@ def test_subprocess_register_usage_exit_64() -> None:
     assert proc.returncode == 64
     assert proc.stdout == ""
     assert proc.stderr == REGISTER_USAGE + "\n"
+
+
+async def _audit_rows(session: AsyncSession) -> list[AuditLog]:
+    rows = await session.scalars(select(AuditLog).where(AuditLog.action == "app.registered"))
+    return list(rows)
+
+
+async def test_register_audit_created(db_session: AsyncSession) -> None:
+    assert await _run(db_session, *_ricotdin("--permission", "ricotdin:app:use")) == 0
+    app = await _app(db_session)
+    assert app is not None
+    (row,) = await _audit_rows(db_session)
+    assert (row.actor_kind, row.actor_user_id, row.actor_label) == ("system", None, "system:cli")
+    assert (row.ip, row.user_agent, row.request_id) == (None, None, None)
+    assert (row.target_type, row.target_id, row.app_key) == ("app", app.id, "ricotdin")
+    assert row.changes is not None
+    assert row.changes["key"] == {"from": None, "to": "ricotdin"}
+    assert row.changes["origins"] == {"from": None, "to": [PROD]}
+    assert row.changes["permissions_added"] == {"from": [], "to": ["ricotdin:app:use"]}
+    assert row.changes["member_permissions"] == {"from": [], "to": ["ricotdin:app:use"]}
+
+    assert await _run(db_session, *_ricotdin(origin=STAGING, name="Ricotdin 2")) == 0
+    (updated,) = [r for r in await _audit_rows(db_session) if r.id != row.id]
+    assert updated.changes == {
+        "name": {"from": "Ricotdin", "to": "Ricotdin 2"},
+        "origins": {"from": [PROD], "to": [STAGING]},
+    }
+
+
+async def test_register_audit_unchanged_none(db_session: AsyncSession) -> None:
+    assert await _run(db_session, *_ricotdin()) == 0
+    assert await _run(db_session, *_ricotdin()) == 0
+    assert len(await _audit_rows(db_session)) == 1
+
+
+async def test_register_audit_dry_run_none(db_session: AsyncSession) -> None:
+    code = await amain(
+        ["register-app", *_ricotdin("--dry-run")],
+        settings=Settings(),
+        session_scope=_savepoint_scope(db_session),
+    )
+    assert code == 0
+    assert await _audit_rows(db_session) == []

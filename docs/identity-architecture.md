@@ -150,9 +150,10 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `GET /api/v1/auth/orgs?account_id=&app=` | cookie | the account's orgs for an org-scoped app | USR-06 |
 | `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06 |
 | Admin: `/api/v1/organizations` (CRUD) | Bearer `aud=admin` + `require_permission` (`admin:organizations:read\|write`) | organizations | ADM-001, ADM-002 |
-| Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`); flag-gated until ADM-002b | staff user management | USR-01, ADM-002 |
-| Admin: `/api/v1/apps`, `/apps/{key}/permissions`, `/apps/{key}/roles` (writes) | Bearer `aud=admin` + `require_permission` (`admin:apps:read\|write`, `admin:roles:manage`); flag-gated until ADM-002b | apps, permissions, roles | USR-02, ADM-002 |
-| Admin: `/api/v1/users/{id}/role-assignments` | Bearer `aud=admin` + `require_permission` (`admin:users:read`, `admin:roles:assign`); flag-gated until ADM-002b | role assignments | USR-02, ADM-002 |
+| Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`; `admin:*` for privileged users) | staff user management | USR-01, ADM-002 |
+| Admin: `/api/v1/apps`, `/apps/{key}/permissions`, `/apps/{key}/roles` (writes) | Bearer `aud=admin` + `require_permission` (`admin:apps:read\|write`, `admin:roles:manage`; `admin:*` for the admin app and `is_admin` changes) | apps, permissions, roles | USR-02, ADM-002 |
+| Admin: `/api/v1/users/{id}/role-assignments` | Bearer `aud=admin` + `require_permission` (`admin:users:read`, `admin:roles:assign`; `admin:*` for privileged roles) | role assignments | USR-02, ADM-002 |
+| Admin: `GET /api/v1/audit-logs` (filters `actor_user_id`, `actor_kind`, `action`, `target_type`, `target_id`, `app_key`, `from`/`to`) | Bearer `aud=admin` + `require_permission` (`admin:audit:read`, held only via `admin:*`) | read-only audit log | ADM-004 |
 
 Admin auth (ADR-0008): the Bearer token comes from the `Authorization` header only, never the
 device cookie. It is verified like `docs/consumers.md` prescribes (`typ`, ES256, `kid`, `iss`,
@@ -161,6 +162,14 @@ verified) and its admin permissions are read from the database on every request.
 `unauthorized` (`WWW-Authenticate: Bearer realm="admin"`, no details) for a missing or bad token
 or an unusable user; 403 `permission_denied` with `details.required` for a missing permission.
 `admin:*` grants every admin permission.
+
+Privileged writes need `admin:*` on top of the route permission (ADM-002b, ADR-0008 amendment):
+anything on the `admin` app, any change across the `is_admin` boundary, granting or revoking a
+role that is an admin-app role or holds an `is_admin` permission, and the status of a user holding
+one. Codes: 403 `admin_wildcard_required` (`details.required = "admin:*"`), 403
+`self_assignment_forbidden` / `self_status_change_forbidden` (nobody changes their own admin roles
+or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_super_admin_only`,
+409 `conflict`/`origin_taken`. Disabling a user revokes its account sessions on every device.
 
 Token (D7): JWT, ES256 (P-256, ADR-0005), ~15 min, header `kid` + `typ: at+jwt`.
 Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,
@@ -185,8 +194,15 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 - **S6 Email (D3):** verification/reset resend at most 1/min and 5/day per email; tokens single-use,
   expiring, stored hashed. Gmail App Password only in env.
 - **S7 Tokens (D7, R11):** signing keys from env, `kid`, documented rotation; apps must check `aud` (ADR-0005, rotation in deploy.md).
-- **S8 Audit:** login (success/failure), logout, join, role/assignment changes, org membership changes
-  are audit events (ADM-004).
+- **S8 Audit (ADR-0009):** an append-only `audit_log` (DB trigger refuses UPDATE/DELETE/TRUNCATE).
+  `AuditLogger.record` adds one row in the same transaction as the change, after the last guard, for
+  every admin mutation (organizations, user status, apps, permissions, roles, role permissions,
+  role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
+  grant-super-admin, cleanup summary) and `app.joined` (ADM-004). Failures, refusals and no-ops write
+  nothing. `changes` holds allowlisted fields only, never emails, hashes, tokens or cookies. Each row
+  carries ip, user agent and `X-Request-ID`. Login (success/failure), logout, reuse revocation,
+  password reset, email verification, denied privileged attempts (`outcome`) and retention are
+  ADM-004b; org membership events come with USR-06.
 
 ## 6. Client libraries (D4)
 
@@ -240,7 +256,7 @@ Follow-up decisions (owner, 2026-11-11, resolving §10):
 | D13 | **Path prefix (C1 = option B):** all identity endpoints are under `/api/v1/auth/*` and the cookie is `Path=/api/v1/auth` (amends D5, D7, D8 paths). Only `/.well-known/jwks.json` stays at the root. R9 needs no exception. |
 | D14 | **R3 reworded (C2):** three endpoint classes — Bearer (admin, `aud=admin` + permission), cookie-authenticated identity endpoints, and public endpoints. Refresh tokens are gone. |
 | D15 | **Organizations (C3):** the existing `organizations` table (ADM-001) moves to the Identity module and gains `created_by`; `description` and `status` are kept. One concept, used per app through `apps.org_mode`. |
-| D16 | **Email verification ordering (U1):** no interim "mark verified" path. Joining an app and getting an app token stay blocked until USR-04 ships; backlog order unchanged. *Amended by ADR-0009 (USR-09, 2026-11-15):* the CLI `create-account` is the single operator-vouched exception (verified email at creation, TTY only, never on an existing account). |
+| D16 | **Email verification ordering (U1):** no interim "mark verified" path. Joining an app and getting an app token stay blocked until USR-04 ships; backlog order unchanged. *Amended by ADR-0010 (USR-09, 2026-11-15):* the CLI `create-account` is the single operator-vouched exception (verified email at creation, TTY only, never on an existing account). |
 | D17 | **Role catalog is public (Q1, 2026-11-11):** `GET /api/v1/apps/{key}/roles` joins R3 class 3 (public). Rate-limited per IP; 404 for unknown, disabled and `admin` apps; exposes only role key, name, `is_system` and permission keys. |
 | D18 | **R9 exceptions (Q2, 2026-11-11):** apps are addressed by their immutable `key` in `/api/v1/apps/{key}/…`; the role catalog is a single document, not `Page[T]`. Permissions, roles and assignments keep UUID ids. |
 | D19 | **Allowed app origins (Q3, 2026-11-11):** only `https://mmlabs.online`, `https://*.mmlabs.online` and loopback (`http(s)://localhost`, `127.0.0.1`, `[::1]`). Any other origin → 422. |

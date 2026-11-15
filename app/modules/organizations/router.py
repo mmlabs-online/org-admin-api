@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, status
 
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
-from app.modules.admin_auth.deps import current_admin, require_permission
+from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
+from app.modules.audit.deps import AuditContextDep
 from app.modules.organizations.schemas import (
     OrganizationCreate,
     OrganizationRead,
@@ -38,8 +39,10 @@ async def list_organizations(session: SessionDep, page: PageDep) -> Page[Organiz
     status_code=status.HTTP_201_CREATED,
     **require_permission(WRITE),
 )
-async def create_organization(session: SessionDep, body: OrganizationCreate) -> OrganizationRead:
-    org = await OrganizationService(session).create(body)
+async def create_organization(
+    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, body: OrganizationCreate
+) -> OrganizationRead:
+    org = await OrganizationService(session).create(body, actor=principal, ctx=ctx)
     return OrganizationRead.model_validate(org)
 
 
@@ -50,12 +53,18 @@ async def get_organization(session: SessionDep, org_id: uuid.UUID) -> Organizati
 
 @router.patch("/{org_id}", response_model=OrganizationRead, **require_permission(WRITE))
 async def update_organization(
-    session: SessionDep, org_id: uuid.UUID, body: OrganizationUpdate
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    org_id: uuid.UUID,
+    body: OrganizationUpdate,
 ) -> OrganizationRead:
-    org = await OrganizationService(session).update(org_id, body)
+    org = await OrganizationService(session).update(org_id, body, actor=principal, ctx=ctx)
     return OrganizationRead.model_validate(org)
 
 
 @router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT, **require_permission(WRITE))
-async def delete_organization(session: SessionDep, org_id: uuid.UUID) -> None:
-    await OrganizationService(session).delete(org_id)
+async def delete_organization(
+    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, org_id: uuid.UUID
+) -> None:
+    await OrganizationService(session).delete(org_id, actor=principal, ctx=ctx)

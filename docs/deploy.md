@@ -95,6 +95,8 @@ environments and for rotation.
 - **`JWT_PUBLIC_KEYS_EXTRA`** (USR-03c): JSON list (in a quoted string, like
   `TRUSTED_PROXY_CIDRS`) of base64 public PEMs that the JWKS publishes next to the signing key.
   Not a secret (`compose.yml`). Empty except during a rotation (below).
+- **`API_DOCS_ENABLED`** (ADM-002b, optional): `true`/`false` for Swagger UI (`/docs`) and
+  `/openapi.json`. Unset: off in production, on elsewhere. Not a secret.
 
 Done in `mmlabs-online/deployment` (PRs #52, #53, 2026-11-12) before the first release with
 USR-03c.
@@ -267,7 +269,7 @@ runs the previous image (migrations are kept, see the rules above).
 
 The first `admin:super-admin` is granted from the command line (USR-02f), never over HTTP. The CLI
 `grant-super-admin` creates no users, takes no password and never marks an email verified;
-`create-account` ("Create an account from the CLI", ADR-0009) is the only CLI path that does.
+`create-account` ("Create an account from the CLI", ADR-0010) is the only CLI path that does.
 Re-running it is safe.
 
 **Prerequisites:** migrations are at head (the seeded `admin` app and role exist), and
@@ -297,7 +299,7 @@ config"). Without it settings refuse to load in production and the CLI exits 1
    replaced. `--rm` removes the container (the email is visible in `ps`/`docker inspect` only while
    it runs); `--no-deps` leaves Postgres untouched. Required env is the same as `migrate`:
    `DATABASE_URL` (env file written by the deploy), `APP_ENV=production`, `TRUSTED_PROXY_CIDRS`.
-   **Never set `DB_ECHO`** (the CLI refuses it). `ADMIN_RBAC_API_ENABLED` is not needed.
+   **Never set `DB_ECHO`** (the CLI refuses it).
 3. **Check the output** (the email is masked):
 
    ```
@@ -337,7 +339,62 @@ Locally: `make grant-super-admin email=you@example.com`.
 **What changed in production:** the organizations endpoints (`/api/v1/organizations`) now answer
 401 without an `Authorization: Bearer` token with audience `admin`, and 403 without the needed
 `admin:*` permission (ADR-0008). Health, JWKS, the role catalog and the `/api/v1/auth/*` endpoints
-are unchanged. The users and RBAC admin APIs stay unmounted in production until ADM-002b.
+are unchanged.
+
+**Since ADM-002b** the users (`/api/v1/users`) and RBAC (`/api/v1/apps`, role assignments) admin
+APIs are live in production behind the same Bearer auth. Anything on the `admin` app, `is_admin`
+changes, privileged role grants/revokes and the status of staff users also need `admin:*`;
+nobody can change their own admin roles or status, and the last active super-admin cannot be
+revoked or disabled (ADR-0008 amendment). `/docs` and `/openapi.json` are off in production
+(`API_DOCS_ENABLED=true` re-enables them). Run the read-only audit below once before deploying
+the release that contains ADM-002b.
+
+### Pre-ADM-002b audit (read-only)
+
+Checks what was created while the admin API flags existed (they were refused in production, so
+production should show only the bootstrap super-admin, `admin` with empty or the expected
+origins, and no other rows). Run it with the one-off `psql` from "Operations"; it prints user ids,
+never emails, and ends with `ROLLBACK`:
+
+```sql
+BEGIN READ ONLY;
+-- 1. Admin-app assignments (flag self-grants and non-bootstrap NULL granted_by)
+SELECT ra.id, ra.user_id, r.key AS role, ra.granted_by, ra.created_at, ra.expires_at,
+       (ra.granted_by = ra.user_id) AS self_granted, u.status, (u.email_verified_at IS NOT NULL) AS verified
+FROM role_assignments ra JOIN roles r ON r.id = ra.role_id JOIN apps a ON a.id = r.app_id
+JOIN users u ON u.id = ra.user_id
+WHERE a.key = 'admin' ORDER BY ra.created_at;
+-- 2a. Admin-app permissions outside the seed or not is_admin
+SELECT p.key, p.is_admin, p.created_at FROM permissions p JOIN apps a ON a.id = p.app_id
+WHERE a.key = 'admin' AND (p.is_admin = false OR p.key NOT IN (
+  'admin:*','admin:organizations:read','admin:organizations:write','admin:users:read',
+  'admin:users:write','admin:apps:read','admin:apps:write','admin:roles:manage','admin:roles:assign'));
+-- 2b. Admin-app roles other than super-admin, with permissions; any non-super role holding admin:*
+SELECT r.key, r.created_at, array_agg(p.key ORDER BY p.key) AS perms
+FROM roles r JOIN apps a ON a.id = r.app_id
+LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id
+WHERE a.key = 'admin' AND r.key <> 'admin:super-admin' GROUP BY r.key, r.created_at;
+-- 3. Roles holding an is_admin permission that have assignments; default roles holding one (expect none)
+SELECT a.key AS app, r.key AS role, count(DISTINCT ra.id) AS assignments,
+       (a.default_role_id = r.id) AS is_default
+FROM roles r JOIN apps a ON a.id = r.app_id
+JOIN role_permissions rp ON rp.role_id = r.id JOIN permissions p ON p.id = rp.permission_id AND p.is_admin
+LEFT JOIN role_assignments ra ON ra.role_id = r.id
+GROUP BY a.key, r.key, a.default_role_id, r.id
+HAVING count(ra.id) > 0 OR a.default_role_id = r.id;
+-- 4. Admin app state; origins held by more than one app
+SELECT key, status, join_policy, org_mode, default_role_id, origins FROM apps WHERE key = 'admin';
+SELECT o AS origin, array_agg(key) AS apps FROM apps, unnest(origins) o GROUP BY o HAVING count(*) > 1;
+-- 5. Disabled users still holding admin-app assignments (re-enable candidates)
+SELECT u.id, r.key FROM users u JOIN role_assignments ra ON ra.user_id = u.id
+JOIN roles r ON r.id = ra.role_id JOIN apps a ON a.id = r.app_id
+WHERE a.key = 'admin' AND u.status = 'disabled';
+ROLLBACK;
+```
+
+Anything unexpected (a self-granted or unknown admin assignment, an extra admin role or
+permission, an assigned role holding an `is_admin` permission, a shared origin) is revoked or
+removed by a super-admin through the API before relying on the new guards.
 
 An admin token needs a registered origin on the `admin` app: the login and token calls with
 `X-MM-App: admin` fail the origin check while `apps[admin].origins` is empty. Set it once with
@@ -435,7 +492,8 @@ dry-run: rolled back, nothing was saved      (only with dry_run)
   roles never change. If the admin row is missing or has drifted from its seed (not `active`,
   `closed`, `none` with no default role), the command refuses and repairs nothing (exit 1).
 - The API applies origin changes within 60 s (CORS cache).
-- Until ADM-004 the workflow run (actor, time, inputs, summary) is the audit trail.
+- The CLI writes a `system:cli` audit row (ADM-004); the workflow run (actor, time, inputs,
+  summary) stays the operator trail.
 
 | Exit | Meaning |
 |---|---|
@@ -455,7 +513,8 @@ the admin login flow (subdomain takeover = an admin origin).
 ## Register an app (USR-07)
 
 A consuming app (key, name, browser origins, join policy, org mode, `<key>:member` role) is
-registered from the CLI, without the flag-gated RBAC admin API. Rules live in
+registered from the CLI (the documented path; the RBAC admin API can do the same with a Bearer
+token). Rules live in
 `AppService.register`; the CLI only parses and prints.
 
 **Prerequisites:** a release containing USR-07 is deployed; the `org-admin-api-ops` environment
@@ -513,7 +572,8 @@ permissions. Add ricotdin's permission keys later by re-running with `permission
   staging/production.
 - The API applies origin changes within 60 s (CORS cache). Separate app keys mean separate token
   audiences.
-- Until ADM-004 the workflow run (actor, time, inputs, summary) is the audit trail.
+- The CLI writes a `system:cli` audit row (ADM-004); the workflow run (actor, time, inputs,
+  summary) stays the operator trail.
 
 | Exit | Meaning |
 |---|---|
@@ -534,7 +594,7 @@ Locally: `make register-app ARGS='--key ricotdin --name Ricotdin --origin https:
 
 ## Create an account from the CLI (bootstrap only)
 
-`create-account` (USR-09, [ADR-0009](adr/0009-operator-vouched-verified-email.md)) creates one
+`create-account` (USR-09, [ADR-0010](adr/0010-operator-vouched-verified-email.md)) creates one
 account whose email is marked verified by the operator, so the first user of a new app can log in
 before the app serves `/verify-email`. It never touches an existing account, and `--join` gives
 only the app's default role under the same guards as the join endpoint.
@@ -573,6 +633,19 @@ repo, because the container logs are gone after `--rm`.
 `create-account` is **not** an `ops-org-admin-api` command and must never be added there.
 
 Locally: `uv run python -m app.cli create-account --email you@example.com [--join <app_key>]`.
+
+## Audit log (ADM-004)
+
+- `audit_log` is append-only: a trigger (`audit_log_immutable()`) refuses UPDATE, DELETE and
+  TRUNCATE for every role, the owner included; only DDL defeats it (ADR-0009). Retention is
+  indefinite in v1 (a purge comes with ADM-004b).
+- **Never downgrade production past revision `c3f1a9d27b60`**: its `downgrade()` drops the table
+  and destroys the log.
+- Read it with `GET /api/v1/audit-logs` (`admin:audit:read`, held only through `admin:*`).
+  Every response carries `X-Request-ID` (a valid inbound value, else a generated UUID4); the
+  same id is stored on the audit row.
+- Follow-up (deployment repo): run the API as a DB role with only INSERT/SELECT on `audit_log`,
+  separate from the migration owner.
 
 ## Email retention cleanup (USR-04d)
 

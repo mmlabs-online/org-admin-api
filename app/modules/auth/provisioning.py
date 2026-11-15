@@ -1,4 +1,4 @@
-"""Operator-vouched account creation (USR-09, ADR-0009). CLI only: never import from a router."""
+"""Operator-vouched account creation (USR-09, ADR-0010). CLI only: never import from a router."""
 
 import logging
 import uuid
@@ -40,7 +40,7 @@ class ProvisionResult:
 
 
 class AccountProvisioningService:
-    """CLI only (USR-09, ADR-0009); never call from a router. The caller owns the transaction."""
+    """CLI only (USR-09, ADR-0010); never call from a router. The caller owns the transaction."""
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
