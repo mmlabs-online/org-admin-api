@@ -7,7 +7,7 @@
 | Areas | auth, security, db |
 | Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/29 |
 
 Depends on: USR-01, USR-02f, USR-07.
 
