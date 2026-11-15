@@ -45,3 +45,11 @@ No email/password/hash in audit rows (tests `tests/test_cli_create_account.py:19
 
 ### Follow-ups
 Operator identity for CLI audit rows; runtime DB role with INSERT/SELECT only on `audit_log` (ADR-0009 §1); deployment-repo guard so `create-account` never becomes an ops-workflow command; optional `RLIMIT_CORE=0`.
+
+## Attempt 3 — 2026-11-15 (appsec-engineer)
+
+Re-check of the two Attempt 2 🟡 items (a703242, diff af4e125..HEAD); code read only (no Postgres in the appsec sandbox). **Both fixed; no 🔴, no 🟡.**
+- 🟢 **Non-privileged grant:** `app/modules/auth/provisioning.py:80-82` uses `SYSTEM_JOIN` (`privileged=False`, `app/modules/rbac/actor.py:22`), so `_guard_privileged` (`app/modules/rbac/service.py:1137-1146`) raises `AdminWildcardRequiredError` for admin-app or `is_admin` roles, as on HTTP join (`app/modules/membership/service.py:106-107`). Audit rows still `system:cli` (`provisioning.py:70-76`, `:84-91`; log line `:93`). The grant actor is used only by `_guard_privileged` and `granted_by` (NULL for any `SystemActor`, `actor.py:38-39`); `_grant_locked` does no auditing (`service.py:1090`). Test `tests/test_cli_create_account.py:497-515` asserts exit 1 with the generic message and no user, assignment or audit row. 💭 The test doesn't assert the cause is `AdminWildcardRequiredError` (optional: `pytest.raises` on `create_verified` or caplog).
+- 🟢 **Import guard:** `tests/test_cli_create_account.py:518-534` walks every `app/**/*.py` and requires the importer set to be exactly `{"app/cli.py"}`; covers `import`, `import ... as`, `from ... import`, `from app.modules.auth import provisioning`, relative imports (incl. `__init__.py`), and imports inside functions. 💭 Not covered: `importlib`/`__import__` strings (none in `app/`); optional extra string check.
+- 🟢 `docs/identity-architecture.md:201` lists `create-account` among CLI audit writes.
+Follow-ups unchanged from Attempt 2.
