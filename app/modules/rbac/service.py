@@ -7,7 +7,15 @@ from enum import StrEnum
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError, UnprocessableError
+from app.core.errors import (
+    ConflictError,
+    LastSuperAdminError,
+    NotFoundError,
+    RoleHasAssignmentsError,
+    SelfAssignmentForbiddenError,
+    UnprocessableError,
+)
+from app.modules.rbac.actor import SYSTEM_CLI, Actor, actor_user_id, require_super
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
     APP_KEY_RE,
@@ -116,6 +124,42 @@ def _register_refusal(
     error: type[ConflictError] | type[UnprocessableError], message: str, field: str, reason: str
 ) -> ConflictError | UnprocessableError:
     return error(message, details=[{"field": field, "reason": reason}])
+
+
+def _origin_taken() -> ConflictError:
+    return ConflictError(
+        "An origin is already registered to another app",
+        details=[{"field": "origins", "reason": "origin_taken"}],
+    )
+
+
+def _validate_admin_origins(origins: list[str], app_env: str) -> None:
+    """Request-shape rules for the `admin` app's origins (ADM-002c), shared by CLI and API."""
+    if APEX_ORIGIN in origins:
+        raise _register_refusal(
+            UnprocessableError,
+            "The apex origin cannot be an admin origin",
+            "origins",
+            "apex_not_allowed",
+        )
+    if len(origins) > MAX_ADMIN_ORIGINS:
+        raise _register_refusal(
+            UnprocessableError, "Too many admin origins", "origins", "too_many_origins"
+        )
+    if app_env in {"staging", "production"} and any(is_loopback_origin(o) for o in origins):
+        raise _register_refusal(
+            UnprocessableError,
+            "Loopback origins are not allowed here",
+            "origins",
+            "loopback_not_allowed",
+        )
+
+
+def _role_has_assignments(field: str) -> RoleHasAssignmentsError:
+    return RoleHasAssignmentsError(
+        "A role holding this permission has assignments; revoke them first",
+        details=[{"field": field, "reason": "role_has_assignments"}],
+    )
 
 
 @dataclass(frozen=True)
@@ -248,10 +292,13 @@ class AppService:
             raise NotFoundError("App not found")
         return app
 
-    async def create(self, data: AppCreate, actor: uuid.UUID | None = None) -> App:
-        # R4: audit entry in the same transaction once ADM-004 lands.
+    async def create(self, data: AppCreate, *, actor: Actor) -> App:
+        """No `admin:*` needed: a new app has no admins yet. R4: audit (actor) once ADM-004."""
         if await self.repo.get_app_by_key(data.key) is not None:
             raise ConflictError("App key is already taken")
+        claimed = [o for o in data.origins if not is_loopback_origin(o)]
+        if await self.repo.app_keys_holding_origins(claimed, data.key):  # G6
+            raise _origin_taken()
         try:
             app = await self.repo.add_app(
                 App(
@@ -269,10 +316,19 @@ class AppService:
         self.repo.mark_apps_changed()
         return app
 
-    async def update(self, key: str, data: AppUpdate, actor: uuid.UUID | None = None) -> App:
+    async def update(self, key: str, data: AppUpdate, *, actor: Actor, app_env: str) -> App:
         app = await _locked_app(self.repo, key)
         fields = data.model_fields_set
+        changes: dict[str, object] = {}
+        for field in fields:
+            value = getattr(data, field)
+            if isinstance(value, StrEnum):
+                value = value.value
+            if getattr(app, field) != value:
+                changes[field] = value
 
+        if app.key == ADMIN_APP_KEY and changes:  # G1; a no-op PATCH needs no admin:*
+            require_super(actor)
         if app.key == ADMIN_APP_KEY and (
             ("join_policy" in fields and data.join_policy != JoinPolicy.CLOSED)
             or ("default_role_id" in fields and data.default_role_id is not None)
@@ -292,17 +348,18 @@ class AppService:
                     details=[{"field": "default_role_id", "reason": "role_has_admin_permissions"}],
                 )
 
-        changed = False
-        # ADM-002 guard: changing admin origins requires admin:* (applied with the fields below).
-        for field in fields:
-            value = getattr(data, field)
-            if isinstance(value, StrEnum):
-                value = value.value
-            if getattr(app, field) != value:
-                setattr(app, field, value)
-                changed = True
-        if not changed:
+        if "origins" in changes:
+            origins = list(data.origins or [])
+            if app.key == ADMIN_APP_KEY:
+                _validate_admin_origins(origins, app_env)
+            claimed = [o for o in origins if not is_loopback_origin(o)]
+            if await self.repo.app_keys_holding_origins(claimed, app.key):  # G6
+                raise _origin_taken()
+
+        if not changes:
             return app  # no write: updated_at stays unchanged
+        for field, value in changes.items():
+            setattr(app, field, value)
 
         # R4: audit entry in the same transaction once ADM-004 lands.
         try:
@@ -313,7 +370,7 @@ class AppService:
         await self.repo.session.refresh(app)
         return app
 
-    async def delete(self, key: str, actor: uuid.UUID | None = None) -> None:
+    async def delete(self, key: str, *, actor: Actor) -> None:
         app = await _locked_app(self.repo, key)
         if app.key == ADMIN_APP_KEY:
             raise ConflictError("The admin app cannot be deleted")
@@ -389,12 +446,7 @@ class AppService:
 
         claimed = [o for o in data.origins if not is_loopback_origin(o)]
         if await self.repo.app_keys_holding_origins(claimed, data.key):
-            raise _register_refusal(
-                ConflictError,
-                "An origin is already registered to another app",
-                "origins",
-                "origin_taken",
-            )
+            raise _origin_taken()
 
         # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
         changes: list[tuple[str, str, str]] = []
@@ -407,7 +459,8 @@ class AppService:
                     join_policy=data.join_policy or JoinPolicy.OPEN,
                     org_mode=data.org_mode or OrgMode.NONE,
                     origins=data.origins,
-                )
+                ),
+                actor=SYSTEM_CLI,
             )
             origins_added, origins_removed = sorted(app.origins), []
         else:
@@ -417,7 +470,9 @@ class AppService:
                 fields["origins"] = data.origins
             if data.join_policy is not None:
                 fields["join_policy"] = data.join_policy
-            app = await self.update(data.key, AppUpdate.model_validate(fields))
+            app = await self.update(
+                data.key, AppUpdate.model_validate(fields), actor=SYSTEM_CLI, app_env=app_env
+            )
             if app.name != old_name:
                 changes.append(("name", old_name, app.name))
             if app.join_policy != old_policy:
@@ -429,7 +484,7 @@ class AppService:
         permission_service = PermissionService(self.repo.session)
         for perm_key in added:
             await permission_service.create(
-                data.key, PermissionCreate(key=perm_key, is_admin=False)
+                data.key, PermissionCreate(key=perm_key, is_admin=False), actor=SYSTEM_CLI
             )
 
         member_added: list[str] = []
@@ -476,24 +531,7 @@ class AppService:
         from its seed. Every refusal happens before the first write.
         """
         origins = data.origins
-        if APEX_ORIGIN in origins:
-            raise _register_refusal(
-                UnprocessableError,
-                "The apex origin cannot be an admin origin",
-                "origins",
-                "apex_not_allowed",
-            )
-        if len(origins) > MAX_ADMIN_ORIGINS:
-            raise _register_refusal(
-                UnprocessableError, "Too many admin origins", "origins", "too_many_origins"
-            )
-        if app_env in {"staging", "production"} and any(is_loopback_origin(o) for o in origins):
-            raise _register_refusal(
-                UnprocessableError,
-                "Loopback origins are not allowed here",
-                "origins",
-                "loopback_not_allowed",
-            )
+        _validate_admin_origins(origins, app_env)
 
         app = await self.repo.lock_app(ADMIN_APP_KEY)
         if (
@@ -509,12 +547,7 @@ class AppService:
 
         claimed = [o for o in origins if not is_loopback_origin(o)]
         if await self.repo.app_keys_holding_origins(claimed, ADMIN_APP_KEY):
-            raise _register_refusal(
-                ConflictError,
-                "An origin is already registered to another app",
-                "origins",
-                "origin_taken",
-            )
+            raise _origin_taken()
 
         old = list(app.origins)
         outcome = AdminOriginsOutcome.UNCHANGED
@@ -559,9 +592,7 @@ class PermissionService:
             raise NotFoundError("Permission not found")
         return perm
 
-    async def create(
-        self, key: str, data: PermissionCreate, actor: uuid.UUID | None = None
-    ) -> Permission:
+    async def create(self, key: str, data: PermissionCreate, *, actor: Actor) -> Permission:
         app = await _locked_app(self.repo, key)
         if data.key.split(":", 1)[0] != app.key:
             raise _prefix_mismatch()
@@ -571,8 +602,8 @@ class PermissionService:
             is_admin = True
         else:
             is_admin = bool(data.is_admin)
-        # ADM-002 guard: creating an is_admin or <app>:* permission, or any admin-app
-        # permission, requires admin:*.
+        if app.key == ADMIN_APP_KEY or is_admin:  # is_admin includes <app>:*
+            require_super(actor)
         if await self.repo.get_permission_by_key(app.id, data.key) is not None:
             raise ConflictError("Permission key is already taken")
         # R4: audit entry in the same transaction once ADM-004 lands.
@@ -590,7 +621,8 @@ class PermissionService:
         key: str,
         permission_id: uuid.UUID,
         data: PermissionUpdate,
-        actor: uuid.UUID | None = None,
+        *,
+        actor: Actor,
     ) -> Permission:
         app = await _locked_app(self.repo, key)
         perm = await self._get(app, permission_id)
@@ -598,6 +630,11 @@ class PermissionService:
 
         if "is_admin" in fields and data.is_admin is False and perm.key.endswith(":*"):
             raise _wildcard_must_be_admin()
+        changes = {f: getattr(data, f) for f in fields if getattr(perm, f) != getattr(data, f)}
+        # true -> false makes a permission eligible for the default role; false -> true can
+        # move it out of members' reach (both directions cross the is_admin boundary).
+        if (app.key == ADMIN_APP_KEY and changes) or "is_admin" in changes:
+            require_super(actor)
         if (
             "is_admin" in fields
             and data.is_admin is True
@@ -606,17 +643,15 @@ class PermissionService:
             and await self.repo.role_holds_permission(app.default_role_id, perm.id)
         ):
             raise ConflictError("The app's default role holds this permission")
+        if changes.get("is_admin") is True and await self.repo.permission_held_by_assigned_role(
+            perm.id
+        ):  # G3 (USR-02d): members would silently gain an admin permission
+            raise _role_has_assignments("is_admin")
 
-        # ADM-002 guard: changing is_admin requires admin:* (true -> false makes a permission
-        # eligible for the default role).
-        changed = False
-        for field in fields:
-            value = getattr(data, field)
-            if getattr(perm, field) != value:
-                setattr(perm, field, value)
-                changed = True
-        if not changed:
+        if not changes:
             return perm
+        for field, value in changes.items():
+            setattr(perm, field, value)
 
         # R4: audit entry in the same transaction once ADM-004 lands.
         try:
@@ -626,11 +661,11 @@ class PermissionService:
         await self.repo.session.refresh(perm)
         return perm
 
-    async def delete(
-        self, key: str, permission_id: uuid.UUID, actor: uuid.UUID | None = None
-    ) -> None:
+    async def delete(self, key: str, permission_id: uuid.UUID, *, actor: Actor) -> None:
         app = await _locked_app(self.repo, key)
         perm = await self._get(app, permission_id)
+        if app.key == ADMIN_APP_KEY:
+            require_super(actor)
         if app.key == ADMIN_APP_KEY and perm.key == ADMIN_WILDCARD:
             raise ConflictError("The admin wildcard permission cannot be deleted")
         if await self.repo.permission_held_by_any_role(perm.id):
@@ -664,11 +699,12 @@ class RoleService:
             permissions=sorted(keys.values()),
         )
 
-    async def create(self, key: str, data: RoleCreate, actor: uuid.UUID | None = None) -> RoleRead:
+    async def create(self, key: str, data: RoleCreate, *, actor: Actor) -> RoleRead:
         app = await _locked_app(self.repo, key)
         if data.key.split(":", 1)[0] != app.key:
             raise _prefix_mismatch()
-        # ADM-002 guard: creating an admin-app role requires admin:*.
+        if app.key == ADMIN_APP_KEY:
+            require_super(actor)
         if await self.repo.get_role_by_key(app.id, data.key) is not None:
             raise ConflictError("Role key is already taken")
         # R4: audit entry in the same transaction once ADM-004 lands.
@@ -683,12 +719,13 @@ class RoleService:
         )
 
     async def update(
-        self, key: str, role_id: uuid.UUID, data: RoleUpdate, actor: uuid.UUID | None = None
+        self, key: str, role_id: uuid.UUID, data: RoleUpdate, *, actor: Actor
     ) -> RoleRead:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
-        # ADM-002 guard: editing an admin-app role requires admin:*.
         if data.name is not None and data.name != role.name:
+            if app.key == ADMIN_APP_KEY:
+                require_super(actor)
             role.name = data.name
             # R4: audit entry in the same transaction once ADM-004 lands.
             try:
@@ -698,9 +735,11 @@ class RoleService:
             await self.repo.session.refresh(role)
         return await self._read(role)
 
-    async def delete(self, key: str, role_id: uuid.UUID, actor: uuid.UUID | None = None) -> None:
+    async def delete(self, key: str, role_id: uuid.UUID, *, actor: Actor) -> None:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
+        if app.key == ADMIN_APP_KEY:
+            require_super(actor)
         if role.is_system:
             raise ConflictError("System roles cannot be deleted")
         if role.id == app.default_role_id:
@@ -718,7 +757,8 @@ class RoleService:
         key: str,
         role_id: uuid.UUID,
         data: RolePermissionsReplace,
-        actor: uuid.UUID | None = None,
+        *,
+        actor: Actor,
     ) -> RoleRead:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
@@ -733,6 +773,22 @@ class RoleService:
                     for k in missing
                 ],
             )
+        if app.key == ADMIN_APP_KEY and ADMIN_WILDCARD in found and role.key != SUPER_ADMIN_ROLE:
+            raise UnprocessableError(
+                "Only admin:super-admin may hold admin:*",
+                details=[{"field": "permission_keys", "reason": "wildcard_super_admin_only"}],
+            )
+        # Diff-based, so an unchanged re-PUT never needs admin:* and never refuses.
+        current = await self.repo.role_permission_keys(role.id)
+        target_ids = {p.id for p in found.values()}
+        added = [p for p in found.values() if p.id not in current]
+        removed = await self.repo.permissions_by_keys(
+            app.id, [k for pid, k in current.items() if pid not in target_ids]
+        )
+        if (app.key == ADMIN_APP_KEY and (added or removed)) or any(
+            p.is_admin for p in [*added, *removed]
+        ):
+            require_super(actor)
         if role.id == app.default_role_id and any(p.is_admin for p in found.values()):
             raise ConflictError("A default role must not hold admin permissions")
         if (
@@ -741,8 +797,8 @@ class RoleService:
             and ADMIN_WILDCARD not in found
         ):
             raise ConflictError("admin:super-admin must keep admin:*")
-        # ADM-002 guard: granting <app>:* or any is_admin permission, and any admin-app role
-        # edit, requires admin:*.
+        if any(p.is_admin for p in added) and await self.repo.role_has_assignments(role.id):
+            raise _role_has_assignments("permission_keys")  # G3 (USR-02d)
         # R4: audit entry in the same transaction once ADM-004 lands.
         await _set_role_permissions(self.repo, role, {p.id: p.key for p in found.values()})
         return RoleRead(
@@ -799,7 +855,7 @@ class AssignmentService:
         return [_assignment_read(r) for r in rows], total
 
     async def assign(
-        self, user_id: uuid.UUID, data: AssignmentCreate, actor: uuid.UUID | None = None
+        self, user_id: uuid.UUID, data: AssignmentCreate, *, actor: Actor
     ) -> AssignmentRead:
         if not await self.repo.user_exists(user_id):
             raise NotFoundError("User not found")
@@ -810,7 +866,9 @@ class AssignmentService:
         role = await self.repo.get_role(app.id, data.role_id)
         if role is None:  # deleted between the read and the lock
             raise _assignment_unprocessable("Unknown role", "role_id", "unknown_role")
-        ra, _ = await self._grant_locked(app, role, user_id, data.org_id, data.expires_at, actor)
+        ra, _ = await self._grant_locked(
+            app, role, user_id, data.org_id, data.expires_at, actor=actor
+        )
         row = await self.repo.get_assignment_row(user_id, ra.id)
         if row is None:  # unreachable while the transaction holds the app lock
             raise ConflictError("Assignment was changed concurrently")
@@ -840,7 +898,7 @@ class AssignmentService:
             outcome = BootstrapOutcome.ALREADY_HELD
         else:
             # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
-            await self._grant_locked(app, role, user.id, None, None, None)
+            await self._grant_locked(app, role, user.id, None, None, actor=SYSTEM_CLI)
         return BootstrapResult(
             outcome,
             user_id=user.id,
@@ -856,7 +914,8 @@ class AssignmentService:
         user_id: uuid.UUID,
         org_id: uuid.UUID | None,
         expires_at: datetime | None,
-        actor: uuid.UUID | None,
+        *,
+        actor: Actor,
     ) -> tuple[RoleAssignment, bool]:
         """The caller holds `lock_app(app.key)`. Returns (assignment, created)."""
         if org_id is not None:
@@ -875,9 +934,8 @@ class AssignmentService:
                 raise _assignment_unprocessable(
                     "expires_at must be in the future", "expires_at", "expires_in_past"
                 )
-        # ADM-002 guard: granting an admin-app role, or a role holding any is_admin permission,
-        # requires admin:*; an actor may not grant themselves any admin-app role; an actor may
-        # not grant permissions they do not hold.
+        await self._guard_privileged(app, role.id, user_id, actor)
+        granted_by = actor_user_id(actor)
 
         existing = await self.repo.find_assignment(user_id, role.id, org_id)
         if existing is not None:
@@ -885,7 +943,7 @@ class AssignmentService:
                 raise ConflictError("Role is already assigned")
             # Expired duplicate: replaced in place (same id and created_at).
             existing.expires_at = expires_at
-            existing.granted_by = actor
+            existing.granted_by = granted_by
             # R4: audit entry in the same transaction once ADM-004 lands.
             try:
                 await self.repo.save()
@@ -901,16 +959,25 @@ class AssignmentService:
                     role_id=role.id,
                     org_id=org_id,
                     expires_at=expires_at,
-                    granted_by=actor,
+                    granted_by=granted_by,
                 )
             )
         except IntegrityError as exc:  # racing insert, or the user was deleted meanwhile
             raise ConflictError("Role is already assigned") from exc
         return ra, True
 
-    async def revoke(
-        self, user_id: uuid.UUID, assignment_id: uuid.UUID, actor: uuid.UUID | None = None
+    async def _guard_privileged(
+        self, app: App, role_id: uuid.UUID, user_id: uuid.UUID, actor: Actor
     ) -> None:
+        """A privileged role (admin app, or holding an `is_admin` permission) needs `admin:*`;
+        nobody grants or revokes their own admin-app role, super-admins included."""
+        if app.key != ADMIN_APP_KEY and not await self.repo.role_has_admin_permission(role_id):
+            return
+        require_super(actor)
+        if app.key == ADMIN_APP_KEY and user_id == actor_user_id(actor):
+            raise SelfAssignmentForbiddenError("Cannot change your own admin roles")
+
+    async def revoke(self, user_id: uuid.UUID, assignment_id: uuid.UUID, *, actor: Actor) -> None:
         row = await self.repo.get_assignment_row(user_id, assignment_id)
         if row is None:
             raise NotFoundError("Assignment not found")
@@ -919,15 +986,14 @@ class AssignmentService:
         if row is None:  # revoked between the read and the lock
             raise NotFoundError("Assignment not found")
         ra, _, role_key, _ = row
+        await self._guard_privileged(app, ra.role_id, user_id, actor)
         if (
             app.key == ADMIN_APP_KEY
             and role_key == SUPER_ADMIN_ROLE
             and await self.repo.is_counting_super_admin(ra.role_id, ra.id)
             and await self.repo.count_other_active_super_admins(ra.role_id, ra.id) == 0
         ):
-            raise ConflictError("Cannot revoke the last active super-admin")
-        # ADM-002 guard: revoking an admin-app role, or a role holding any is_admin permission,
-        # requires admin:*; self-revoke still goes through the last-super-admin guard above.
+            raise LastSuperAdminError("Cannot revoke the last active super-admin")
         # R4: audit entry in the same transaction once ADM-004 lands.
         try:
             await self.repo.delete_assignment(ra)

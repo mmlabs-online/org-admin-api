@@ -5,7 +5,7 @@ A new route fails `test_every_route_is_classified` until it is either guarded wi
 """
 
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -69,11 +69,16 @@ BEARER = {
     ("DELETE", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("PUT", f"{V1}/apps/{{key}}/roles/{{role_id}}/permissions"): "admin:roles:manage",
 }
-FLAGS = {"admin_users_api_enabled": True, "admin_rbac_api_enabled": True}
+_PRODUCTION = {
+    "app_env": "production",
+    "trusted_proxy_cidrs": ["172.18.0.0/16"],
+    "argon2_memory_kib": 65536,
+    "argon2_time_cost": 3,
+}
 
 
 def _app() -> FastAPI:
-    return create_app(Settings(**FLAGS))  # type: ignore[arg-type]
+    return create_app()  # test settings: every router mounted, docs on
 
 
 def _calls(dependant: Dependant) -> Iterator[Callable[..., Any]]:
@@ -84,7 +89,7 @@ def _calls(dependant: Dependant) -> Iterator[Callable[..., Any]]:
 
 
 def _api_routes(app: FastAPI) -> dict[tuple[str, str], Dependant]:
-    """(method, path) -> dependant of every APIRoute, both flags on."""
+    """(method, path) -> dependant of every APIRoute."""
     routes: dict[tuple[str, str], Dependant] = {}
     for ctx in iter_route_contexts(app.routes):
         if not isinstance(ctx.original_route, APIRoute):
@@ -165,6 +170,17 @@ def test_openapi_bearer_scheme() -> None:
                 assert "x-permission" not in operation, route
 
 
+async def test_docs_off_in_production(make_client: MakeClient) -> None:
+    app = create_app(Settings(**_PRODUCTION))  # type: ignore[arg-type]
+    assert _other_paths(app) == set()
+    assert set(_api_routes(app)) == set(_api_routes(_app()))  # every router still mounted
+    async with make_client(**_PRODUCTION) as client:
+        for path in sorted(DOCS):
+            resp = await client.get(path)
+            assert resp.status_code == 404, path
+            assert resp.json()["error"]["code"] == "not_found", path
+
+
 # --- runtime sweep -----------------------------------------------------------
 
 
@@ -184,17 +200,11 @@ async def _call(
     return await client.request(method, _fill(path), json=body, headers=headers)
 
 
-@pytest.fixture
-async def flags_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(**FLAGS) as c:
-        yield c
-
-
 @pytest.mark.parametrize(("method", "path"), list(BEARER))
 async def test_every_bearer_route_401_without_token(
-    flags_client: AsyncClient, method: str, path: str
+    client: AsyncClient, method: str, path: str
 ) -> None:
-    resp = await _call(flags_client, method, path)
+    resp = await _call(client, method, path)
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "unauthorized"
     assert resp.headers["www-authenticate"].startswith("Bearer ")
@@ -202,11 +212,11 @@ async def test_every_bearer_route_401_without_token(
 
 @pytest.mark.parametrize(("method", "path"), list(BEARER))
 async def test_every_bearer_route_401_with_cookie_only(
-    flags_client: AsyncClient, db_session: AsyncSession, method: str, path: str
+    client: AsyncClient, db_session: AsyncSession, method: str, path: str
 ) -> None:
     staff = await make_staff(db_session, "admin:*")
     raw, _, _ = await make_device(db_session, staff)
-    resp = await _call(flags_client, method, path, auth_headers(cookie=raw))
+    resp = await _call(client, method, path, auth_headers(cookie=raw))
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "unauthorized"
 

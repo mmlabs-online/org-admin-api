@@ -24,7 +24,7 @@ async def test_liveness_reports_configured_version(
     assert resp.json()["version"] == "v1.2.3"
 
 
-def test_docs_enabled_in_production() -> None:
+def test_docs_disabled_in_production_by_default() -> None:
     from app.core.config import Settings
     from app.main import create_app
 
@@ -35,5 +35,8 @@ def test_docs_enabled_in_production() -> None:
         argon2_time_cost=3,
     )
     app = create_app(settings)
+    assert app.docs_url is None
+    assert app.openapi_url is None
+    app = create_app(settings.model_copy(update={"api_docs_enabled": True}))
     assert app.docs_url == "/docs"
     assert app.openapi_url == "/openapi.json"

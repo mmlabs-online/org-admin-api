@@ -171,7 +171,7 @@ async def test_role_catalog_and_admin_paths_have_no_cors(
     make_client: MakeClient, db_session: AsyncSession
 ) -> None:
     await make_login_app(db_session)
-    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as client:
+    async with make_client(admin_permissions=["admin:*"]) as client:
         for path in ("/api/v1/apps/stoktok/roles", "/api/v1/apps"):
             resp = await client.get(path, headers={"Origin": ORIGIN})
             assert resp.status_code == 200, path
@@ -294,9 +294,7 @@ async def test_app_patch_takes_effect_before_ttl(
 ) -> None:
     await make_login_app(db_session)
     await db_session.commit()
-    async with make_strict_client(
-        admin_rbac_api_enabled=True, admin_permissions=["admin:*"]
-    ) as client:
+    async with make_strict_client(admin_permissions=["admin:*"]) as client:
         assert _echoed(await _probe(client, ORIGIN))  # cache primed
         resp = await client.patch("/api/v1/apps/stoktok", json={"origins": [OTHER]})
         assert resp.status_code == 200, resp.text

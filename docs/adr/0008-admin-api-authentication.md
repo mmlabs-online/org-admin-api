@@ -33,8 +33,8 @@ device cookie `__Host-mm_device` reaches every path, so admin auth must not read
    (defence in depth); each route has `**require_permission("admin:<resource>:<action>")`, which
    adds the enforcing dependency, the OpenAPI `x-permission` and the 401/403 responses. `admin:*`
    grants every admin permission (`permits()`, ADR-0003); no other app's wildcard does.
-6. **Deny by default.** `tests/test_route_auth_classes.py` enumerates every route with all flags on
-   and fails on any route that is neither guarded by exactly one `require_permission` nor in an
+6. **Deny by default.** `tests/test_route_auth_classes.py` enumerates every route (all routers are
+   mounted since ADM-002b) and fails on any route that is neither guarded by exactly one `require_permission` nor in an
    explicit (method, path) public/cookie allow-list.
 7. **Admin token TTL** = `ACCESS_TOKEN_TTL_SECONDS` (default 900 s). No separate ceiling: the
    per-request reload already revokes. Admin tokens need a registered admin origin (ADM-002c).
@@ -62,3 +62,43 @@ Completes §7. The `admin` app's origins follow this policy, enforced in
   without a default role, is refused and never repaired.
 - **Break-glass `--clear`:** empties the set; no new admin token after at most 60 s, issued tokens
   last up to their TTL (revoke the role or disable the user to cut them sooner).
+
+## Amendment — admin RBAC guards (ADM-002b, 2026-11-15)
+The users and RBAC routers are mounted unconditionally; `ADMIN_USERS_API_ENABLED` and
+`ADMIN_RBAC_API_ENABLED` are gone (a stale env key is ignored). The route permission alone no
+longer decides privileged writes:
+
+- **Actor model.** Every RBAC and user-status mutator takes a required `actor`
+  (`app/modules/rbac/actor.py`): the request's `AdminPrincipal`, or an explicit system actor —
+  `system:cli` (privileged: `register-app`, `set-admin-origins`, `grant-super-admin`) or
+  `system:join` (not privileged). `granted_by` is the principal's user id (NULL for system actors).
+- **`admin:*` required (403 `admin_wildcard_required`, `details: {"required": "admin:*"}`)** for:
+  any change on the `admin` app (G1; a no-op PATCH needs nothing), including its origins (same
+  validation as the CLI: no apex, at most 2, no loopback in staging/production; the CLI
+  `set-admin-origins` stays the documented path); creating an
+  `is_admin` or `<app>:*` permission or any admin-app permission; flipping `is_admin` in either
+  direction; any admin-app permission or role write; a role PUT whose diff adds or removes an
+  `is_admin` permission or touches an admin-app role (G2; an unchanged re-PUT needs nothing);
+  granting (including renewing an expired row) or revoking a privileged role — an admin-app role
+  or one holding an `is_admin` permission (G4); disabling or re-enabling a user holding any such
+  assignment, expired rows included (G5).
+- **Self-actions (403, also for super-admins):** `self_assignment_forbidden` for granting or
+  revoking one's own admin-app roles; `self_status_change_forbidden` for changing one's own status.
+  To step down, another super-admin revokes the role.
+- **State refusals:** 409 `role_has_assignments` when an `is_admin` permission would reach members
+  of an assigned role (PUT adding one, or a false→true flip; every actor, every app; workaround
+  revoke → edit → re-grant); 422 `wildcard_super_admin_only` for `admin:*` on any admin role other
+  than `admin:super-admin`; 409 `last_super_admin` (revoke or disable) when no other active,
+  verified, unexpired app-scope super-admin would remain; 409 `conflict`/`origin_taken` when an
+  app create or PATCH claims a non-loopback origin another app (any status, `admin` included)
+  holds (G6).
+- **Check order:** lock the app (ADR-0003 §10) → 404 → request-shape 422s → 403 guards → state
+  409/422 → write. User status locks `admin` first, then the user row, so the last-super-admin
+  guard is serialized with revokes; disabling revokes the user's account sessions on every device
+  (device sessions stay; issued app tokens last until `exp`).
+- **Accepted risks (v1):** effective permissions are read before the app lock, so a concurrent
+  revoke of `admin:*` can let one in-flight request pass; the origin-uniqueness check runs under
+  different app locks, so two concurrent writes could claim one origin (staff-only, follow-up for
+  a database-level guard).
+- **API docs:** `/docs` and `/openapi.json` are off in production unless `API_DOCS_ENABLED=true`;
+  on elsewhere by default.

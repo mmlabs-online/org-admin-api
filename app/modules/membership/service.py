@@ -14,6 +14,7 @@ from app.modules.membership.errors import (
     JoinUnavailableError,
 )
 from app.modules.membership.schemas import JoinRequest
+from app.modules.rbac.actor import SYSTEM_JOIN
 from app.modules.rbac.authz import AuthzService
 from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus, JoinPolicy
 from app.modules.rbac.repository import RbacRepository
@@ -86,7 +87,9 @@ class JoinService:
             logger.warning("join_default_role_admin app_id=%s role_id=%s", app.id, role.id)
             raise JoinUnavailableError("This app cannot be joined right now")
 
-        ra, _ = await self.assignments._grant_locked(app, role, user.id, None, None, None)
+        ra, _ = await self.assignments._grant_locked(
+            app, role, user.id, None, None, actor=SYSTEM_JOIN
+        )
         await self.recorder.record(
             "app.join",
             actor_user_id=user.id,

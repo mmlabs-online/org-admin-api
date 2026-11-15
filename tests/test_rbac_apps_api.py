@@ -30,7 +30,7 @@ APP_READ_KEYS = {
 
 @pytest.fixture
 async def rbac_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
+    async with make_client(admin_permissions=["admin:*"]) as c:
         yield c
 
 
@@ -39,17 +39,6 @@ async def _app_row(db_session: AsyncSession, key: str) -> App | None:
     if app is not None:
         await db_session.refresh(app)
     return app
-
-
-# --- exposure ----------------------------------------------------------------
-
-
-async def test_apps_api_not_mounted_by_default(client: AsyncClient) -> None:
-    assert (await client.get(BASE)).status_code == 404
-    assert (await client.post(BASE, json={"key": "stoktok", "name": "S"})).status_code == 404
-    assert (await client.get(f"{BASE}/stoktok")).status_code == 404
-    assert (await client.patch(f"{BASE}/stoktok", json={"name": "x"})).status_code == 404
-    assert (await client.delete(f"{BASE}/stoktok")).status_code == 404
 
 
 # Display-text filter (ADR-0003 §11): categories Cc, Cf, Zl, Zp, Co, Cn.

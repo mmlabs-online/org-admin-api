@@ -291,12 +291,10 @@ async def test_db_error_exit_1_no_leak(
     _assert_no_leak(out, err)
 
 
-async def test_grant_with_rbac_flag_off(
+async def test_grant_with_default_settings(
     db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
 ) -> None:
     settings = Settings()
-    assert settings.admin_rbac_api_enabled is False
-    assert settings.admin_users_api_enabled is False
     await _make_user(db_session)
     code = await amain(
         ["grant-super-admin", "--email", EMAIL],
