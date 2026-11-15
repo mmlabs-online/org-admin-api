@@ -7,7 +7,7 @@
 | Areas | db, api, security |
 | Attempts | 1 |
 | Created | 2026-11-10 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/28 |
 
 ## Goal
 Every mutating admin action and every security-relevant identity event is recorded in an append-only audit log that auditors can query.
