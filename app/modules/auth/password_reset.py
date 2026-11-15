@@ -6,6 +6,9 @@ from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import AuditContext, EndUser
+from app.modules.audit.service import AuditLogger
 from app.modules.auth.email_throttle import resend_retry_after
 from app.modules.auth.email_verification import VERIFY, daily_cap_refusal, email_token_hash
 from app.modules.auth.errors import TokenInvalidError, TurnstileFailedError
@@ -48,6 +51,7 @@ class PasswordResetService:
         self.users = UserRepository(session)
         self.sessions = SessionRepository(session)
         self.failures = LoginFailureRepository(session)
+        self.audit = AuditLogger(session)
         self.email_hasher = email_hasher
         self.daily_cap = daily_cap
         self.verifier = verifier
@@ -84,7 +88,7 @@ class PasswordResetService:
             to=user.email, subject=subject, body=body, purpose=RESET, user_id=user.id
         )
 
-    async def reset(self, token: str, new_password: str) -> None:
+    async def reset(self, token: str, new_password: str, *, ctx: AuditContext) -> None:
         """Set the new password, end every account session of the user, consume the token.
 
         A weak password keeps the token usable; a disabled user's token is not consumed
@@ -103,10 +107,18 @@ class PasswordResetService:
         if await self.tokens.consume(token_hash, RESET) is None:  # a concurrent reset won
             raise TokenInvalidError("Token is invalid or expired")
         await self.users.set_password_hash(user, password_hash)
-        await self.sessions.revoke_all_accounts_of_user(user.id)
+        revoked = await self.sessions.revoke_all_accounts_of_user(user.id)
         await self.tokens.invalidate(user.id, RESET)
         await self.tokens.invalidate(user.id, VERIFY)
         await self.failures.delete(self.email_hasher.hmac(normalize_email(user.email)))
-        if user.email_verified_at is None:
+        was_unverified = user.email_verified_at is None
+        if was_unverified:
             await self.users.mark_email_verified(user)
+        await self.audit.record(
+            AuditAction.AUTH_PASSWORD_RESET_COMPLETED,
+            actor=EndUser(user.id),
+            ctx=ctx,
+            target=(AuditTarget.USER, user.id),
+            changes={"account_sessions_revoked": revoked, "verified": was_unverified},
+        )
         logger.info("password_reset user_id=%s", user.id)

@@ -57,7 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path_prefix=f"{settings.api_prefix}/auth/",
     )
     # Added last = outermost: every response, CORS preflights included, carries the id.
-    app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(RequestIdMiddleware, trusted_proxy_cidrs=settings.trusted_proxy_cidrs)
     app.state.settings = settings
     app.state.rate_limiter = InMemoryRateLimiter()
     app.state.turnstile_verifier = CloudflareTurnstileVerifier(settings)

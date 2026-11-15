@@ -1,4 +1,5 @@
-"""`audit_log` CHECKs and the append-only trigger (ADM-004); `alembic check` cannot see either."""
+"""`audit_log` CHECKs, the append-only trigger (ADM-004) and `outcome` (ADM-004b); `alembic check`
+cannot see CHECKs or triggers."""
 
 import uuid
 from typing import Any
@@ -120,3 +121,40 @@ async def test_check_actor_consistency(db_session: AsyncSession, overrides: dict
 async def test_check_request_id_format(db_session: AsyncSession, request_id: str) -> None:
     await _refused(db_session, request_id=request_id)
     await _insert(db_session, request_id=str(uuid.uuid4()))
+
+
+async def test_outcome_default_and_check(db_session: AsyncSession) -> None:
+    row_id = await _insert(db_session)  # INSERT without `outcome`
+    outcome = await db_session.scalar(
+        text("SELECT outcome FROM audit_log WHERE id = :id"), {"id": row_id}
+    )
+    assert outcome == "success"
+    for value in ("failure", "denied"):
+        await db_session.execute(
+            text(
+                "INSERT INTO audit_log (id, actor_kind, action, outcome) "
+                "VALUES (gen_random_uuid(), 'anonymous', 'auth.login_failed', :o)"
+            ),
+            {"o": value},
+        )
+    with pytest.raises(IntegrityError, match="ck_audit_log_outcome_valid"):
+        async with db_session.begin_nested():
+            await db_session.execute(
+                text(
+                    "INSERT INTO audit_log (id, actor_kind, action, outcome) "
+                    "VALUES (gen_random_uuid(), 'anonymous', 'auth.login_failed', 'other')"
+                )
+            )
+
+
+async def test_outcome_partial_index_used(db_session: AsyncSession) -> None:
+    await db_session.execute(text("SET LOCAL enable_seqscan = off"))
+    plan = (
+        await db_session.execute(
+            text(
+                "EXPLAIN SELECT id FROM audit_log WHERE outcome = 'denied' "
+                "ORDER BY occurred_at DESC, id DESC LIMIT 50"
+            )
+        )
+    ).scalars()
+    assert "ix_audit_log_outcome" in "\n".join(plan)

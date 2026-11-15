@@ -207,6 +207,7 @@ async def test_responses_never_echo_secrets(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     user = await make_login_user(db_session)
+    email = user.email  # the failed login's rollback expires `user`
     ok = await client.post(LOGIN, json=login_body(user), headers=auth_headers())
     morsel = parse_set_cookie(ok)
     assert morsel is not None
@@ -220,6 +221,6 @@ async def test_responses_never_echo_secrets(
         assert secret not in ok.text
         assert secret not in bad.text
         assert secret not in caplog.text
-    assert user.email not in bad.text
-    assert user.email not in caplog.text
+    assert email not in bad.text
+    assert email not in caplog.text
     assert sha256(morsel.value).hex() not in caplog.text

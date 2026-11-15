@@ -41,6 +41,7 @@ class AuditLog(UUIDPkMixin, Base):
         CheckConstraint(
             f"request_id IS NULL OR request_id ~ '{REQUEST_ID_RE}'", name="request_id_format"
         ),
+        CheckConstraint("outcome IN ('success', 'failure', 'denied')", name="outcome_valid"),
         # Ascending: a backward scan serves `ORDER BY occurred_at DESC, id DESC`.
         Index("ix_audit_log_occurred_at_id", "occurred_at", "id"),
         Index(
@@ -66,6 +67,13 @@ class AuditLog(UUIDPkMixin, Base):
             "id",
             postgresql_where=text("app_key IS NOT NULL"),
         ),
+        Index(
+            "ix_audit_log_outcome",
+            "outcome",
+            "occurred_at",
+            "id",
+            postgresql_where=text("outcome IN ('failure', 'denied')"),
+        ),
     )
 
     occurred_at: Mapped[datetime] = mapped_column(
@@ -75,6 +83,7 @@ class AuditLog(UUIDPkMixin, Base):
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     actor_label: Mapped[str | None] = mapped_column(Text)
     action: Mapped[str] = mapped_column(Text, nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'success'"))
     target_type: Mapped[str | None] = mapped_column(Text)
     target_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     app_key: Mapped[str | None] = mapped_column(Text)

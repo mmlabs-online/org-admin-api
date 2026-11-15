@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import ANONYMOUS, AuditContext
+from app.modules.audit.service import AuditLogger
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.models import AccountSession, DeviceSession
 from app.modules.sessions.repository import SessionRepository
@@ -41,8 +44,17 @@ class ResolvedDevice:
 
 
 class DeviceSessionService:
-    def __init__(self, session: AsyncSession, *, idle_days: int, max_days: int) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        idle_days: int,
+        max_days: int,
+        audit_ctx: AuditContext = AuditContext.NONE,
+    ) -> None:
         self.repo = SessionRepository(session)
+        self.audit = AuditLogger(session)
+        self.audit_ctx = audit_ctx
         self.idle = timedelta(days=idle_days)
         self.max_age = timedelta(days=max_days)
 
@@ -87,12 +99,32 @@ class DeviceSessionService:
             if device.prev_valid_until is not None and now <= device.prev_valid_until:
                 return ResolvedDevice(device.id, None, device.rotated_at)
             # Reuse after the grace window: revoke the whole device session.
-            await self.repo.revoke_device(device.id)
+            device_id = device.id
+            revoked = await self.repo.revoke_device(device_id)
+            if revoked is not None:
+                await self._record_reuse(device_id, revoked, during_login=not commit_on_reuse)
             if commit_on_reuse:
                 await self.repo.commit()
-            logger.warning("device_session_reuse device_session_id=%s", device.id)
+            logger.warning("device_session_reuse device_session_id=%s", device_id)
             raise SessionInvalidError("Session is invalid")
         raise SessionInvalidError("Session is invalid")
+
+    async def _record_reuse(
+        self, device_id: uuid.UUID, revoked: int, *, during_login: bool
+    ) -> None:
+        """Committed with the revocation before the 401 (savepoint: an audit error never undoes
+        it); inside login, part of the login transaction. Never rollback-first here."""
+        target = (AuditTarget.DEVICE_SESSION, device_id)
+        changes = {"accounts_revoked": revoked, "during_login": during_login}
+        action = AuditAction.DEVICE_SESSION_REUSE_REVOKED
+        if during_login:
+            await self.audit.record(
+                action, actor=ANONYMOUS, ctx=self.audit_ctx, target=target, changes=changes
+            )
+        else:
+            await self.audit.record_in_savepoint(
+                action, actor=ANONYMOUS, ctx=self.audit_ctx, target=target, changes=changes
+            )
 
     async def start_for_login(
         self, cookies: Sequence[str], *, ip: str | None, user_agent: str | None
@@ -131,8 +163,8 @@ class DeviceSessionService:
 
     async def revoke_account(
         self, device_id: uuid.UUID, account_id: uuid.UUID, *, created_before: datetime | None
-    ) -> None:
-        await self.repo.revoke_account(device_id, account_id, created_before=created_before)
+    ) -> uuid.UUID | None:
+        return await self.repo.revoke_account(device_id, account_id, created_before=created_before)
 
-    async def revoke_device(self, device_id: uuid.UUID) -> None:
-        await self.repo.revoke_device(device_id)
+    async def revoke_device(self, device_id: uuid.UUID) -> int | None:
+        return await self.repo.revoke_device(device_id)

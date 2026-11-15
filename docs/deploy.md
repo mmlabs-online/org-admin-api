@@ -592,12 +592,18 @@ Locally: `make register-app ARGS='--key ricotdin --name Ricotdin --origin https:
 
 - `audit_log` is append-only: a trigger (`audit_log_immutable()`) refuses UPDATE, DELETE and
   TRUNCATE for every role, the owner included; only DDL defeats it (ADR-0009). Retention is
-  indefinite in v1 (a purge comes with ADM-004b).
+  indefinite until ADM-004c ships the purge.
 - **Never downgrade production past revision `c3f1a9d27b60`**: its `downgrade()` drops the table
   and destroys the log.
 - Read it with `GET /api/v1/audit-logs` (`admin:audit:read`, held only through `admin:*`).
-  Every response carries `X-Request-ID` (a valid inbound value, else a generated UUID4); the
-  same id is stored on the audit row.
+  Every response carries `X-Request-ID`; the same id is stored on the audit row. A valid inbound
+  value is kept only from a peer in `TRUSTED_PROXY_CIDRS` (cloudflared), else a UUID4 is
+  generated. Cloudflare forwards client headers, so treat it as a correlation id, not evidence.
+- Since ADM-004b each row has `outcome` (`success|failure|denied`; filter `?outcome=`). Failed
+  logins (`auth.login_failed`, anonymous actor, no email) and denied privileged attempts
+  (`outcome=denied`) are recorded, plus logins, logouts, device-session reuse, password resets and
+  email verifications. An audit write failure on a failure path is logged as
+  `audit_write_failed action=<a> outcome=<o>` and the intended 401/403/409 is still returned.
 - Follow-up (deployment repo): run the API as a DB role with only INSERT/SELECT on `audit_log`,
   separate from the migration owner.
 

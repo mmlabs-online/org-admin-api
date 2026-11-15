@@ -1,7 +1,8 @@
 """Every mutating Bearer route writes exactly one audit row on success, none on failure (ADM-004).
 
 `test_every_mutating_bearer_route_is_mapped` fails for a new mutating route until it is added to
-`AUDITED` with a success and a failure scenario.
+`AUDITED` with a success and a failure scenario; `test_every_mutating_identity_route_is_classified`
+does the same for identity routes (ADM-004b): audited (with a success scenario) or not.
 """
 
 import uuid
@@ -14,9 +15,22 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
+from app.modules.auth.email_verification import VERIFY, VERIFY_TTL
+from app.modules.auth.password_reset import RESET, RESET_TTL
+from app.modules.auth.repository import EmailTokenRepository
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.users.models import User
+from tests.auth_factories import (
+    LOGIN,
+    PASSWORD,
+    auth_headers,
+    make_device,
+    make_login_app,
+    make_login_user,
+    make_member_role,
+    sha256,
+)
 from tests.conftest import MakeClient
 from tests.rbac_factories import (
     assign,
@@ -27,7 +41,7 @@ from tests.rbac_factories import (
     make_user,
     super_admin_role,
 )
-from tests.test_route_auth_classes import BEARER
+from tests.test_route_auth_classes import BEARER, COOKIE, PUBLIC
 
 V1 = "/api/v1"
 Call = tuple[str, Any]  # (url, json body or None)
@@ -324,23 +338,31 @@ async def test_failure_writes_no_row(
     assert await _count(db_session) == before
 
 
-async def test_denied_guard_writes_no_row(
+async def test_denied_guard_writes_row(
     make_client: MakeClient, db_session: AsyncSession, actor: User
 ) -> None:
+    """ADM-004b: a guard refusal writes one `outcome=denied` row (formerly none)."""
+    holder = await make_user(db_session)
+    holder.email_verified_at = datetime.now(UTC)
+    ra = await assign(db_session, holder, await super_admin_role(db_session))
+    url = f"{V1}/users/{holder.id}/role-assignments/{ra.id}"
+    await db_session.commit()  # the denied write rolls back first: keep the setup
     before = await _count(db_session)
     async with make_client(admin_permissions=["admin:apps:write"], admin_user=actor) as client:
         resp = await client.patch(f"{V1}/apps/admin", json={"name": "Renamed"})
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "admin_wildcard_required"
+    assert await _count(db_session) == before + 1
 
-    holder = await make_user(db_session)
-    holder.email_verified_at = datetime.now(UTC)
-    ra = await assign(db_session, holder, await super_admin_role(db_session))
+    await db_session.refresh(actor)  # expired by the denied request's rollback
     async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
-        resp = await client.delete(f"{V1}/users/{holder.id}/role-assignments/{ra.id}")
+        resp = await client.delete(url)
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "last_super_admin"
-    assert await _count(db_session) == before
+    rows = await _rows(db_session)
+    assert len(rows) == before + 2
+    denied = sorted((r.action, r.outcome) for r in rows if r.outcome == "denied")
+    assert denied == [("app.updated", "denied"), ("role_assignment.revoked", "denied")]
 
 
 async def test_noop_writes_no_row(
@@ -391,7 +413,9 @@ async def test_row_carries_request_context(
     make_client: MakeClient, db_session: AsyncSession, actor: User
 ) -> None:
     headers = {"X-Request-ID": "req-abc.123_X", "User-Agent": "audit-test/1.0"}
-    async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
+    async with make_client(
+        admin_permissions=["admin:*"], admin_user=actor, trusted_proxy_cidrs=["127.0.0.0/8"]
+    ) as client:
         resp = await client.post(
             f"{V1}/organizations", json={"slug": "org-ctx", "name": "Ctx"}, headers=headers
         )
@@ -427,3 +451,87 @@ async def test_no_secret_or_email_in_any_row(
         text = f"{row.changes} {row.user_agent} {row.actor_label}"
         for needle in ("_hash", "token", "password", "cookie", "@", *emails):
             assert needle not in text, (row.action, needle)
+
+
+# --- identity routes (ADM-004b) ------------------------------------------------------
+
+IdCall = tuple[str, dict[str, Any], dict[str, str]]  # (url, json body, headers)
+IdScenario = Callable[[AsyncSession], Awaitable[IdCall]]
+AUTH = f"{V1}/auth"
+
+
+async def _id_login(s: AsyncSession) -> IdCall:
+    await make_login_app(s)
+    user = await make_login_user(s)
+    return LOGIN, {"email": user.email, "password": PASSWORD}, auth_headers()
+
+
+async def _id_logout(s: AsyncSession) -> IdCall:
+    await make_login_app(s)
+    raw, _, (account,) = await make_device(s, await make_login_user(s))
+    return f"{AUTH}/logout", {"account_id": str(account.id)}, auth_headers(cookie=raw)
+
+
+async def _id_join(s: AsyncSession) -> IdCall:
+    await make_member_role(s, await make_login_app(s))
+    raw, _, (account,) = await make_device(s, await make_login_user(s))
+    body = {"account_id": str(account.id)}
+    return f"{AUTH}/apps/stoktok/join", body, auth_headers(cookie=raw)
+
+
+async def _id_token(s: AsyncSession, purpose: str) -> tuple[uuid.UUID, str]:
+    user = await make_login_user(s, verified=False)
+    raw = uuid.uuid4().hex + uuid.uuid4().hex
+    ttl = RESET_TTL if purpose == RESET else VERIFY_TTL
+    await EmailTokenRepository(s).issue(user.id, purpose, sha256(raw), ttl)
+    return user.id, raw
+
+
+async def _id_verify(s: AsyncSession) -> IdCall:
+    _, raw = await _id_token(s, VERIFY)
+    return f"{AUTH}/verify-email", {"token": raw}, {}
+
+
+async def _id_reset(s: AsyncSession) -> IdCall:
+    _, raw = await _id_token(s, RESET)
+    return f"{AUTH}/password/reset", {"token": raw, "new_password": "a brand new phrase 42"}, {}
+
+
+# route -> (action, success scenario, success status)
+IDENTITY_AUDITED: dict[tuple[str, str], tuple[str, IdScenario, int]] = {
+    ("POST", f"{AUTH}/login"): ("auth.login_succeeded", _id_login, 200),
+    ("POST", f"{AUTH}/logout"): ("auth.logged_out", _id_logout, 204),
+    ("POST", f"{AUTH}/apps/{{key}}/join"): ("app.joined", _id_join, 200),
+    ("POST", f"{AUTH}/verify-email"): ("auth.email_verified", _id_verify, 204),
+    ("POST", f"{AUTH}/password/reset"): ("auth.password_reset_completed", _id_reset, 204),
+}
+# Not audited (ADR-0009 amendment): sign-up and token issuance (follow-up), resend, forgot.
+IDENTITY_NOT_AUDITED = {
+    ("POST", f"{AUTH}/signup"),
+    ("POST", f"{AUTH}/token"),
+    ("POST", f"{AUTH}/verify-email/resend"),
+    ("POST", f"{AUTH}/password/forgot"),
+}
+
+
+def test_every_mutating_identity_route_is_classified() -> None:
+    assert set(IDENTITY_AUDITED).isdisjoint(IDENTITY_NOT_AUDITED)
+    assert set(IDENTITY_AUDITED) | IDENTITY_NOT_AUDITED == {
+        r for r in PUBLIC | COOKIE if r[0] != "GET"
+    }
+
+
+@pytest.mark.parametrize("route", list(IDENTITY_AUDITED), ids=lambda r: f"{r[0]} {r[1]}")
+async def test_identity_success_writes_one_row(
+    make_strict_client: MakeClient, db_session: AsyncSession, route: tuple[str, str]
+) -> None:
+    action, scenario, status = IDENTITY_AUDITED[route]
+    url, body, headers = await scenario(db_session)
+    await db_session.commit()
+    before = await _count(db_session)
+    async with make_strict_client() as client:
+        resp = await client.request(route[0], url, json=body, headers=headers)
+    assert resp.status_code == status, resp.text
+    assert await _count(db_session) == before + 1
+    row = (await _rows(db_session))[-1]
+    assert (row.action, row.outcome) == (action, "success")

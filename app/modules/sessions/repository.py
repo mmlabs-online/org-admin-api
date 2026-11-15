@@ -75,9 +75,13 @@ class SessionRepository:
             .execution_options(synchronize_session=False)
         )
 
-    async def revoke_device(self, device_id: uuid.UUID) -> None:
-        """Revoke the device session and every active account session on it."""
-        await self.session.execute(
+    async def revoke_device(self, device_id: uuid.UUID) -> int | None:
+        """Revoke the device session and every active account session on it.
+
+        Returns the number of account sessions revoked, or None when the device was already
+        revoked (nothing changed).
+        """
+        accounts = await self.session.execute(
             update(AccountSession)
             .where(
                 AccountSession.device_session_id == device_id,
@@ -86,24 +90,29 @@ class SessionRepository:
             .values(revoked_at=func.now())
             .execution_options(synchronize_session=False)
         )
-        await self.session.execute(
+        device = await self.session.execute(
             update(DeviceSession)
             .where(DeviceSession.id == device_id, DeviceSession.revoked_at.is_(None))
             .values(revoked_at=func.now())
             .execution_options(synchronize_session=False)
         )
+        if device.rowcount == 0:  # type: ignore[attr-defined]
+            return None
+        return int(accounts.rowcount)  # type: ignore[attr-defined]
 
-    async def revoke_all_accounts_of_user(self, user_id: uuid.UUID) -> None:
-        """Revoke every active account session of the user, on every device (password reset).
+    async def revoke_all_accounts_of_user(self, user_id: uuid.UUID) -> int:
+        """Revoke every active account session of the user, on every device (password reset);
+        returns how many were revoked.
 
         Device sessions stay: they may carry other users' accounts.
         """
-        await self.session.execute(
+        result = await self.session.execute(
             update(AccountSession)
             .where(AccountSession.user_id == user_id, AccountSession.revoked_at.is_(None))
             .values(revoked_at=func.now())
             .execution_options(synchronize_session=False)
         )
+        return int(result.rowcount)  # type: ignore[attr-defined]
 
     async def count_active_accounts(self, device_id: uuid.UUID) -> int:
         count = await self.session.scalar(
@@ -168,8 +177,11 @@ class SessionRepository:
 
     async def revoke_account(
         self, device_id: uuid.UUID, account_id: uuid.UUID, *, created_before: datetime | None
-    ) -> None:
-        """With `created_before`, only an account session created strictly before it (N1)."""
+    ) -> uuid.UUID | None:
+        """With `created_before`, only an account session created strictly before it (N1).
+
+        Returns the user id of the revoked account session, or None when nothing matched.
+        """
         query = update(AccountSession).where(
             AccountSession.id == account_id,
             AccountSession.device_session_id == device_id,
@@ -177,9 +189,12 @@ class SessionRepository:
         )
         if created_before is not None:
             query = query.where(AccountSession.created_at < created_before)
-        await self.session.execute(
-            query.values(revoked_at=func.now()).execution_options(synchronize_session=False)
+        user_id: uuid.UUID | None = await self.session.scalar(
+            query.values(revoked_at=func.now())
+            .returning(AccountSession.user_id)
+            .execution_options(synchronize_session=False)
         )
+        return user_id
 
     async def commit(self) -> None:
         """Persist a write that must survive the error raised right after (ADR-0004)."""

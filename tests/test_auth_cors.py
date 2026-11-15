@@ -120,15 +120,14 @@ async def test_error_envelopes_readable_cross_origin(
     await make_login_app(db_session)
     await make_login_app(db_session, "calechip", origins=[OTHER])
     user = await make_login_user(db_session)
+    body = login_body(user)  # the failed login's rollback expires `user`
     async with make_client(login_rate_limit=3) as client:
         wrong = await client.post(
             LOGIN, json=login_body(user, "wrong password entirely"), headers=auth_headers()
         )
-        other_app = await client.post(
-            LOGIN, json=login_body(user), headers=auth_headers(app_key="calechip")
-        )
+        other_app = await client.post(LOGIN, json=body, headers=auth_headers(app_key="calechip"))
         invalid = await client.post(LOGIN, json={"email": 1}, headers=auth_headers())
-        limited = await client.post(LOGIN, json=login_body(user), headers=auth_headers())
+        limited = await client.post(LOGIN, json=body, headers=auth_headers())
     for resp, status, code in (
         (wrong, 401, "invalid_credentials"),
         (other_app, 403, "origin_not_allowed"),

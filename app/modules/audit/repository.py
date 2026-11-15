@@ -1,11 +1,13 @@
-"""Append-only by shape (AC2): `add` and `list`, nothing else. The DB trigger backs this up."""
+"""Append-only by shape (AC2): `add` and `list` are the only row operations; `rollback`,
+`commit` and `begin_nested` touch session state only (ADM-004b failure paths). The DB trigger
+backs this up."""
 
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import ColumnElement, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 
 from app.modules.audit.models import AuditLog
 
@@ -20,6 +22,7 @@ class AuditLogFilter:
     target_type: str | None = None
     target_id: uuid.UUID | None = None
     app_key: str | None = None
+    outcome: str | None = None
     occurred_from: datetime | None = None
     occurred_to: datetime | None = None
 
@@ -31,6 +34,15 @@ class AuditRepository:
     async def add(self, row: AuditLog) -> None:
         self.session.add(row)
         await self.session.flush()
+
+    async def rollback(self) -> None:
+        await self.session.rollback()
+
+    async def commit(self) -> None:
+        await self.session.commit()
+
+    def begin_nested(self) -> AsyncSessionTransaction:
+        return self.session.begin_nested()
 
     async def list(
         self, filters: AuditLogFilter, *, limit: int, offset: int
@@ -48,6 +60,8 @@ class AuditRepository:
             where.append(AuditLog.target_id == filters.target_id)
         if filters.app_key is not None:
             where.append(AuditLog.app_key == filters.app_key)
+        if filters.outcome is not None:
+            where.append(AuditLog.outcome == filters.outcome)
         if filters.occurred_from is not None:
             where.append(AuditLog.occurred_at >= filters.occurred_from)
         if filters.occurred_to is not None:

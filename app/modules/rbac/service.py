@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
+    DENIED_ERRORS,
     ConflictError,
     LastSuperAdminError,
     NotFoundError,
@@ -337,7 +338,13 @@ class AppService:
     async def update(
         self, key: str, data: AppUpdate, *, actor: Actor, ctx: AuditContext, app_env: str
     ) -> App:
-        app, before = await self._update(key, data, actor=actor, app_env=app_env)
+        try:
+            app, before = await self._update(key, data, actor=actor, app_env=app_env)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.APP_UPDATED, exc=exc, actor=actor, ctx=ctx, app_key=key
+            )
+            raise
         changes = diff.diff(before, diff.snapshot(app, diff.APP))
         if changes:
             await self.audit.record(
@@ -666,7 +673,13 @@ class PermissionService:
     async def create(
         self, key: str, data: PermissionCreate, *, actor: Actor, ctx: AuditContext
     ) -> Permission:
-        perm = await self._create(key, data, actor=actor)
+        try:
+            perm = await self._create(key, data, actor=actor)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.PERMISSION_CREATED, exc=exc, actor=actor, ctx=ctx, app_key=key
+            )
+            raise
         await self.audit.record(
             AuditAction.PERMISSION_CREATED,
             actor=actor,
@@ -719,8 +732,19 @@ class PermissionService:
         changes = {f: getattr(data, f) for f in fields if getattr(perm, f) != getattr(data, f)}
         # true -> false makes a permission eligible for the default role; false -> true can
         # move it out of members' reach (both directions cross the is_admin boundary).
-        if (app.key == ADMIN_APP_KEY and changes) or "is_admin" in changes:
-            require_super(actor)
+        try:
+            if (app.key == ADMIN_APP_KEY and changes) or "is_admin" in changes:
+                require_super(actor)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.PERMISSION_UPDATED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.PERMISSION, permission_id),
+                app_key=key,
+            )
+            raise
         if (
             "is_admin" in fields
             and data.is_admin is True
@@ -759,8 +783,19 @@ class PermissionService:
     ) -> None:
         app = await _locked_app(self.repo, key)
         perm = await self._get(app, permission_id)
-        if app.key == ADMIN_APP_KEY:
-            require_super(actor)
+        try:
+            if app.key == ADMIN_APP_KEY:
+                require_super(actor)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.PERMISSION_DELETED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.PERMISSION, permission_id),
+                app_key=key,
+            )
+            raise
         if app.key == ADMIN_APP_KEY and perm.key == ADMIN_WILDCARD:
             raise ConflictError("The admin wildcard permission cannot be deleted")
         if await self.repo.permission_held_by_any_role(perm.id):
@@ -809,8 +844,14 @@ class RoleService:
         app = await _locked_app(self.repo, key)
         if data.key.split(":", 1)[0] != app.key:
             raise _prefix_mismatch()
-        if app.key == ADMIN_APP_KEY:
-            require_super(actor)
+        try:
+            if app.key == ADMIN_APP_KEY:
+                require_super(actor)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.ROLE_CREATED, exc=exc, actor=actor, ctx=ctx, app_key=key
+            )
+            raise
         if await self.repo.get_role_by_key(app.id, data.key) is not None:
             raise ConflictError("Role key is already taken")
         try:
@@ -837,8 +878,20 @@ class RoleService:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
         if data.name is not None and data.name != role.name:
-            if app.key == ADMIN_APP_KEY:
-                require_super(actor)
+            try:
+                if app.key == ADMIN_APP_KEY:
+                    require_super(actor)
+            except DENIED_ERRORS as exc:
+                await self.audit.record_denied(
+                    AuditAction.ROLE_UPDATED,
+                    exc=exc,
+                    actor=actor,
+                    ctx=ctx,
+                    target=(AuditTarget.ROLE, role_id),
+                    app_key=key,
+                    facts={"role_key": role.key},
+                )
+                raise
             old_name, role.name = role.name, data.name
             try:
                 await self.repo.save()
@@ -860,8 +913,20 @@ class RoleService:
     ) -> None:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
-        if app.key == ADMIN_APP_KEY:
-            require_super(actor)
+        try:
+            if app.key == ADMIN_APP_KEY:
+                require_super(actor)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.ROLE_DELETED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.ROLE, role_id),
+                app_key=key,
+                facts={"role_key": role.key},
+            )
+            raise
         if role.is_system:
             raise ConflictError("System roles cannot be deleted")
         if role.id == app.default_role_id:
@@ -916,10 +981,26 @@ class RoleService:
         removed = await self.repo.permissions_by_keys(
             app.id, [k for pid, k in current.items() if pid not in target_ids]
         )
-        if (app.key == ADMIN_APP_KEY and (added or removed)) or any(
-            p.is_admin for p in [*added, *removed]
-        ):
-            require_super(actor)
+        try:
+            if (app.key == ADMIN_APP_KEY and (added or removed)) or any(
+                p.is_admin for p in [*added, *removed]
+            ):
+                require_super(actor)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.ROLE_PERMISSIONS_REPLACED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.ROLE, role_id),
+                app_key=key,
+                facts={
+                    "role_key": role.key,
+                    "permission_keys_added": sorted(p.key for p in added),
+                    "permission_keys_removed": sorted(p.key for p in removed),
+                },
+            )
+            raise
         if role.id == app.default_role_id and any(p.is_admin for p in found.values()):
             raise ConflictError("A default role must not hold admin permissions")
         if (
@@ -1022,9 +1103,22 @@ class AssignmentService:
         role = await self.repo.get_role(app.id, data.role_id)
         if role is None:  # deleted between the read and the lock
             raise _assignment_unprocessable("Unknown role", "role_id", "unknown_role")
-        ra, _ = await self._grant_locked(
-            app, role, user_id, data.org_id, data.expires_at, actor=actor
-        )
+        try:
+            ra, _ = await self._grant_locked(
+                app, role, user_id, data.org_id, data.expires_at, actor=actor
+            )
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.ROLE_ASSIGNMENT_GRANTED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.USER, user_id),
+                app_key=app.key,
+                org_id=data.org_id,
+                facts={"role_key": role.key},
+            )
+            raise
         row = await self.repo.get_assignment_row(user_id, ra.id)
         if row is None:  # unreachable while the transaction holds the app lock
             raise ConflictError("Assignment was changed concurrently")
@@ -1156,14 +1250,27 @@ class AssignmentService:
         if row is None:  # revoked between the read and the lock
             raise NotFoundError("Assignment not found")
         ra, _, role_key, _ = row
-        await self._guard_privileged(app, ra.role_id, user_id, actor)
-        if (
-            app.key == ADMIN_APP_KEY
-            and role_key == SUPER_ADMIN_ROLE
-            and await self.repo.is_counting_super_admin(ra.role_id, ra.id)
-            and await self.repo.count_other_active_super_admins(ra.role_id, ra.id) == 0
-        ):
-            raise LastSuperAdminError("Cannot revoke the last active super-admin")
+        try:
+            await self._guard_privileged(app, ra.role_id, user_id, actor)
+            if (
+                app.key == ADMIN_APP_KEY
+                and role_key == SUPER_ADMIN_ROLE
+                and await self.repo.is_counting_super_admin(ra.role_id, ra.id)
+                and await self.repo.count_other_active_super_admins(ra.role_id, ra.id) == 0
+            ):
+                raise LastSuperAdminError("Cannot revoke the last active super-admin")
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.ROLE_ASSIGNMENT_REVOKED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.ROLE_ASSIGNMENT, assignment_id),
+                app_key=app.key,
+                org_id=ra.org_id,
+                facts={"role_key": role_key},
+            )
+            raise
         changes = assignment_changes(ra, role_key, granted=False)
         org_id = ra.org_id
         try:
