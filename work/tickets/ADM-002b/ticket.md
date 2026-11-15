@@ -29,9 +29,11 @@ Split from ADM-002 (see `work/tickets/ADM-002/plan.md` and its consults).
 - [ ] Each guard site has a test for the allowed and refused path
 - [ ] Self-grant, `is_admin` 409, `admin:*`-only-on-super-admin, last-super-admin and self-disable tests
 - [ ] Flags removed; route-enumeration test from ADM-002 still green with all routers mounted
+- [ ] The escalation guards (`rbac/service.py` guard sites) land with tests in the **same change** that removes the flags (ADM-002 security review 🟡3: today a holder of `admin:roles:assign`/`admin:roles:manage` could grant themselves super-admin if the routers were mounted)
 - [ ] `make check` green
 
 ## Dependencies
 ADM-002.
 
 ## Notes / answers from owner
+- Carried from ADM-002 security review: 🟡1 `strict_aud: True` in `app/core/access_token.py` (+ list-`aud` test cases, and the same in `docs/consumers.md` / mmlabs-auth); 🟡2 seed migration should `DO UPDATE SET is_admin = true` on existing rows (new migration, local DBs only); note in deploy.md that `JWT_PUBLIC_KEYS_EXTRA` must hold only this service's retired/next keys (they can verify admin tokens).
