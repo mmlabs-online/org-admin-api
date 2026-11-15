@@ -32,8 +32,10 @@ and `app/cli.py`, which is now scoped to `grant-super-admin`.
 - a) A typo verifies an address the operator does not control. The owner of that address can use
   forgot/reset and take over the account, including TuDo ownership. Mitigated by the retype, the
   runbook check and an immediate login.
-- b) There is no durable audit before ADM-004 (log line only, and `--rm` drops the logs). The
-  runbook requires a manual record.
+- b) The run is audited (ADM-004): `user.created` and, with `--join`, `app.joined`, both with actor
+  `system:cli`, written in the same transaction as the account. The rows hold ids, status and
+  role key only (no email, password or hash). They carry no operator identity (the CLI has none),
+  so the runbook still asks the operator to note who ran it and when.
 - c) The email is visible in `ps`/`docker inspect` while the prompt waits.
 - d) Turnstile and the rate limits do not apply.
 - e) `create-account` + `grant-super-admin` yields a verified super-admin without email proof,

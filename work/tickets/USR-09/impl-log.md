@@ -43,3 +43,33 @@ None. Small deviations: two `# noqa: S105` on message constants in `app/cli.py`,
 ### Scope self-check
 - Could the diff be smaller? No.
 - Diff size: product code ~+240 (cli ~+160, provisioning +78, membership ~+/-30), tests +647, docs ~+170.
+
+## Attempt 2 — 2026-11-15 (REWORK: adapt to ADM-004 after merging `main`)
+
+### Files touched
+| File | Required because |
+|---|---|
+| `app/modules/auth/provisioning.py` | `_grant_locked` now takes `actor=` (`SYSTEM_CLI`); writes real audit rows (R4) via `AuditLogger`: `user.created` (target user, changes `status`, `verified`) and, with `--join`, `app.joined` (target role_assignment, `role_key`), actor `system:cli`, `AuditContext.NONE`, same transaction. The ids-only log line is kept. |
+| `app/modules/audit/actions.py` | new `AuditAction.USER_CREATED = "user.created"` (the DB only has a format check on `action`, so no migration) |
+| `tests/test_cli_create_account.py` | audit rows asserted (actor system:cli, no email/password/hash, targets, changes); none after every refusal (join refusals, existing email, failure after insert); `_grant_locked` stub takes `**kwargs` |
+| `docs/adr/0010-operator-vouched-verified-email.md` | accepted risk b) now says the run is audited; operator still not named |
+| `docs/deploy.md` | create-account runbook: audit rows exist; keep a short note to record the operator |
+
+### Tests added / changed
+- test_create_verified_user_no_join, test_create_with_join_then_login_and_token: audit rows.
+- test_join_refusals_create_nothing, test_failure_after_insert_rolls_back_user, test_existing_email_exit_1_unchanged: no audit rows.
+- `tests/test_audit_coverage.py` unchanged (covers Bearer routes only) and passing.
+
+### Checks (actual output summary)
+- make check: ruff "All checks passed!", format "418 files already formatted", mypy "Success: no issues found in 99 source files", pytest "1445 passed, 1 warning in 102.66s" (warning: forkpty DeprecationWarning from the pty test).
+- Postgres was stopped; started with `service postgresql start`. alembic check: n/a (no migration).
+
+### Out-of-plan files
+`app/modules/audit/actions.py` (enum entry, reason above).
+
+### Follow-ups (noticed, not done)
+- Audit rows carry no operator identity (CLI has none); a future `--operator` or env-based label could add it.
+
+### Scope self-check
+- Could the diff be smaller? No.
+- Diff size: provisioning ~+25/-8, actions +1, tests ~+45, docs ~+8/-6.

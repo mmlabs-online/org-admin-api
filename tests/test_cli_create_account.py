@@ -43,6 +43,7 @@ from app.cli import (
 from app.core.config import Settings
 from app.core.errors import ConflictError
 from app.core.text import mask_email
+from app.modules.audit.models import AuditLog
 from app.modules.auth.passwords import PasswordHasher, common_passwords, normalize_password
 from app.modules.rbac.models import RoleAssignment
 from app.modules.rbac.service import AssignmentService
@@ -143,6 +144,16 @@ async def _user(session: AsyncSession, email: str = EMAIL) -> User | None:
     )
 
 
+async def _audit(session: AsyncSession) -> list[AuditLog]:
+    rows = await session.scalars(
+        select(AuditLog)
+        .where(AuditLog.actor_label == "system:cli")
+        .order_by(AuditLog.occurred_at, AuditLog.id)
+        .execution_options(populate_existing=True)
+    )
+    return list(rows)
+
+
 async def _count(session: AsyncSession, table: str) -> int:
     assert table in {"users", "role_assignments", "email_tokens", "email_send_log"}
     return int(await session.scalar(text(f"SELECT count(*) FROM {table}")) or 0)  # noqa: S608
@@ -177,6 +188,18 @@ async def test_create_verified_user_no_join(
         select(func.count()).select_from(RoleAssignment).where(RoleAssignment.user_id == user.id)
     )
     assert assigned == 0
+    rows = await _audit(db_session)
+    assert [r.action for r in rows] == ["user.created"]
+    row = rows[0]
+    assert (row.actor_kind, row.actor_user_id, row.actor_label) == ("system", None, "system:cli")
+    assert (row.target_type, row.target_id) == ("user", user.id)
+    assert row.changes == {
+        "status": {"from": None, "to": "active"},
+        "verified": {"from": None, "to": True},
+    }
+    dump = repr((row.changes, row.user_agent, row.ip, row.request_id))
+    assert EMAIL not in dump and "new.person" not in dump
+    assert PW not in dump and user.password_hash not in dump and "argon2" not in dump
 
 
 async def test_email_verified_at_from_db_clock(db_session: AsyncSession) -> None:
@@ -202,6 +225,17 @@ async def test_create_with_join_then_login_and_token(
     assert ra.org_id is None
     assert ra.expires_at is None
     assert ra.granted_by is None
+    rows = await _audit(db_session)
+    by_action = {r.action: r for r in rows}  # same transaction, so same occurred_at
+    assert sorted(by_action) == ["app.joined", "user.created"]
+    joined = by_action["app.joined"]
+    assert (joined.target_type, joined.target_id, joined.app_key) == (
+        "role_assignment",
+        ra.id,
+        "stoktok",
+    )
+    assert joined.changes == {"role_key": {"from": None, "to": role.key}}
+    assert {r.actor_label for r in rows} == {"system:cli"}
 
     resp = await client.post(LOGIN, json={"email": EMAIL, "password": PW}, headers=auth_headers())
     assert resp.status_code == 200, resp.text
@@ -269,6 +303,7 @@ async def test_existing_email_exit_1_unchanged(
         select(func.count()).select_from(RoleAssignment).where(RoleAssignment.user_id == after.id)
     )
     assert assigned == 0
+    assert await _audit(db_session) == []
 
 
 def _weak_cases() -> list[tuple[str, str]]:
@@ -438,6 +473,7 @@ async def test_join_refusals_create_nothing(
     assert (out, err) == ("", message + "\n")
     assert await _user(db_session) is None
     assert await _count(db_session, "role_assignments") == assignments_before
+    assert await _audit(db_session) == []
 
 
 async def test_failure_after_insert_rolls_back_user(
@@ -445,7 +481,7 @@ async def test_failure_after_insert_rolls_back_user(
 ) -> None:
     await make_member_role(db_session, await make_login_app(db_session))
 
-    async def _boom(self: AssignmentService, *args: Any) -> None:
+    async def _boom(self: AssignmentService, *args: Any, **kwargs: Any) -> None:
         raise ConflictError("boom")
 
     monkeypatch.setattr(AssignmentService, "_grant_locked", _boom)
@@ -454,6 +490,7 @@ async def test_failure_after_insert_rolls_back_user(
     )
     assert capsys.readouterr().err == MSG_CREATE_UNEXPECTED + "\n"
     assert await _user(db_session) is None
+    assert await _audit(db_session) == []
 
 
 async def test_locks_app_before_user_insert(db_session: AsyncSession) -> None:

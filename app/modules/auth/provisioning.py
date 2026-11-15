@@ -8,10 +8,15 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import AuditContext
+from app.modules.audit.diff import change
+from app.modules.audit.service import AuditLogger
 from app.modules.auth.errors import EmailTakenError, WeakPasswordError
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.schemas import PASSWORD_MAX_LENGTH
 from app.modules.membership.service import join_default_role, lock_joinable_app
+from app.modules.rbac.actor import SYSTEM_CLI
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import AssignmentService
 from app.modules.users.models import User
@@ -60,14 +65,29 @@ class AccountProvisioningService:
             )
         except IntegrityError:
             raise EmailTakenError("Email is already registered") from None
+        audit = AuditLogger(self.session)
+        # R4, same transaction. Ids and flags only: no email, password or hash (R11).
+        await audit.record(
+            AuditAction.USER_CREATED,
+            actor=SYSTEM_CLI,
+            ctx=AuditContext.NONE,
+            target=(AuditTarget.USER, user.id),
+            changes={"status": change(None, "active"), "verified": change(None, True)},
+        )
         assignment_id = None
         if app is not None and role is not None:
             ra, _ = await AssignmentService(self.session)._grant_locked(
-                app, role, user.id, None, None, None
+                app, role, user.id, None, None, actor=SYSTEM_CLI
             )
             assignment_id = ra.id
-        # R4: ADM-004 audit entry (actor system:cli), same transaction: user.create_verified
-        # (+ app.join).
+            await audit.record(
+                AuditAction.APP_JOINED,
+                actor=SYSTEM_CLI,
+                ctx=AuditContext.NONE,
+                target=(AuditTarget.ROLE_ASSIGNMENT, ra.id),
+                app_key=app.key,
+                changes={"role_key": change(None, role.key)},
+            )
         logger.info(
             "account_created actor=system:cli user_id=%s app_id=%s role_id=%s assignment_id=%s",
             user.id,

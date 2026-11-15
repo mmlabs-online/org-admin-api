@@ -627,8 +627,9 @@ joined: tudocuatui            (or: -)
 | 64 | usage error (bad arguments, `--password`, invalid email) |
 
 After the run: log in once at the target app with the new password; check `user_id` before copying
-it into `TUDO_OWNER_SUB`; record the run (date, `user_id`, app key, operator) in the deployment
-repo, because the container logs are gone after `--rm`.
+it into `TUDO_OWNER_SUB`. The command writes `system:cli` audit rows (`user.created`, plus
+`app.joined` with `--join`; ADM-004, no email or password in them). They do not name the
+operator, so note who ran it and when in the deployment repo.
 
 `create-account` is **not** an `ops-org-admin-api` command and must never be added there.
 
