@@ -7,7 +7,7 @@
 | Areas | db, security |
 | Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/32 |
 
 ## Goal
 Move the remaining audit-log guarantees from app code into the database.
