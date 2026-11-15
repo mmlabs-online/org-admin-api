@@ -22,6 +22,7 @@ class AuditAction(StrEnum):
     ORGANIZATION_CREATED = "organization.created"
     ORGANIZATION_UPDATED = "organization.updated"
     ORGANIZATION_DELETED = "organization.deleted"
+    USER_CREATED = "user.created"
     USER_DISABLED = "user.disabled"
     USER_ENABLED = "user.enabled"
     APP_CREATED = "app.created"

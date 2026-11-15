@@ -248,7 +248,8 @@ migration must keep the previous release working:
 6. **Ops workflow environment:** in `mmlabs-online/deployment` create the GitHub Environment
    `org-admin-api-ops` (required reviewer: owner; deployment branches: `main` only). The
    `ops-org-admin-api` workflow (register-app, grant-super-admin, cleanup, and set-admin-origins
-   once the deployment PR adds it) waits for that approval.
+   once the deployment PR adds it) waits for that approval. `create-account` is deliberately not an
+   ops-workflow command: it needs a TTY for the password.
 
 ## Operations
 
@@ -267,15 +268,17 @@ runs the previous image (migrations are kept, see the rules above).
 ## Bootstrap the first super-admin
 
 The first `admin:super-admin` is granted from the command line (USR-02f), never over HTTP. The CLI
-creates no users, takes no password and never marks an email verified. Re-running it is safe.
+`grant-super-admin` creates no users, takes no password and never marks an email verified;
+`create-account` ("Create an account from the CLI", ADR-0010) is the only CLI path that does.
+Re-running it is safe.
 
 **Prerequisites:** migrations are at head (the seeded `admin` app and role exist), and
 `TRUSTED_PROXY_CIDRS` is in the env file (written by the deploy, see "Required runtime
 config"). Without it settings refuse to load in production and the CLI exits 1
 (`error: settings could not be loaded`), like `migrate` and the API.
 
-1. **Sign up yourself** through the public sign-up, then **log in once** (after USR-03) to prove you
-   control the password. Never grant to an account someone else could have registered in your
+1. **Sign up yourself** through the public sign-up (or create the account with `create-account`),
+   then **log in once** (after USR-03) to prove you control the password. Never grant to an account someone else could have registered in your
    name (pre-registration hijack).
 2. **Run the ops workflow:** in `mmlabs-online/deployment`, Actions → `ops-org-admin-api` → Run
    workflow (branch `main`) → command `grant-super-admin`, `email` = your address; approve the
@@ -308,7 +311,8 @@ config"). Without it settings refuse to load in production and the CLI exits 1
    check: created_at must match your own sign-up; if not, revoke this grant (docs/deploy.md)
    ```
 
-   `created_at` must match the time of your own sign-up; `email_verified` stays `no` until you
+   `created_at` must match the time of your own sign-up (or of your `create-account` run, in which
+   case `email_verified: yes` is expected); otherwise `email_verified` stays `no` until you
    open the verification link (USR-04).
    If `created_at` is earlier than your sign-up, the account is not yours: revoke the grant with
    the one-off `psql` from "Operations" (`DELETE FROM role_assignments WHERE id = …`) and
@@ -587,6 +591,49 @@ docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file app
 ```
 
 Locally: `make register-app ARGS='--key ricotdin --name Ricotdin --origin https://ricotdin.mmlabs.online'`.
+
+## Create an account from the CLI (bootstrap only)
+
+`create-account` (USR-09, [ADR-0010](adr/0010-operator-vouched-verified-email.md)) creates one
+account whose email is marked verified by the operator, so the first user of a new app can log in
+before the app serves `/verify-email`. It never touches an existing account, and `--join` gives
+only the app's default role under the same guards as the join endpoint.
+
+**Prerequisites:** same as `grant-super-admin`, plus the app registered with `register-app`
+(join policy `open`) when `--join` is used.
+
+Run it from a shell with a TTY. **No `-T`**; use `ssh -t` if remote. Start the line with a space
+(or run `fc -p` first). **Never set `DB_ECHO`.**
+
+```bash
+ docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+  run --rm --no-deps migrate /app/.venv/bin/python -m app.cli create-account --email you@example.com --join tudocuatui
+```
+
+Prompts, in order: retype the email, password, repeat password. Check the address before pressing
+Enter. The password is never read from argv, env or a workflow input.
+
+```
+created account
+user_id: <uuid>
+email: y***@e***.com
+joined: tudocuatui            (or: -)
+```
+
+| Exit | Meaning |
+|---|---|
+| 0 | created |
+| 1 | any refusal or failure (no TTY, mismatch, weak password, existing email, unknown or closed app, database); one fixed line |
+| 64 | usage error (bad arguments, `--password`, invalid email) |
+
+After the run: log in once at the target app with the new password; check `user_id` before copying
+it into `TUDO_OWNER_SUB`. The command writes `system:cli` audit rows (`user.created`, plus
+`app.joined` with `--join`; ADM-004, no email or password in them). They do not name the
+operator, so note who ran it and when in the deployment repo.
+
+`create-account` is **not** an `ops-org-admin-api` command and must never be added there.
+
+Locally: `uv run python -m app.cli create-account --email you@example.com [--join <app_key>]`.
 
 ## Audit log (ADM-004)
 

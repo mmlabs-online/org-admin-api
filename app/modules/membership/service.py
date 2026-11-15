@@ -19,7 +19,7 @@ from app.modules.membership.errors import (
 from app.modules.membership.schemas import JoinRequest
 from app.modules.rbac.actor import SYSTEM_JOIN
 from app.modules.rbac.authz import AuthzService
-from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus, JoinPolicy
+from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus, JoinPolicy, Role
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import AssignmentService
 from app.modules.sessions.errors import SessionInvalidError
@@ -35,6 +35,32 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class JoinResult:
     created: bool  # False: already a member, nothing written
+
+
+async def lock_joinable_app(rbac: RbacRepository, key: str) -> App:
+    """Lock an active, joinable app (ADR-0003 §10: app first, then users). Shared with the CLI."""
+    if key == ADMIN_APP_KEY:  # before any policy read
+        raise JoinClosedError("This app does not accept joins")
+    app = await rbac.lock_app(key)
+    if app is None or app.status != AppStatus.ACTIVE.value:
+        raise OriginNotAllowedError("Origin is not allowed")
+    return app
+
+
+async def join_default_role(rbac: RbacRepository, app: App) -> Role:
+    """The default role `open` joins assign; refuses closed/approval/missing/admin roles."""
+    if app.join_policy == JoinPolicy.CLOSED.value:
+        raise JoinClosedError("This app does not accept joins")
+    if app.join_policy == JoinPolicy.APPROVAL.value:
+        raise JoinApprovalUnavailableError("Joining this app needs approval (not available)")
+
+    role = None if app.default_role_id is None else await rbac.get_role(app.id, app.default_role_id)
+    if role is None:
+        raise JoinUnavailableError("This app cannot be joined right now")
+    if await rbac.role_has_admin_permission(role.id):
+        logger.warning("join_default_role_admin app_id=%s role_id=%s", app.id, role.id)
+        raise JoinUnavailableError("This app cannot be joined right now")
+    return role
 
 
 class JoinService:
@@ -57,12 +83,7 @@ class JoinService:
     ) -> JoinResult:
         if key != calling_app.key:  # only an app can join users into itself
             raise AppMismatchError("App does not match the calling app")
-        if key == ADMIN_APP_KEY:  # before any policy read
-            raise JoinClosedError("This app does not accept joins")
-        # Lock first (ADR-0003 §10, order app -> users): the default role is read under it.
-        app = await self.rbac.lock_app(key)
-        if app is None or app.status != AppStatus.ACTIVE.value:
-            raise OriginNotAllowedError("Origin is not allowed")
+        app = await lock_joinable_app(self.rbac, key)
 
         # No `headers`: the cookie is not cleared, other accounts on the device stay signed in.
         account = await self.accounts.get_active_account(
@@ -80,21 +101,7 @@ class JoinService:
         if await self.authz.effective_roles(user.id, app.key):
             return JoinResult(created=False)
 
-        if app.join_policy == JoinPolicy.CLOSED.value:
-            raise JoinClosedError("This app does not accept joins")
-        if app.join_policy == JoinPolicy.APPROVAL.value:
-            raise JoinApprovalUnavailableError("Joining this app needs approval (not available)")
-
-        role = (
-            None
-            if app.default_role_id is None
-            else await self.rbac.get_role(app.id, app.default_role_id)
-        )
-        if role is None:
-            raise JoinUnavailableError("This app cannot be joined right now")
-        if await self.rbac.role_has_admin_permission(role.id):
-            logger.warning("join_default_role_admin app_id=%s role_id=%s", app.id, role.id)
-            raise JoinUnavailableError("This app cannot be joined right now")
+        role = await join_default_role(self.rbac, app)
 
         ra, _ = await self.assignments._grant_locked(
             app, role, user.id, None, None, actor=SYSTEM_JOIN
