@@ -7,7 +7,7 @@
 | Areas | auth, security |
 | Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/33 |
 
 ## Goal
 Close the non-gating follow-ups from the ADM-002 / ADM-002c security reviews.
