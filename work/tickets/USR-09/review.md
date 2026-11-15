@@ -1,0 +1,88 @@
+## Attempt 1 — 2026-11-15
+Verdict: PASS
+
+Reviewed `git diff 4c01328 HEAD` on `claude/magical-cori-2ssw8l` at c6e98aa. The clone is shallow, so `4c01328...HEAD` has no merge base. 4c01328 is an ancestor of HEAD (`git log 4c01328..HEAD` lists the 5 USR-09 commits), so the two-dot diff is the same diff.
+
+### Checks (run by reviewer)
+- make check (ruff, format, mypy, pytest): ruff "All checks passed!", format "382 files already formatted", mypy "Success: no issues found in 89 source files", pytest **"1254 passed, 1 warning in 74.02s"**. This matches impl-log.md (1254 passed). The warning is the stdlib `forkpty` DeprecationWarning from the pty test.
+  - My first run had 1 failure: `tests/test_role_catalog_api.py::test_post_roles_flag_off_is_405`, `relation "apps" does not exist`. Another `pytest` process (not mine, started 09:00) was running against `org_admin_test` at the same time, and the migration tests in that run were downgrading and upgrading the schema. The rerun after that process ended was fully green. This was a test-DB conflict, not a defect in this diff.
+  - The impl-log reports 381 formatted files and I got 382. This is a counting difference only (no unformatted file), so it is not a blocker.
+- `uv run pytest -q tests/test_cli_create_account.py tests/test_auth_join.py`: 83 passed.
+- `git diff --quiet 4c01328 HEAD -- tests/test_auth_join.py`: unchanged.
+- alembic check: not applicable. There is no migration or model change in the diff.
+
+### Acceptance criteria
+- [x] **AC1.** Creates a verified user that can log in at once and, after `--join`, obtain an access token for that app.
+  - `test_create_verified_user_no_join`: `email_verified_at` is set, `status=active`, `PasswordHasher.verify` passes, there are 0 assignments, and stdout has the 4 exact lines.
+  - `test_email_verified_at_from_db_clock`: `email_verified_at == created_at`, both from DB `now()` (`provisioning.py:59`).
+  - `test_create_with_join_then_login_and_token`: real `POST /auth/login` → 200, then `POST /auth/token` → 200 with `roles == ["stoktok:member"]` and `email_verified is True`. The assignment has `org_id`, `expires_at` and `granted_by` all NULL.
+  - `test_create_no_email_tokens_or_send_log`: no new `email_tokens` or `email_send_log` rows.
+- [x] **AC2.** An existing email gives exit 1 and leaves the existing user unchanged.
+  - `test_existing_email_exit_1_unchanged` covers 4 cases: unverified, verified, disabled and mixed-case.
+  - In each case `password_hash`, `email_verified_at`, `status` and `updated_at` are identical afterwards, and there are 0 assignments even with `--join`.
+  - Detection relies only on the unique constraint (`provisioning.py:58-62`, savepoint in `UserRepository.add`). There is no pre-check and no UPDATE path.
+- [x] **AC3.** A weak password is refused with the same rules as sign-up. Non-TTY stdin and a mismatched confirmation are refused.
+  - `test_weak_password_refused` covers too_short, too_common, too_long and short+common. The hasher is not called and the scope is `_never`.
+  - `test_password_max_length_128_accepted`. The same `PasswordPolicy(settings.password_min_length)` as `auth/deps.py:29` and the same `PASSWORD_MAX_LENGTH`. NFKC normalization is shared through `PasswordHasher`.
+  - Refusal tests: `test_non_tty_refused_before_prompt_and_db`, `test_subprocess_non_tty_exit_1`, `test_password_mismatch_refused`, `test_email_retype_mismatch_refused` (different, invalid and empty retype, asked before the password prompts) and `test_getpass_warning_refused`.
+- [x] **AC4.** The password never appears in stdout, stderr, log records, audit or the process list.
+  - `test_secret_not_in_output_or_logs` uses PW and its NFKC variant, with and without join. It captures DEBUG on root, `sqlalchemy` and `asyncpg`, and checks that the hash is not in the output or in `app.*` records.
+  - `test_db_error_no_leak` checks a `DBAPIError` and an `IntegrityError` that carry the email, the hash and a DETAIL line.
+  - `test_password_option_is_usage_error`: `--password`, `--password=` and a positional value give exit 64 with the value not echoed.
+  - `test_pty_end_to_end_no_echo_no_argv` checks `/proc/<pid>/cmdline` and `/environ` at the repeat prompt, and that PW is not in the whole pty transcript (so echo was off).
+  - Audit stand-in: `test_audit_log_line_ids_only`.
+- [x] **AC5.** `--join` with an unknown, disabled or `admin` app exits 1 and creates nothing (one transaction).
+  - `test_join_refusals_create_nothing` covers 7 cases: unknown, disabled, admin, closed, approval, no default role, and an admin-permission default role. Each gives exit 1, the fixed message, 0 users and an unchanged `role_assignments` count. `admin` refuses before the scope is entered (`_never`).
+  - `test_failure_after_insert_rolls_back_user`: `_grant_locked` is forced to raise, and the user inserted earlier in the same savepoint is gone.
+- [x] **AC6.** An ADR records the verified-flag exception, `docs/deploy.md` is updated, and `make check` passes.
+  - `docs/adr/0009-operator-vouched-verified-email.md` is present.
+  - The D16 row in `docs/identity-architecture.md:243` is amended, and so is the Context of ADR-0007.
+  - In `docs/deploy.md`: the new section is at lines 535-575. It says "No `-T`" (545) and that `create-account` "must never be added" to the ops workflow (573). Setup step 6 (249) and the grant-super-admin wording, step 1 and step 3 are amended.
+  - make check is green (above).
+
+### Specific points the orchestrator asked about
+- **JoinService refactor is behaviour-identical.** `lock_joinable_app` (`membership/service.py:36-43`) and `join_default_role` (46-59) hold the removed code verbatim, with the same exceptions, the same messages and the same warning log on the same module logger. `JoinService.join` keeps its order: app-mismatch check → lock → account/user/verified checks → already-member short-circuit → default role → grant → audit (lines 74-104). `tests/test_auth_join.py` is unchanged and passes.
+- **Refusals raise inside the transaction, so no user is orphaned on any path.**
+  - Every refusal after the scope opens is an exception raised inside `async with scope()` (`cli.py:361`). `_cli_session_scope` uses `session.begin()`, which rolls back on any exception, BaseException included.
+  - Output is printed only after the scope exits cleanly (`cli.py:376`).
+  - Join refusals happen before the insert, and a `_grant_locked` failure is covered by the forced-failure test.
+- **Lock order is app → user.** `provisioning.py:53-62` locks the app and reads the role before `INSERT INTO users`. `test_locks_app_before_user_insert` asserts the statement order: `FROM apps … FOR NO KEY UPDATE` < `INSERT INTO users` < `INSERT INTO role_assignments`.
+- **Hash runs before the transaction.** `cli.py:345-352` hashes before the scope opens (line 361). `test_hash_before_session_scope` asserts `events == ["hash", "scope"]`.
+- **getpass hardening.**
+  - The `isatty` check comes before any prompt (`cli.py:334`).
+  - `GetPassWarning` is turned into an error and mapped to `MSG_NO_TTY` (`cli.py:285-289`).
+  - `EOFError` and `KeyboardInterrupt` in `getpass` map to `MSG_ABORTED` (290), and so does EOF on the email retype (279).
+  - The parser has no `--password` option, and `allow_abbrev=False`.
+- **Email retype.** It is normalized with the same function. An invalid or different value gives `MSG_EMAIL_MISMATCH`, and it is asked before the password prompts.
+- **No `str(exc)` or DETAIL leaks.** All messages are fixed constants. The catch-all at `cli.py:390` prints `MSG_CREATE_UNEXPECTED`. All error mappings use `from None`. `main()` keeps `tracebacklimit=0` and silences the `sqlalchemy` and `asyncpg` loggers.
+- **Output format (the planner's added `email: <masked>` line): accepted.** The ticket says "The email is masked, as in `grant-super-admin`", which only makes sense if an email line is printed. The line is masked (`mask_email`), so R11 holds. The runbook output block (`deploy.md`) matches the code, and the test asserts all 4 lines exactly.
+- **Docs are consistent.** ADR-0009 names what it amends: D16, the Context of ADR-0007, and the "never marks an email verified" wording, now scoped to `grant-super-admin`. The `app/cli.py` docstring and `deploy.md` line 268 agree with it. Exit codes 0/1/64 match the code.
+
+### Issues
+None blocking.
+
+### Rules R1–R11
+No violations found.
+- R1: the CLI does I/O only. The rules are in `auth/provisioning.py` (service layer) and the shared membership helpers. Repositories are unchanged.
+- R2: no schema change.
+- R3, R6, R9: no endpoint.
+- R4: ADM-004 is still BACKLOG. An ids-only log line and an `# R4` marker stand in for it, and the follow-up is recorded.
+- R5 and R11: the password is never in argv, env, output or logs. Argon2id comes from the shared hasher. The engine uses `hide_parameters=True`. The email is masked in output.
+- R7: every changed file is in the plan's list. The ticket, backlog and consult files are workflow bookkeeping.
+- R8: make check is green, and the new logic has unit and integration tests.
+- R10: no hosted UI.
+
+### Nits (do not block)
+- **Ctrl-C at the email retype prompt is not caught.** `_SystemTty.read_line` (`cli.py:276-281`) catches only EOF, not `KeyboardInterrupt`. Ctrl-C there prints the bare `KeyboardInterrupt` (backstop: `tracebacklimit=0`) instead of `MSG_ABORTED`. Nothing has been read or written at that point, so nothing leaks and nothing is created, and the plan only asked for EOF on `read_line`. Wrapping `sys.stdin.readline()` in `except KeyboardInterrupt` would make the behaviour uniform.
+- **One `deploy.md` line is not wrapped.** In step 1 of "Bootstrap the first super-admin", the line "then **log in once** … could have registered in your" is about 130 characters. The rest of the file wraps at about 100.
+- **"Re-running it is safe" is now ambiguous** in `deploy.md` at "Bootstrap the first super-admin". After the reworded sentence, "it" could mean either command. It still means `grant-super-admin`. A re-run of `create-account` is also harmless (exit 1, nothing changed), but the sentence should say which command it means.
+- **The ADR quotes the owner without diacritics.** ADR-0009 Context has "chon B"; the ticket has "chọn B".
+
+### Follow-ups (out of scope)
+- From plan.md:
+  - ADM-004: add a system actor `system:cli` and record `user.create_verified` and `app.join` in the same transaction.
+  - Deployment repo: add a note that `create-account` must never be an ops-workflow choice.
+  - Optional: a `make create-account` target.
+  - Optional: an early read-only check before the password prompts.
+  - Optional: `RLIMIT_CORE=0`.
+- Test infrastructure: two `pytest` runs against `org_admin_test` at the same time interfere, because the migration tests downgrade and upgrade the shared schema. Consider a per-run test database name, or a lock, so parallel sessions cannot produce false failures.
