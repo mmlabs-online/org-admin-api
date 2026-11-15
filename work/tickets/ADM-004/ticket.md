@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | db, api, security |
 | Attempts | 0 |
@@ -30,3 +30,4 @@ ADM-002 (actor identity + permission). Events from USR-03/USR-03b use the interi
 
 ## Notes / answers from owner
 - 2026-11-11: scope extended to identity events (login, join, role changes, org membership).
+- 2026-11-15 (planner): split — identity events (login/logout/reuse/reset/verify), denied privileged attempts (`outcome` column) and retention move to ADM-004b. Approval decisions stay with USR-03g; org membership with USR-06. AC2/AC5 here cover admin mutations, CLI operations and join.
