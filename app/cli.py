@@ -4,6 +4,8 @@
   password, never marks an email verified (D16).
 - `python -m app.cli register-app --key <key> --name <name> --origin <origin> ...` (USR-07):
   creates or updates a consuming app and its `<key>:member` role through `AppService.register`.
+- `python -m app.cli set-admin-origins (--origin <origin> ... | --clear) [--dry-run]` (ADM-002c):
+  replaces the origins of the `admin` app through `AppService.set_admin_origins`; nothing else.
 - `python -m app.cli cleanup [--dry-run]` (USR-04d): deletes email send-log rows older than 48 h
   and used or expired email tokens older than 7 d, in batches; prints counts only.
 
@@ -23,8 +25,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.config import Settings
-    from app.modules.rbac.schemas import AppRegister
-    from app.modules.rbac.service import RegisterResult
+    from app.modules.rbac.schemas import AdminOriginsSet, AppRegister
+    from app.modules.rbac.service import AdminOriginsResult, RegisterResult
 
     SessionScope = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
@@ -67,6 +69,23 @@ MSG_CONFLICT = "error: the app was changed concurrently; nothing was saved, run 
 MSG_REGISTER_UNEXPECTED = "error: unexpected failure; the registration was not confirmed"
 MSG_DRY_RUN = "dry-run: rolled back, nothing was saved"
 MSG_CORS_NOTE = "note: the API applies origin changes within 60 s"
+
+SET_ADMIN_ORIGINS_USAGE = (
+    "usage: python -m app.cli set-admin-origins"
+    " (--origin <origin> [--origin <origin>] | --clear) [--dry-run]"
+)
+MSG_ADMIN_BAD_ORIGIN = (
+    "error: each --origin must be https://<host>.mmlabs.online"
+    " (not api.mmlabs.online, default port), or loopback"
+)
+MSG_ADMIN_APEX = "error: https://mmlabs.online cannot be an admin origin; use a dedicated host"
+MSG_ADMIN_TOO_MANY = "error: at most 2 admin origins"
+MSG_ADMIN_NOT_SEEDED = "error: admin app missing or not in its seeded state; nothing was changed"
+MSG_SET_ORIGINS_UNEXPECTED = "error: unexpected failure; the admin origins change was not confirmed"
+MSG_ADMIN_CLOSED = (
+    "note: no new admin tokens can be obtained once this applies;"
+    " issued tokens last up to their TTL"
+)
 
 CLEANUP_USAGE = "usage: python -m app.cli cleanup [--dry-run]"
 MSG_CLEANUP_FAILED = "error: cleanup failed; batches already committed stay deleted, run again"
@@ -170,6 +189,8 @@ async def amain(
 ) -> int:
     if argv[:1] == ["register-app"]:
         return await _register_app(argv[1:], settings=settings, session_scope=session_scope)
+    if argv[:1] == ["set-admin-origins"]:
+        return await _set_admin_origins(argv[1:], settings=settings, session_scope=session_scope)
     if argv[:1] == ["cleanup"]:
         return await _cleanup(argv[1:], settings=settings, session_scope=session_scope)
     try:
@@ -349,6 +370,106 @@ async def _register_app(
     except Exception:
         # Never str(exc): DB errors carry parameters (origins, names) and the DSN.
         print(MSG_REGISTER_UNEXPECTED, file=sys.stderr)
+        return EXIT_FAILURE
+
+
+class _AdminOriginsRollback(Exception):
+    def __init__(self, result: "AdminOriginsResult") -> None:
+        self.result = result
+
+
+# Separate from `_REASONS`: register-only reasons (e.g. `admin_app`) never apply here.
+_ADMIN_ORIGIN_REASONS = {
+    "loopback_not_allowed": (MSG_LOOPBACK, EXIT_USAGE),
+    "apex_not_allowed": (MSG_ADMIN_APEX, EXIT_USAGE),
+    "too_many_origins": (MSG_ADMIN_TOO_MANY, EXIT_USAGE),
+    "origin_taken": (MSG_ORIGIN_TAKEN, EXIT_FAILURE),
+    "admin_not_seeded": (MSG_ADMIN_NOT_SEEDED, EXIT_FAILURE),
+}
+
+
+def _parse_set_admin_origins(argv: Sequence[str]) -> tuple["AdminOriginsSet", bool]:
+    from pydantic import ValidationError
+
+    from app.modules.rbac.schemas import AdminOriginsSet
+
+    parser = _Parser(prog="python -m app.cli set-admin-origins", allow_abbrev=False, add_help=False)
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--origin", action="append")
+    target.add_argument("--clear", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        data = AdminOriginsSet(origins=args.origin or [])
+    except ValidationError:
+        # Never print the pydantic error: it carries `input_value`.
+        raise _Refused(MSG_ADMIN_BAD_ORIGIN, EXIT_USAGE) from None
+    return data, bool(args.dry_run)
+
+
+def _print_admin_origins(result: "AdminOriginsResult") -> None:
+    lines = [
+        f"{result.outcome.value} app {result.key}",
+        f"join_policy: {result.join_policy}",
+        f"status: {result.status}",
+        f"origins: {' '.join(result.origins) or '(none)'}",
+        *(f"+ origin {o}" for o in result.origins_added),
+        *(f"- origin {o}" for o in result.origins_removed),
+    ]
+    if result.origins_added or result.origins_removed:
+        lines.append(MSG_CORS_NOTE)
+    if result.outcome.value == "updated" and not result.origins:
+        lines.append(MSG_ADMIN_CLOSED)
+    print("\n".join(lines))
+
+
+async def _set_admin_origins(
+    argv: Sequence[str],
+    *,
+    settings: "Settings | None",
+    session_scope: "SessionScope | None",
+) -> int:
+    try:
+        data, dry_run = _parse_set_admin_origins(argv)
+
+        from app.core.errors import AppError, ConflictError
+        from app.modules.rbac.service import AppService
+
+        settings = _load_settings(settings)
+        app_env = settings.app_env
+        scope = session_scope or (lambda: _cli_session_scope(settings))
+        try:
+            async with scope() as session:
+                result = await AppService(session).set_admin_origins(data, app_env=app_env)
+                if dry_run:
+                    raise _AdminOriginsRollback(result)
+        except _AdminOriginsRollback as rollback:
+            _print_admin_origins(rollback.result)
+            print(MSG_DRY_RUN)
+            return EXIT_OK
+        except AppError as exc:
+            details = exc.details if isinstance(exc.details, list) else []
+            reason = details[0].get("reason") if details and isinstance(details[0], dict) else None
+            if reason in _ADMIN_ORIGIN_REASONS:
+                raise _Refused(*_ADMIN_ORIGIN_REASONS[reason]) from None
+            if isinstance(exc, ConflictError):
+                raise _Refused(MSG_CONFLICT, EXIT_FAILURE) from None
+            raise _Refused(MSG_SET_ORIGINS_UNEXPECTED, EXIT_FAILURE) from None
+
+        _print_admin_origins(result)  # only after the scope committed
+        return EXIT_OK
+    except _UsageError:
+        print(SET_ADMIN_ORIGINS_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except _Refused as refused:
+        print(refused.message, file=sys.stderr)
+        return refused.code
+    except _Fail as fail:
+        print(fail.message, file=sys.stderr)
+        return EXIT_FAILURE
+    except Exception:
+        # Never str(exc): DB errors carry parameters (origins) and the DSN.
+        print(MSG_SET_ORIGINS_UNEXPECTED, file=sys.stderr)
         return EXIT_FAILURE
 
 

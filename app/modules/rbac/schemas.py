@@ -123,6 +123,19 @@ class AppRegister(BaseModel):
         return normalize_origins(value)
 
 
+class AdminOriginsSet(BaseModel):
+    """Operator CLI input (ADM-002c): the full origin set of the `admin` app; `[]` clears it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    origins: list[str] = Field(default_factory=list, max_length=MAX_ORIGINS)
+
+    @field_validator("origins")
+    @classmethod
+    def _origins(cls, value: list[str]) -> list[str]:
+        return normalize_origins(value)
+
+
 class PermissionCreate(BaseModel):
     """`is_admin` absent or null: false, except `<app>:*` which is always stored `true`."""
 

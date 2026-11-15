@@ -22,6 +22,7 @@ from app.modules.rbac.models import (
 from app.modules.rbac.origins import is_loopback_origin
 from app.modules.rbac.repository import AssignmentRow, RbacRepository
 from app.modules.rbac.schemas import (
+    AdminOriginsSet,
     AppCreate,
     AppRegister,
     AppUpdate,
@@ -86,6 +87,29 @@ class RegisterResult:
     member_permissions: tuple[str, ...]
     member_added: tuple[str, ...]
     member_removed: tuple[str, ...]
+
+
+MAX_ADMIN_ORIGINS = 2
+APEX_ORIGIN = "https://mmlabs.online"
+
+
+class AdminOriginsOutcome(StrEnum):
+    UPDATED = "updated"
+    UNCHANGED = "unchanged"
+
+
+@dataclass(frozen=True)
+class AdminOriginsResult:
+    """Plain values for the CLI (ADM-002c), so it never touches the ORM."""
+
+    outcome: AdminOriginsOutcome
+    key: str
+    status: str
+    join_policy: str
+    org_mode: str
+    origins: tuple[str, ...]
+    origins_added: tuple[str, ...]
+    origins_removed: tuple[str, ...]
 
 
 def _register_refusal(
@@ -442,6 +466,76 @@ class AppService:
             member_permissions=tuple(member_permissions),
             member_added=tuple(member_added),
             member_removed=tuple(member_removed),
+        )
+
+    async def set_admin_origins(self, data: AdminOriginsSet, *, app_env: str) -> AdminOriginsResult:
+        """Replace the `admin` app's origins (ADM-002c); the caller owns the transaction.
+
+        Writes only `origins`: never `status`, `join_policy`, `org_mode`, `default_role_id` or
+        the admin roles. Fails closed (no repair) when the admin row is missing or has drifted
+        from its seed. Every refusal happens before the first write.
+        """
+        origins = data.origins
+        if APEX_ORIGIN in origins:
+            raise _register_refusal(
+                UnprocessableError,
+                "The apex origin cannot be an admin origin",
+                "origins",
+                "apex_not_allowed",
+            )
+        if len(origins) > MAX_ADMIN_ORIGINS:
+            raise _register_refusal(
+                UnprocessableError, "Too many admin origins", "origins", "too_many_origins"
+            )
+        if app_env in {"staging", "production"} and any(is_loopback_origin(o) for o in origins):
+            raise _register_refusal(
+                UnprocessableError,
+                "Loopback origins are not allowed here",
+                "origins",
+                "loopback_not_allowed",
+            )
+
+        app = await self.repo.lock_app(ADMIN_APP_KEY)
+        if (
+            app is None
+            or app.status != AppStatus.ACTIVE
+            or app.join_policy != JoinPolicy.CLOSED
+            or app.org_mode != OrgMode.NONE
+            or app.default_role_id is not None
+        ):
+            raise _register_refusal(
+                ConflictError, "The admin app is not in its seeded state", "key", "admin_not_seeded"
+            )
+
+        claimed = [o for o in origins if not is_loopback_origin(o)]
+        if await self.repo.app_keys_holding_origins(claimed, ADMIN_APP_KEY):
+            raise _register_refusal(
+                ConflictError,
+                "An origin is already registered to another app",
+                "origins",
+                "origin_taken",
+            )
+
+        old = list(app.origins)
+        outcome = AdminOriginsOutcome.UNCHANGED
+        if set(origins) != set(old):
+            # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
+            app.origins = list(origins)
+            try:
+                await self.repo.save()
+            except IntegrityError as exc:
+                raise ConflictError("App was changed concurrently") from exc
+            self.repo.mark_apps_changed()
+            outcome = AdminOriginsOutcome.UPDATED
+        return AdminOriginsResult(
+            outcome=outcome,
+            key=app.key,
+            status=app.status,
+            join_policy=app.join_policy,
+            org_mode=app.org_mode,
+            origins=tuple(app.origins),
+            origins_added=tuple(sorted(set(app.origins) - set(old))),
+            origins_removed=tuple(sorted(set(old) - set(app.origins))),
         )
 
 

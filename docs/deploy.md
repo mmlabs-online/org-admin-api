@@ -187,6 +187,7 @@ No env var (USR-03e, ADR-0006). The API echoes the origins of **active** apps (`
 D19) with credentials, for `/api/v1/auth/*` only. Register or update an app's origins with the
 USR-07 CLI, see "Register an app" below (or the admin API later). Changes made through the API process apply at once; changes
 from the CLI or manual SQL apply within 60 s. Loopback origins are ignored in staging/production.
+The `admin` app's origins are set only with `set-admin-origins` (see "Set admin origins (ADM-002c)").
 A stale `CORS_ORIGINS` in the deployment env file is ignored and can be deleted from
 `mmlabs-online/deployment`.
 
@@ -244,8 +245,8 @@ migration must keep the previous release working:
    `https://api.mmlabs.online/healthz`.
 6. **Ops workflow environment:** in `mmlabs-online/deployment` create the GitHub Environment
    `org-admin-api-ops` (required reviewer: owner; deployment branches: `main` only). The
-   `ops-org-admin-api` workflow (register-app, grant-super-admin, cleanup) waits for that
-   approval.
+   `ops-org-admin-api` workflow (register-app, grant-super-admin, cleanup, and set-admin-origins
+   once the deployment PR adds it) waits for that approval.
 
 ## Operations
 
@@ -334,21 +335,118 @@ Locally: `make grant-super-admin email=you@example.com`.
 `admin:*` permission (ADR-0008). Health, JWKS, the role catalog and the `/api/v1/auth/*` endpoints
 are unchanged. The users and RBAC admin APIs stay unmounted in production until ADM-002b.
 
-**Until ADM-002c ships, no admin token can be obtained in production:** the `admin` app has no
-origins, so the login and token calls with `X-MM-App: admin` fail the origin check. The admin
-API is closed to everyone. This is fail-closed and intended.
+An admin token needs a registered origin on the `admin` app: the login and token calls with
+`X-MM-App: admin` fail the origin check while `apps[admin].origins` is empty. Set it once with
+`set-admin-origins` (see "Set admin origins (ADM-002c)"); until then the admin API is closed to
+everyone (fail closed, intended).
 
-Runbook, once ADM-002c is released:
+Runbook:
 
 1. Deploy (migrations seed the admin leaf permissions).
 2. Sign up and verify your email through a registered app.
 3. Grant yourself `admin:super-admin` ("Bootstrap the first super-admin").
-4. Set the admin origins (ADM-002c, ops workflow).
-5. From an admin origin: `POST /api/v1/auth/login` with `X-MM-App: admin`, then
-   `POST /api/v1/auth/token` `{"audience": "admin", "account_id": …}` with the cookie.
-6. Call the admin endpoints with `Authorization: Bearer <access_token>`. Tokens last
+4. Set the admin origin: `set-admin-origins --origin https://admin.mmlabs.online`, first with
+   `dry_run` on, then off ("Set admin origins (ADM-002c)").
+5. Wait 60 s (the API reloads app origins within 60 s).
+6. Log in and get a token with curl. Both calls send an explicit
+   `Origin: https://admin.mmlabs.online` and `X-MM-App: admin`. The cookie jar and the request
+   body are created with mode 0600 and deleted afterwards; the password is read with `read -s`,
+   never on the command line or in shell history:
+
+   ```bash
+   umask 077
+   jar=$(mktemp) body=$(mktemp)
+   read -r -p 'email: ' email; read -r -s -p 'password: ' pw; echo
+   printf '{"email": "%s", "password": "%s"}' "$email" "$pw" > "$body"; unset pw
+   curl -sS -c "$jar" -X POST https://api.mmlabs.online/api/v1/auth/login \
+     -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' \
+     -H 'Content-Type: application/json' -d @"$body"
+   rm -f "$body"
+   # copy account_id from the response
+   curl -sS -b "$jar" -c "$jar" -X POST https://api.mmlabs.online/api/v1/auth/token \
+     -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' \
+     -H 'Content-Type: application/json' \
+     -d '{"audience": "admin", "account_id": "<account_id>"}'
+   rm -f "$jar"
+   ```
+
+   `printf` is a shell builtin, so the password never appears in `ps`; a password containing `"`
+   or `\` must be JSON-escaped in the body. After 3 failed logins for the email, Turnstile is required (`turnstile_token`) and curl cannot
+   pass it: get the password right, or wait for the backoff to expire.
+7. Call the admin endpoints with `Authorization: Bearer <access_token>`. Tokens last
    `ACCESS_TOKEN_TTL_SECONDS` (15 min); disabling a user or revoking a role applies on the next
    request.
+
+The `Origin` check is CSRF protection, not authentication: the password, the verified email and the
+`admin:*` permission are what protect the admin API. The browser console is not a supported path
+until an admin UI exists.
+
+## Set admin origins (ADM-002c)
+
+The `admin` app's browser origins are set only from the CLI, through `AppService.set_admin_origins`
+(`register-app` refuses the `admin` app). Nothing else on `admin` changes.
+
+**Prerequisites:** a release containing ADM-002c is deployed; the `org-admin-api-ops` environment
+exists (One-time setup, step 6).
+
+1. In `mmlabs-online/deployment`: Actions → `ops-org-admin-api` → Run workflow (branch `main`) →
+   command `set-admin-origins`, input `origins` (or `clear`), `dry_run` (default on). The workflow
+   input is added by a separate deployment-repo PR; until it merges, use the fallback below.
+2. Approve the `org-admin-api-ops` environment; read the output in the run summary.
+3. Always run with `dry_run` on first and check the `+` / `-` lines, then run again with `dry_run`
+   off.
+
+**Fallback** with a shell on the Mac (same command the workflow runs):
+
+```bash
+docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+  run --rm --no-deps migrate /app/.venv/bin/python -m app.cli set-admin-origins \
+  --origin https://admin.mmlabs.online --dry-run
+```
+
+Locally: `make set-admin-origins ARGS='--origin https://admin.mmlabs.online'`.
+
+Expected output (first real run; a dry run adds the `dry-run: …` line, a re-run prints
+`unchanged app admin` and no change lines):
+
+```
+updated app admin
+join_policy: closed
+status: active
+origins: https://admin.mmlabs.online
++ origin https://admin.mmlabs.online
+note: the API applies origin changes within 60 s
+dry-run: rolled back, nothing was saved      (only with dry_run)
+```
+
+**Semantics:**
+
+- Origins **replace** the stored set; the same set in another order (or another spelling that
+  normalises equal) is `unchanged` and writes nothing.
+- At most **2** distinct origins (for a rename or migration overlap). Each must follow D19; the apex
+  `https://mmlabs.online` is refused (use a dedicated host). Loopback is refused in
+  staging/production.
+- An origin belongs to one app: an origin held by any other app (any status) is refused.
+- Only `origins` changes. `status`, `join_policy`, `org_mode`, the default role and the admin
+  roles never change. If the admin row is missing or has drifted from its seed (not `active`,
+  `closed`, `none` with no default role), the command refuses and repairs nothing (exit 1).
+- The API applies origin changes within 60 s (CORS cache).
+- Until ADM-004 the workflow run (actor, time, inputs, summary) is the audit trail.
+
+| Exit | Meaning |
+|---|---|
+| 0 | updated or unchanged (also a dry run) |
+| 1 | settings, `DB_ECHO`, admin app missing or drifted, origin held by another app, concurrent change, database; one fixed line, no details |
+| 64 | usage or validation error (bad origin, apex, more than 2, loopback in staging/production, `--clear` with `--origin`) |
+
+**Break-glass `--clear`:** empties the admin origins. No new admin token can be obtained after at
+most 60 s; tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (15 min). To cut them
+sooner, revoke the role or disable the user (reloaded on every request, ADR-0008 §3).
+
+**Host policy:** `https://admin.mmlabs.online` is reserved for the future admin UI. Create no DNS
+record or tunnel route for it until an admin UI exists, never route it to another service, and
+check it whenever DNS or tunnel routes change: whoever serves pages on an admin origin can drive
+the admin login flow (subdomain takeover = an admin origin).
 
 ## Register an app (USR-07)
 
