@@ -198,7 +198,8 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   `AuditLogger.record` adds one row in the same transaction as the change, after the last guard, for
   every admin mutation (organizations, user status, apps, permissions, roles, role permissions,
   role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
-  grant-super-admin, cleanup summary) and `app.joined` (ADM-004). Identity events (ADM-004b):
+  grant-super-admin, cleanup summary, create-account: `user.created` + `app.joined`) and `app.joined`
+  (ADM-004). Identity events (ADM-004b):
   `auth.login_succeeded`, `auth.login_failed` (after the password check only; anonymous actor, no
   email), `auth.logged_out`, `auth.logged_out_all`, `device_session.reuse_revoked`,
   `auth.password_reset_completed`, `auth.email_verified`. Guard refusals of a staff principal
@@ -261,7 +262,7 @@ Follow-up decisions (owner, 2026-11-11, resolving §10):
 | D13 | **Path prefix (C1 = option B):** all identity endpoints are under `/api/v1/auth/*` and the cookie is `Path=/api/v1/auth` (amends D5, D7, D8 paths). Only `/.well-known/jwks.json` stays at the root. R9 needs no exception. |
 | D14 | **R3 reworded (C2):** three endpoint classes — Bearer (admin, `aud=admin` + permission), cookie-authenticated identity endpoints, and public endpoints. Refresh tokens are gone. |
 | D15 | **Organizations (C3):** the existing `organizations` table (ADM-001) moves to the Identity module and gains `created_by`; `description` and `status` are kept. One concept, used per app through `apps.org_mode`. |
-| D16 | **Email verification ordering (U1):** no interim "mark verified" path. Joining an app and getting an app token stay blocked until USR-04 ships; backlog order unchanged. |
+| D16 | **Email verification ordering (U1):** no interim "mark verified" path. Joining an app and getting an app token stay blocked until USR-04 ships; backlog order unchanged. *Amended by ADR-0010 (USR-09, 2026-11-15):* the CLI `create-account` is the single operator-vouched exception (verified email at creation, TTY only, never on an existing account). |
 | D17 | **Role catalog is public (Q1, 2026-11-11):** `GET /api/v1/apps/{key}/roles` joins R3 class 3 (public). Rate-limited per IP; 404 for unknown, disabled and `admin` apps; exposes only role key, name, `is_system` and permission keys. |
 | D18 | **R9 exceptions (Q2, 2026-11-11):** apps are addressed by their immutable `key` in `/api/v1/apps/{key}/…`; the role catalog is a single document, not `Page[T]`. Permissions, roles and assignments keep UUID ids. |
 | D19 | **Allowed app origins (Q3, 2026-11-11):** only `https://mmlabs.online`, `https://*.mmlabs.online` and loopback (`http(s)://localhost`, `127.0.0.1`, `[::1]`). Any other origin → 422. |

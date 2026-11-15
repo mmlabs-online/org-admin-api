@@ -2,6 +2,9 @@
 
 - `python -m app.cli grant-super-admin --email <email>` (USR-02f): creates no users, takes no
   password, never marks an email verified (D16).
+- `python -m app.cli create-account --email <email> [--join <app_key>]` (USR-09, ADR-0010): the
+  only CLI path that creates a user and marks its email verified; TTY-only password, never
+  touches an existing account.
 - `python -m app.cli register-app --key <key> --name <name> --origin <origin> ...` (USR-07):
   creates or updates a consuming app and its `<key>:member` role through `AppService.register`.
 - `python -m app.cli set-admin-origins (--origin <origin> ... | --clear) [--dry-run]` (ADM-002c):
@@ -15,11 +18,13 @@ failure prints one fixed line, and the CLI uses its own engine with `hide_parame
 
 import argparse
 import asyncio
+import getpass
 import logging
 import sys
+import warnings
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, NoReturn, Protocol
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,6 +96,20 @@ CLEANUP_USAGE = "usage: python -m app.cli cleanup [--dry-run]"
 MSG_CLEANUP_FAILED = "error: cleanup failed; batches already committed stay deleted, run again"
 MSG_CLEANUP_DRY_RUN = "dry-run: nothing was deleted"
 
+CREATE_USAGE = "usage: python -m app.cli create-account --email <email> [--join <app_key>]"
+MSG_NO_TTY = "error: run from an interactive terminal (no -T, ssh -t); nothing was created"
+MSG_ABORTED = "error: input aborted; nothing was created"
+MSG_EMAIL_MISMATCH = "error: the retyped email does not match; nothing was created"
+MSG_PASSWORD_MISMATCH = "error: the passwords do not match; nothing was created"  # noqa: S105
+MSG_WEAK_PASSWORD = "error: password refused ({reasons}); nothing was created"  # noqa: S105
+MSG_EMAIL_TAKEN = "error: an account with this email already exists; nothing was changed"
+MSG_JOIN_ADMIN = "error: --join admin is not allowed; nothing was created"
+MSG_JOIN_UNKNOWN = "error: unknown or disabled app; nothing was created"
+MSG_JOIN_CLOSED = "error: the app does not accept joins; nothing was created"
+MSG_JOIN_APPROVAL = "error: the app requires approval to join; nothing was created"
+MSG_JOIN_UNAVAILABLE = "error: the app has no usable default role; nothing was created"
+MSG_CREATE_UNEXPECTED = "error: unexpected failure; the account was not confirmed"
+
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_UNKNOWN_EMAIL = 2
@@ -119,19 +138,23 @@ class _Parser(argparse.ArgumentParser):
         raise _UsageError
 
 
-def _parse_email(argv: Sequence[str]) -> str:
+def _normalize_email(value: str) -> str:
     from pydantic import EmailStr, TypeAdapter, ValidationError
 
+    try:
+        # Same normalization as sign-up (app/modules/auth/service.py).
+        return str(TypeAdapter(EmailStr).validate_python(value)).strip().lower()
+    except ValidationError:
+        raise _UsageError from None
+
+
+def _parse_email(argv: Sequence[str]) -> str:
     parser = _Parser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
     grant = commands.add_parser("grant-super-admin")
     grant.add_argument("--email", required=True)
     args = parser.parse_args(argv)
-    try:
-        # Same normalization as sign-up (app/modules/auth/service.py).
-        return str(TypeAdapter(EmailStr).validate_python(args.email)).strip().lower()
-    except ValidationError:
-        raise _UsageError from None
+    return _normalize_email(args.email)
 
 
 def _load_settings(settings: "Settings | None") -> "Settings":
@@ -186,7 +209,12 @@ async def amain(
     *,
     settings: "Settings | None" = None,
     session_scope: "SessionScope | None" = None,
+    tty: "_Tty | None" = None,
 ) -> int:
+    if argv[:1] == ["create-account"]:
+        return await _create_account(
+            argv[1:], settings=settings, session_scope=session_scope, tty=tty or _SystemTty()
+        )
     if argv[:1] == ["register-app"]:
         return await _register_app(argv[1:], settings=settings, session_scope=session_scope)
     if argv[:1] == ["set-admin-origins"]:
@@ -232,6 +260,136 @@ async def amain(
     except Exception:
         # Never str(exc): DB errors carry parameters and DETAIL lines (the email) and the DSN.
         print(MSG_UNEXPECTED, file=sys.stderr)
+        return EXIT_FAILURE
+
+
+class _Tty(Protocol):
+    def isatty(self) -> bool: ...
+    def read_line(self, prompt: str) -> str: ...
+    def read_secret(self, prompt: str) -> str: ...
+
+
+class _SystemTty:
+    def isatty(self) -> bool:
+        return sys.stdin.isatty()
+
+    def read_line(self, prompt: str) -> str:
+        print(prompt, end="", file=sys.stderr, flush=True)
+        line = sys.stdin.readline()
+        if not line:  # EOF
+            raise _Refused(MSG_ABORTED, EXIT_FAILURE)
+        return line.rstrip("\r\n")
+
+    def read_secret(self, prompt: str) -> str:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", getpass.GetPassWarning)
+                return getpass.getpass(prompt)
+        except getpass.GetPassWarning:  # echo could not be disabled
+            raise _Refused(MSG_NO_TTY, EXIT_FAILURE) from None
+        except (EOFError, KeyboardInterrupt):
+            raise _Refused(MSG_ABORTED, EXIT_FAILURE) from None
+
+
+_PASSWORD_REASONS = {"too_short", "too_common", "too_long"}
+
+
+def _parse_create(argv: Sequence[str]) -> tuple[str, str | None]:
+    parser = _Parser(prog="python -m app.cli create-account", allow_abbrev=False, add_help=False)
+    parser.add_argument("--email", required=True)
+    parser.add_argument("--join", action="append", default=[])
+    args = parser.parse_args(argv)
+    if len(args.join) > 1:
+        raise _UsageError
+    return _normalize_email(args.email), (args.join[0] if args.join else None)
+
+
+async def _create_account(
+    argv: Sequence[str],
+    *,
+    settings: "Settings | None",
+    session_scope: "SessionScope | None",
+    tty: _Tty,
+) -> int:
+    try:
+        email, join = _parse_create(argv)
+        if join == "admin":
+            raise _Refused(MSG_JOIN_ADMIN, EXIT_FAILURE)
+
+        from app.core.text import mask_email
+        from app.modules.auth.errors import (
+            EmailTakenError,
+            OriginNotAllowedError,
+            WeakPasswordError,
+        )
+        from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
+        from app.modules.auth.provisioning import AccountProvisioningService, vet_and_hash_password
+        from app.modules.membership.errors import (
+            JoinApprovalUnavailableError,
+            JoinClosedError,
+            JoinUnavailableError,
+        )
+
+        settings = _load_settings(settings)
+        if not tty.isatty():
+            raise _Refused(MSG_NO_TTY, EXIT_FAILURE)
+        try:
+            retyped = _normalize_email(tty.read_line("retype email: "))
+        except _UsageError:
+            raise _Refused(MSG_EMAIL_MISMATCH, EXIT_FAILURE) from None
+        if retyped != email:
+            raise _Refused(MSG_EMAIL_MISMATCH, EXIT_FAILURE)
+        password = tty.read_secret("password: ")
+        if password != tty.read_secret("repeat password: "):
+            raise _Refused(MSG_PASSWORD_MISMATCH, EXIT_FAILURE)
+        try:
+            # Hash before the transaction: the app row lock is never held during Argon2.
+            password_hash = await vet_and_hash_password(
+                password,
+                policy=PasswordPolicy(settings.password_min_length),
+                hasher=PasswordHasher(settings),
+            )
+        except WeakPasswordError as exc:
+            details = exc.details if isinstance(exc.details, dict) else {}
+            reasons = ", ".join(r for r in details.get("reasons", []) if r in _PASSWORD_REASONS)
+            raise _Refused(MSG_WEAK_PASSWORD.format(reasons=reasons), EXIT_FAILURE) from None
+        finally:
+            del password
+
+        scope = session_scope or (lambda: _cli_session_scope(settings))
+        try:
+            async with scope() as session:
+                result = await AccountProvisioningService(session).create_verified(
+                    email, password_hash, join
+                )
+        except EmailTakenError:
+            raise _Refused(MSG_EMAIL_TAKEN, EXIT_FAILURE) from None
+        except JoinClosedError:
+            raise _Refused(MSG_JOIN_CLOSED, EXIT_FAILURE) from None
+        except JoinApprovalUnavailableError:
+            raise _Refused(MSG_JOIN_APPROVAL, EXIT_FAILURE) from None
+        except JoinUnavailableError:
+            raise _Refused(MSG_JOIN_UNAVAILABLE, EXIT_FAILURE) from None
+        except OriginNotAllowedError:  # unknown or disabled app
+            raise _Refused(MSG_JOIN_UNKNOWN, EXIT_FAILURE) from None
+
+        print("created account")  # only after the scope committed
+        print(f"user_id: {result.user_id}")
+        print(f"email: {mask_email(result.email)}")
+        print(f"joined: {result.joined or '-'}")
+        return EXIT_OK
+    except _UsageError:
+        print(CREATE_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except _Refused as refused:
+        print(refused.message, file=sys.stderr)
+        return refused.code
+    except _Fail as fail:
+        print(fail.message, file=sys.stderr)
+        return EXIT_FAILURE
+    except Exception:
+        # Never str(exc): DB errors carry parameters (email, hash) and the DSN.
+        print(MSG_CREATE_UNEXPECTED, file=sys.stderr)
         return EXIT_FAILURE
 
 
