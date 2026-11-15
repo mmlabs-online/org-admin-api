@@ -32,3 +32,4 @@ ADM-004b.
 
 ## Notes / answers from owner
 - Defaults pending owner confirmation (spec Q6): keep 365 days, full IP, 90-day floor; read-time IP masking before widening `admin:audit:read`. Open: does Vietnam Decree 13/2023 require a shorter period?
+- Carried from ADM-004b security review: 🟡 `af3eb84d2d5e` `downgrade()` must refuse while `audit_log` has `outcome <> 'success'` rows (dropping `outcome` makes denied rows read as successes); add `af3eb84d2d5e` to the "never downgrade production past" line in deploy.md. 💭 use `CF-Ray` (or always generate) for the stored request id; strip C1 (`\x80-\x9f`) from user agent; add `type(exc).__name__` to `audit_write_failed`; large-table migration pattern (NOT VALID + VALIDATE, CONCURRENTLY) for future audit DDL; admin UI must show `outcome`.
