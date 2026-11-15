@@ -24,3 +24,11 @@ class EndUser:
     """A signed-in account acting for itself (join), not a staff principal."""
 
     user_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class AnonymousActor:
+    """A caller that proved no identity (failed login, cookie-only device events)."""
+
+
+ANONYMOUS = AnonymousActor()

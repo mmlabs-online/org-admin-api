@@ -198,11 +198,17 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   `AuditLogger.record` adds one row in the same transaction as the change, after the last guard, for
   every admin mutation (organizations, user status, apps, permissions, roles, role permissions,
   role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
-  grant-super-admin, cleanup summary, create-account: `user.created` + `app.joined`) and `app.joined` (ADM-004). Failures, refusals and no-ops write
-  nothing. `changes` holds allowlisted fields only, never emails, hashes, tokens or cookies. Each row
-  carries ip, user agent and `X-Request-ID`. Login (success/failure), logout, reuse revocation,
-  password reset, email verification, denied privileged attempts (`outcome`) and retention are
-  ADM-004b; org membership events come with USR-06.
+  grant-super-admin, cleanup summary, create-account: `user.created` + `app.joined`) and `app.joined`
+  (ADM-004). Identity events (ADM-004b):
+  `auth.login_succeeded`, `auth.login_failed` (after the password check only; anonymous actor, no
+  email), `auth.logged_out`, `auth.logged_out_all`, `device_session.reuse_revoked`,
+  `auth.password_reset_completed`, `auth.email_verified`. Guard refusals of a staff principal
+  (`admin_wildcard_required`, self-guards, `last_super_admin`) write `outcome=denied`; failed logins
+  `outcome=failure`. Failure rows are committed alone and an audit error never changes the intended
+  error (ADR-0009 amendment). 429s, Turnstile refusals and no-ops write nothing. `changes` holds
+  allowlisted fields only, never emails, hashes, tokens or cookies. Each row carries ip, user agent
+  and `X-Request-ID` (kept only from trusted proxies). Retention is ADM-004c; org membership
+  events come with USR-06.
 
 ## 6. Client libraries (D4)
 

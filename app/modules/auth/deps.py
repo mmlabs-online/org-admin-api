@@ -5,6 +5,7 @@ from fastapi import BackgroundTasks, Depends, Header, Request
 from app.api.deps import SessionDep
 from app.core.client_ip import client_ip
 from app.core.config import Settings
+from app.modules.audit.deps import AuditContextDep
 from app.modules.auth.cookies import clear_device_cookie_header, read_device_cookies
 from app.modules.auth.hooks import SignupHook, VerificationEmailHook
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
@@ -47,12 +48,15 @@ def get_client_ip(request: Request) -> str:
 ClientIpDep = Annotated[str, Depends(get_client_ip)]
 
 
-def get_device_sessions(request: Request, session: SessionDep) -> DeviceSessionService:
+def get_device_sessions(
+    request: Request, session: SessionDep, ctx: AuditContextDep
+) -> DeviceSessionService:
     settings: Settings = request.app.state.settings
     return DeviceSessionService(
         session,
         idle_days=settings.device_session_idle_days,
         max_days=settings.device_session_max_days,
+        audit_ctx=ctx,
     )
 
 

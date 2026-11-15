@@ -9,6 +9,9 @@ from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import RateLimitedError
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import AuditContext, EndUser
+from app.modules.audit.service import AuditLogger
 from app.modules.auth.email_throttle import (
     DAILY_CAP_RETRY_SECONDS,
     cap_refusal,
@@ -66,6 +69,7 @@ class EmailVerificationService:
         self.sends = EmailSendLogRepository(session)
         self.users = UserRepository(session)
         self.accounts = SessionRepository(session)
+        self.audit = AuditLogger(session)
         self.email_hasher = email_hasher
         self.daily_cap = daily_cap
 
@@ -93,7 +97,7 @@ class EmailVerificationService:
             to=user.email, subject=subject, body=body, purpose=VERIFY, user_id=user.id
         )
 
-    async def verify(self, token: str) -> None:
+    async def verify(self, token: str, *, ctx: AuditContext) -> None:
         """Consume the token and mark the email verified; idempotent once verified."""
         token_hash = email_token_hash(token)
         user_id = await self.tokens.find_user_id(token_hash, VERIFY)
@@ -108,6 +112,12 @@ class EmailVerificationService:
             raise TokenInvalidError("Token is invalid or expired")
         if user.email_verified_at is None:
             await self.users.mark_email_verified(user)
+            await self.audit.record(
+                AuditAction.AUTH_EMAIL_VERIFIED,
+                actor=EndUser(user.id),
+                ctx=ctx,
+                target=(AuditTarget.USER, user.id),
+            )
         await self.tokens.invalidate(user.id, VERIFY)
         logger.info("email_verified user_id=%s", user.id)
 

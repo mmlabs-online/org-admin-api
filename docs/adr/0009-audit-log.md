@@ -48,3 +48,49 @@ logout, reuse revocation, reset, verification and denied attempts are ADM-004b.
   action with success and failure scenarios.
 - A production downgrade past the migration destroys the log; `docs/deploy.md` forbids it.
 - Rows of one transaction share `occurred_at` (`now()`); `id` breaks ties in the listing.
+
+## Amendment — failure paths, identity events, outcome (ADM-004b, 2026-11-15)
+
+Supersedes §6 and §7. A single rollback-first mechanism would undo the device-session reuse
+revocation and cannot run for login before the password check, so each path has its own write:
+
+| Path | Method | Transaction |
+|---|---|---|
+| Success (admin mutations, CLI, join, identity events) | `record` | Caller's transaction; flush only; an audit error fails the request (R4) |
+| Failed login (after Argon2) | `record_failure` | `rollback()` (drops only the read; the attempt reservation is already committed) → add → `commit()`; errors logged as `audit_write_failed`, never raised |
+| Denied privileged attempt | `record_denied` → `record_failure` | As above; only for an `AdminPrincipal` (system actors write nothing) |
+| Device-session reuse on a cookie route | `record_in_savepoint` | Savepoint before the existing reuse commit; an audit error is logged and never undoes the revocation |
+| Device-session reuse during login | `record` | Part of the login transaction (an audit error is a 500) |
+
+- **`outcome`** (`success|failure|denied`, default `success`, CHECK + partial index on
+  `failure|denied`) is always present in `GET /api/v1/audit-logs` and filterable.
+- **`changes`**: admin mutations keep `{field: {from, to}}`; identity and failure rows use a flat
+  object of allowlisted scalars. The `email_send_log`/`email_tokens` key exemption applies only to
+  `email_retention.purged` with integer `{from: null, to: n}` values.
+- **Denied attempts.** Each public mutator wraps its guard explicitly
+  (`except DENIED_ERRORS: record_denied(...); raise`), never in a private helper or a global
+  handler: `AppService.update`, `PermissionService.create/update/delete`,
+  `RoleService.create/update/delete/replace_permissions`, `AssignmentService.assign/revoke`,
+  `UserService.set_status`. `DENIED_ERRORS` = `admin_wildcard_required`,
+  `self_assignment_forbidden`, `self_status_change_forbidden`, `last_super_admin`. The row carries
+  the attempted action, `outcome=denied`, `changes={"reason": <code>, ...catalog keys}` (`role_key`,
+  `permission_keys_added/removed`), server-resolved values only. Plain `require_permission` 403s
+  are not recorded. Callers copy primitives before the call (the rollback expires ORM objects).
+- **Identity events.**
+
+  | Action | Actor | Target | `changes` |
+  |---|---|---|---|
+  | `auth.login_succeeded` | user | user | `account_session_id`, `device_session_id` |
+  | `auth.login_failed` (credential-checked only) | anonymous | user, or none for an unknown email | `reason` (`unknown_account`, `invalid_credentials`, `user_disabled`), `failures` |
+  | `auth.logged_out` | user | user | `account_session_id` |
+  | `auth.logged_out_all` | anonymous | device_session | `accounts_revoked` |
+  | `device_session.reuse_revoked` | anonymous | device_session | `accounts_revoked`, `during_login` |
+  | `auth.password_reset_completed` | user | user | `account_sessions_revoked`, `verified` |
+  | `auth.email_verified` | user | user | — |
+
+  A 429, a Turnstile refusal, a no-op logout, an already revoked device or an idempotent verify
+  writes nothing. No email, HMAC, password, token or cookie is ever stored.
+- **Not audited:** sign-up and token issuance (follow-up), verification resend, password forgot.
+- **`X-Request-ID`** is kept only from a peer in `TRUSTED_PROXY_CIDRS`, otherwise generated. It is
+  a correlation id, not evidence (the trusted proxy forwards client headers).
+- **Retention** stays indefinite until ADM-004c (purge).

@@ -311,6 +311,7 @@ async def test_guard_matrix(
     case = await CASES[site](db_session)
     perms = [case.leaf] if who == "leaf" else SUPER
     actor = await _verified_user(db_session)  # a real row: `granted_by` references users
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=perms, admin_user=actor) as client:
         resp = await client.request(case.method, case.url, json=case.body)
@@ -466,18 +467,21 @@ async def test_grant_renewal_branch_guarded(
     role = await _admin_role(db_session)
     ra = await assign(db_session, target, role, expires_at=datetime.now(UTC) - timedelta(days=1))
     body = {"role_id": str(role.id)}
+    url, ra_id, actor_id = _assignments(target.id), ra.id, actor.id
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=["admin:roles:assign"], admin_user=actor) as client:
-        _wildcard_required(await client.post(_assignments(target.id), json=body))
+        _wildcard_required(await client.post(url, json=body))
     assert await _state(db_session) == before
 
+    await db_session.refresh(actor)  # expired by the denied request's rollback
     async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
-        resp = await client.post(_assignments(target.id), json=body)
+        resp = await client.post(url, json=body)
     assert resp.status_code == 201, resp.text
-    assert resp.json()["id"] == str(ra.id)
-    assert resp.json()["granted_by"] == str(actor.id)
+    assert resp.json()["id"] == str(ra_id)
+    assert resp.json()["granted_by"] == str(actor_id)
     await db_session.refresh(ra)
-    assert (ra.granted_by, ra.expires_at) == (actor.id, None)
+    assert (ra.granted_by, ra.expires_at) == (actor_id, None)
 
 
 async def test_granted_by_is_actor(make_client: MakeClient, db_session: AsyncSession) -> None:
@@ -507,6 +511,7 @@ async def test_sock_puppet_grant_refused(
         role = await _admin_role(db_session)
     else:
         _, role, _ = await _stoktok_admin_role(db_session)
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=["admin:roles:assign"], admin_user=actor) as client:
         _wildcard_required(
@@ -519,14 +524,15 @@ async def test_self_grant_admin_role_403(make_client: MakeClient, db_session: As
     me = await _verified_user(db_session)
     role = await _admin_role(db_session)
     body = {"role_id": str(role.id)}
+    url = _assignments(me.id)
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=SUPER, admin_user=me) as client:
-        error = _error(
-            await client.post(_assignments(me.id), json=body), 403, "self_assignment_forbidden"
-        )
+        error = _error(await client.post(url, json=body), 403, "self_assignment_forbidden")
         assert error["details"] is None
+    await db_session.refresh(me)  # expired by the denied request's rollback
     async with make_client(admin_permissions=["admin:roles:assign"], admin_user=me) as client:
-        _wildcard_required(await client.post(_assignments(me.id), json=body))
+        _wildcard_required(await client.post(url, json=body))
     assert await _state(db_session) == before
 
 
@@ -546,6 +552,7 @@ async def test_self_revoke_admin_role_403(
 ) -> None:
     me = await _verified_user(db_session)
     ra = await assign(db_session, me, await _admin_role(db_session))
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=SUPER, admin_user=me) as client:
         resp = await client.delete(_assignments(me.id, ra.id))
@@ -561,6 +568,7 @@ async def test_last_super_admin_revoke_409(
 ) -> None:
     only = await _verified_user(db_session)
     ra = await assign(db_session, only, await super_admin_role(db_session))
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=SUPER) as client:  # actor: not a counting holder
         resp = await client.delete(_assignments(only.id, ra.id))
@@ -577,6 +585,7 @@ async def test_unverified_super_admin_not_counted(
     super_admin = await super_admin_role(db_session)
     ra = await assign(db_session, verified, super_admin)
     await assign(db_session, unverified, super_admin)
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=SUPER) as client:
         if action == "revoke":
@@ -592,6 +601,7 @@ async def test_last_super_admin_disable_409(
 ) -> None:
     only = await _verified_user(db_session)
     await assign(db_session, only, await super_admin_role(db_session))
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=SUPER) as client:
         resp = await client.patch(f"{V1}/users/{only.id}", json={"status": "disabled"})
@@ -727,6 +737,7 @@ async def test_self_status_change_403(
     make_client: MakeClient, db_session: AsyncSession, start: str, target: str
 ) -> None:
     me = await _verified_user(db_session, status=start)
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
     before = await _state(db_session)
     async with make_client(admin_permissions=SUPER, admin_user=me) as client:
         resp = await client.patch(f"{V1}/users/{me.id}", json={"status": target})

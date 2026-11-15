@@ -6,7 +6,13 @@ from enum import StrEnum
 class ActorKind(StrEnum):
     USER = "user"
     SYSTEM = "system"
-    ANONYMOUS = "anonymous"  # reserved for ADM-004b (failed logins of unknown emails)
+    ANONYMOUS = "anonymous"  # an unauthenticated caller: failed logins, cookie-only events
+
+
+class AuditOutcome(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+    DENIED = "denied"
 
 
 class AuditTarget(StrEnum):
@@ -16,6 +22,7 @@ class AuditTarget(StrEnum):
     PERMISSION = "permission"
     ROLE = "role"
     ROLE_ASSIGNMENT = "role_assignment"
+    DEVICE_SESSION = "device_session"
 
 
 class AuditAction(StrEnum):
@@ -41,3 +48,10 @@ class AuditAction(StrEnum):
     ROLE_ASSIGNMENT_GRANTED = "role_assignment.granted"
     ROLE_ASSIGNMENT_REVOKED = "role_assignment.revoked"
     EMAIL_RETENTION_PURGED = "email_retention.purged"
+    AUTH_LOGIN_SUCCEEDED = "auth.login_succeeded"
+    AUTH_LOGIN_FAILED = "auth.login_failed"
+    AUTH_LOGGED_OUT = "auth.logged_out"
+    AUTH_LOGGED_OUT_ALL = "auth.logged_out_all"
+    DEVICE_SESSION_REUSE_REVOKED = "device_session.reuse_revoked"
+    AUTH_PASSWORD_RESET_COMPLETED = "auth.password_reset_completed"  # noqa: S105 (a name)
+    AUTH_EMAIL_VERIFIED = "auth.email_verified"

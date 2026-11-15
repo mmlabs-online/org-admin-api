@@ -22,6 +22,7 @@ READ_KEYS = {
     "actor_user_id",
     "actor_label",
     "action",
+    "outcome",
     "target_type",
     "target_id",
     "app_key",
@@ -161,6 +162,39 @@ async def test_422_from_after_to(admin_client: AsyncClient) -> None:
     error = resp.json()["error"]
     assert error["code"] == "unprocessable"
     assert error["details"] == [{"field": "from", "reason": "after_to"}]
+
+
+async def test_outcome_field_present(admin_client: AsyncClient, db_session: AsyncSession) -> None:
+    await _add(db_session)
+    await _add(db_session, minutes=1, outcome="denied")
+    items = (await admin_client.get(URL)).json()["items"]
+    assert [i["outcome"] for i in items] == ["denied", "success"]
+
+
+async def test_filter_by_outcome(admin_client: AsyncClient, db_session: AsyncSession) -> None:
+    await _add(db_session)
+    failed = await _add(
+        db_session,
+        minutes=1,
+        outcome="failure",
+        actor_kind="anonymous",
+        actor_user_id=None,
+        action="auth.login_failed",
+    )
+    denied = await _add(db_session, minutes=2, outcome="denied")
+    assert _ids(await admin_client.get(URL, params={"outcome": "failure"})) == [str(failed.id)]
+    assert _ids(await admin_client.get(URL, params={"outcome": "denied"})) == [str(denied.id)]
+    assert len(_ids(await admin_client.get(URL, params={"outcome": "success"}))) == 1
+    both = await admin_client.get(
+        URL, params={"outcome": "failure", "action": "auth.login_failed", "actor_kind": "anonymous"}
+    )
+    assert _ids(both) == [str(failed.id)]
+
+
+async def test_invalid_outcome_422(admin_client: AsyncClient) -> None:
+    resp = await admin_client.get(URL, params={"outcome": "maybe"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
 
 
 async def test_401_without_token(client: AsyncClient) -> None:

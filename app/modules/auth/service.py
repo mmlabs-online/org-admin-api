@@ -9,6 +9,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import RateLimitedError
+from app.modules.audit.actions import AuditAction, AuditOutcome, AuditTarget
+from app.modules.audit.context import ANONYMOUS, AuditContext, EndUser
+from app.modules.audit.service import AuditLogger
 from app.modules.auth.errors import (
     AppHeaderRequiredError,
     EmailTakenError,
@@ -115,6 +118,7 @@ class LoginService:
     ) -> None:
         self.users = UserRepository(session)
         self.failures = LoginFailureRepository(session)
+        self.audit = AuditLogger(session)
         self.hasher = hasher
         self.verifier = verifier
         self.email_hasher = email_hasher
@@ -133,6 +137,8 @@ class LoginService:
         cookies: list[str],
         remote_ip: str,
         user_agent: str | None,
+        app_key: str,
+        ctx: AuditContext,
     ) -> LoginResult:
         email = normalize_email(str(data.email))
         email_hmac = self.email_hasher.hmac(email)
@@ -162,13 +168,31 @@ class LoginService:
         user = await self.users.get_by_email_for_share(email)
         if user is None:
             await self.hasher.verify_dummy(password)
-            ok = False
+            password_ok = active = False
         else:
             # A disabled user's password is still checked; the outcome is the same 401 (A6).
-            ok = await self.hasher.verify(user.password_hash, password)
-            ok = ok and user.status == UserStatus.ACTIVE.value
-        if user is None or not ok:
+            password_ok = await self.hasher.verify(user.password_hash, password)
+            active = user.status == UserStatus.ACTIVE.value
+        if user is None or not (password_ok and active):
             logger.info("login_failed")  # already counted by the reservation
+            # The reservation is committed: the rollback in `record_failure` keeps the counter.
+            target: tuple[AuditTarget, uuid.UUID] | None
+            changes: dict[str, object]
+            if user is None:
+                target, changes = None, {"reason": "unknown_account"}
+            else:
+                reason = "user_disabled" if password_ok else "invalid_credentials"
+                target = (AuditTarget.USER, user.id)
+                changes = {"reason": reason, "failures": failures}
+            await self.audit.record_failure(
+                AuditAction.AUTH_LOGIN_FAILED,
+                outcome=AuditOutcome.FAILURE,
+                actor=ANONYMOUS,
+                ctx=ctx,
+                target=target,
+                app_key=app_key,
+                changes=changes,
+            )
             raise InvalidCredentialsError("Invalid email or password")
 
         await self.failures.delete(email_hmac)
@@ -176,6 +200,14 @@ class LoginService:
             cookies, ip=_valid_ip(remote_ip), user_agent=user_agent
         )
         account_id = await self.devices.add_account(device.device_id, user.id)
+        await self.audit.record(
+            AuditAction.AUTH_LOGIN_SUCCEEDED,
+            actor=EndUser(user.id),
+            ctx=ctx,
+            target=(AuditTarget.USER, user.id),
+            app_key=app_key,
+            changes={"account_session_id": account_id, "device_session_id": device.device_id},
+        )
         logger.info("login_succeeded account_session_id=%s", account_id)
         return LoginResult(account_id, user, device.new_cookie)
 
@@ -188,18 +220,39 @@ def _valid_ip(value: str) -> str | None:
 
 
 class LogoutService:
-    def __init__(self, devices: DeviceSessionService) -> None:
+    def __init__(self, session: AsyncSession, devices: DeviceSessionService) -> None:
         self.devices = devices
+        self.audit = AuditLogger(session)
 
-    async def logout(self, data: LogoutRequest, device: ResolvedDevice) -> None:
+    async def logout(
+        self, data: LogoutRequest, device: ResolvedDevice, *, app_key: str, ctx: AuditContext
+    ) -> None:
         """`{account_id}` revokes that account session on this device only (no oracle).
 
         With the previous cookie value, only account sessions created before the rotation
-        are reachable (N1); `{all}` still revokes the whole device.
+        are reachable (N1); `{all}` still revokes the whole device. A no-op writes no row.
         """
         if data.all:
-            await self.devices.revoke_device(device.device_id)
+            revoked = await self.devices.revoke_device(device.device_id)
+            if revoked is not None:
+                await self.audit.record(
+                    AuditAction.AUTH_LOGGED_OUT_ALL,
+                    actor=ANONYMOUS,
+                    ctx=ctx,
+                    target=(AuditTarget.DEVICE_SESSION, device.device_id),
+                    app_key=app_key,
+                    changes={"accounts_revoked": revoked},
+                )
         elif data.account_id is not None:
-            await self.devices.revoke_account(
+            user_id = await self.devices.revoke_account(
                 device.device_id, data.account_id, created_before=device.accounts_created_before
             )
+            if user_id is not None:
+                await self.audit.record(
+                    AuditAction.AUTH_LOGGED_OUT,
+                    actor=EndUser(user_id),
+                    ctx=ctx,
+                    target=(AuditTarget.USER, user_id),
+                    app_key=app_key,
+                    changes={"account_session_id": data.account_id},
+                )

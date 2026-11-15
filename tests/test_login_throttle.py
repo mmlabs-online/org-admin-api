@@ -70,10 +70,11 @@ async def test_fifth_failure_blocks_one_minute(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     user = await make_login_user(db_session)
+    email = user.email
     for _ in range(5):
-        resp = await _post(client, user.email, turnstile_token="pass")
+        resp = await _post(client, email, turnstile_token="pass")
         assert resp.status_code == 401
-    resp = await _post(client, user.email, PASSWORD, turnstile_token="pass")
+    resp = await _post(client, email, PASSWORD, turnstile_token="pass")
     assert resp.status_code == 429
     assert resp.json()["error"]["code"] == "rate_limited"
     assert 1 <= int(resp.headers["retry-after"]) <= 60
@@ -85,17 +86,18 @@ async def test_backoff_doubles_and_caps(
     client: AsyncClient, db_session: AsyncSession, before: int, minutes: int
 ) -> None:
     user = await make_login_user(db_session)
-    await _set_failures(db_session, user.email, before)
-    resp = await _post(client, user.email, turnstile_token="pass")
+    email = user.email
+    await _set_failures(db_session, email, before)
+    resp = await _post(client, email, turnstile_token="pass")
     assert resp.status_code == 401
-    row = await _row(db_session, user.email)
+    row = await _row(db_session, email)
     assert row is not None and row.failures == before + 1
     assert await db_session.scalar(
         text(
             "SELECT blocked_until = now() + make_interval(mins => :m) FROM login_failures "
             "WHERE email_hmac = :h"
         ),
-        {"m": minutes, "h": _hmac(user.email)},
+        {"m": minutes, "h": _hmac(email)},
     )
 
 
@@ -131,12 +133,13 @@ async def test_turnstile_required_after_three_failures(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     user = await make_login_user(db_session)
+    email = user.email
     for _ in range(3):
-        assert (await _post(client, user.email)).status_code == 401
-    resp = await _post(client, user.email, PASSWORD)
+        assert (await _post(client, email)).status_code == 401
+    resp = await _post(client, email, PASSWORD)
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "turnstile_required"
-    resp = await _post(client, user.email, PASSWORD, turnstile_token="pass")
+    resp = await _post(client, email, PASSWORD, turnstile_token="pass")
     assert resp.status_code == 200
 
 
@@ -154,10 +157,11 @@ async def test_turnstile_not_called_below_threshold(
     client: AsyncClient, db_session: AsyncSession, fake_turnstile: FakeTurnstileVerifier
 ) -> None:
     user = await make_login_user(db_session)
+    email = user.email
     for _ in range(3):
-        assert (await _post(client, user.email, turnstile_token="pass")).status_code == 401
+        assert (await _post(client, email, turnstile_token="pass")).status_code == 401
     assert fake_turnstile.calls == []
-    assert (await _post(client, user.email, turnstile_token="pass")).status_code == 401
+    assert (await _post(client, email, turnstile_token="pass")).status_code == 401
     assert len(fake_turnstile.calls) == 1
 
 
@@ -183,19 +187,21 @@ async def test_unknown_email_counted_like_known(
 
 async def test_success_resets_counter(client: AsyncClient, db_session: AsyncSession) -> None:
     user = await make_login_user(db_session)
+    email = user.email
     for _ in range(2):
-        assert (await _post(client, user.email)).status_code == 401
-    assert await _row(db_session, user.email) is not None
-    assert (await _post(client, user.email, PASSWORD)).status_code == 200
-    assert await _row(db_session, user.email) is None
+        assert (await _post(client, email)).status_code == 401
+    assert await _row(db_session, email) is not None
+    assert (await _post(client, email, PASSWORD)).status_code == 200
+    assert await _row(db_session, email) is None
 
 
 async def test_counter_resets_after_24h(client: AsyncClient, db_session: AsyncSession) -> None:
     user = await make_login_user(db_session)
-    await _set_failures(db_session, user.email, 4, last_failed="-25 hours")
-    resp = await _post(client, user.email)  # no Turnstile needed: the old counter is stale
+    email = user.email
+    await _set_failures(db_session, email, 4, last_failed="-25 hours")
+    resp = await _post(client, email)  # no Turnstile needed: the old counter is stale
     assert resp.status_code == 401
-    row = await _row(db_session, user.email)
+    row = await _row(db_session, email)
     assert row is not None and row.failures == 1
 
 
@@ -214,12 +220,13 @@ async def test_failure_counter_persists_despite_401(
 
 async def test_login_per_ip_limit(make_client: MakeClient, db_session: AsyncSession) -> None:
     user = await make_login_user(db_session)
+    email = user.email
     async with make_client(login_rate_limit=2) as client:
         assert (
             await client.post(LOGIN, json=login_body(user), headers=auth_headers())
         ).status_code == 200
-        assert (await _post(client, user.email)).status_code == 401
-        resp = await _post(client, user.email, PASSWORD)
+        assert (await _post(client, email)).status_code == 401
+        resp = await _post(client, email, PASSWORD)
     assert resp.status_code == 429
     assert resp.json()["error"]["code"] == "rate_limited"
     assert "retry-after" in resp.headers

@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | db, api, security, auth |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/30 |
 
 ## Goal
 Complete the audit log: security-relevant identity events and denied privileged attempts are recorded, using one failure-path write mechanism that never changes the intended error.
@@ -32,3 +32,4 @@ ADM-004.
 
 ## Notes / answers from owner
 - Carried from ADM-004 review/security review: decide retention + IP truncation (spec Q6) before widening `admin:audit:read`; scope the `email_send_log`/`email_tokens` key exemption to `email_retention.purged` with integer values; consider a cleanup summary row per table (batches commit before the summary); reject scoped IPv6 (`%zone`) before insert; document that `X-Request-ID` is client-supplied (or accept it only from trusted proxies); optionally strip C0 control chars from user agent.
+- 2026-11-15 (planner): retention purge split to ADM-004c. Per consults, the single failure-path mechanism is replaced by per-path mechanisms (ADR-0009 amendment); logout actions renamed `auth.logged_out` / `auth.logged_out_all`.

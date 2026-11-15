@@ -502,11 +502,13 @@ async def test_join_disabled_app_403(client: AsyncClient, db_session: AsyncSessi
 
 
 async def test_join_writes_audit_row(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role
+    make_client: MakeClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     headers = {**auth_headers(cookie=raw), "X-Request-ID": "req-join-1"}
-    resp = await client.post(_url(), json=_body(account.id), headers=headers)
+    # An inbound request id is kept only from a trusted proxy peer (ADM-004b).
+    async with make_client(trusted_proxy_cidrs=["127.0.0.0/8"]) as client:
+        resp = await client.post(_url(), json=_body(account.id), headers=headers)
     assert resp.status_code == 200, resp.text
     (ra,) = await _assignments(db_session, user)
     (row,) = await _audit_rows(db_session)

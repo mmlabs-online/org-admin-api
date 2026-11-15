@@ -116,6 +116,7 @@ async def login(
     hasher: Annotated[PasswordHasher, Depends(get_password_hasher)],
     verifier: Annotated[TurnstileVerifier, Depends(get_turnstile_verifier)],
     email_hasher: Annotated[EmailHasher, Depends(get_email_hasher)],
+    ctx: AuditContextDep,
 ) -> LoginResponse:
     """Public (R3 class 3: per-IP limit, Turnstile after 3 failures) + Origin/`X-MM-App` (A1)."""
     result = await LoginService(
@@ -125,6 +126,8 @@ async def login(
         cookies=read_device_cookies(request),
         remote_ip=remote_ip,
         user_agent=request.headers.get("user-agent"),
+        app_key=_app.key,
+        ctx=ctx,
     )
     settings: Settings = request.app.state.settings
     if result.new_cookie is not None:
@@ -149,14 +152,16 @@ async def login(
 async def logout(
     request: Request,
     response: Response,
+    session: SessionDep,
     _app: AppContextDep,
     _cookie: DeviceCookieDoc,
     body: LogoutRequest,
     device: DeviceDep,
     devices: DeviceSessionsDep,
+    ctx: AuditContextDep,
 ) -> None:
     """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`."""
-    await LogoutService(devices).logout(body, device)
+    await LogoutService(session, devices).logout(body, device, app_key=_app.key, ctx=ctx)
     settings: Settings = request.app.state.settings
     if body.all:
         clear_device_cookie(response, settings)
@@ -275,12 +280,13 @@ async def verify_email(
     response: Response,
     session: SessionDep,
     body: VerifyEmailRequest,
+    ctx: AuditContextDep,
 ) -> None:
     """Public (R3 class 3, per-IP limit): the one-time token is the credential."""
     settings: Settings = request.app.state.settings
     await EmailVerificationService(
         session, email_hasher=get_email_hasher(request), daily_cap=settings.email_daily_cap
-    ).verify(body.token)
+    ).verify(body.token, ctx=ctx)
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -374,6 +380,7 @@ async def reset_password(
     verifier: Annotated[TurnstileVerifier, Depends(get_turnstile_verifier)],
     policy: Annotated[PasswordPolicy, Depends(get_password_policy)],
     hasher: Annotated[PasswordHasher, Depends(get_password_hasher)],
+    ctx: AuditContextDep,
 ) -> None:
     """Public (R3 class 3, per-IP limit): the one-time token is the credential. Ends every
     account session of the user; sets no cookie and signs nobody in."""
@@ -385,5 +392,5 @@ async def reset_password(
         verifier=verifier,
         policy=policy,
         hasher=hasher,
-    ).reset(body.token, body.new_password.get_secret_value())
+    ).reset(body.token, body.new_password.get_secret_value(), ctx=ctx)
     response.headers["Cache-Control"] = "no-store"

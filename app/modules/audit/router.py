@@ -9,7 +9,7 @@ from pydantic import AwareDatetime
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import current_admin, require_permission
-from app.modules.audit.actions import ActorKind, AuditAction, AuditTarget
+from app.modules.audit.actions import ActorKind, AuditAction, AuditOutcome, AuditTarget
 from app.modules.audit.repository import AuditLogFilter
 from app.modules.audit.schemas import AuditLogRead
 from app.modules.audit.service import AuditLogService
@@ -28,6 +28,7 @@ async def list_audit_logs(
     target_type: Annotated[AuditTarget | None, Query()] = None,
     target_id: Annotated[uuid.UUID | None, Query()] = None,
     app_key: Annotated[str | None, Query(pattern=APP_KEY_RE)] = None,
+    outcome: Annotated[AuditOutcome | None, Query()] = None,
     occurred_from: Annotated[AwareDatetime | None, Query(alias="from")] = None,
     occurred_to: Annotated[AwareDatetime | None, Query(alias="to")] = None,
 ) -> Page[AuditLogRead]:
@@ -38,6 +39,7 @@ async def list_audit_logs(
         target_type=None if target_type is None else target_type.value,
         target_id=target_id,
         app_key=app_key,
+        outcome=None if outcome is None else outcome.value,
         occurred_from=occurred_from,
         occurred_to=occurred_to,
     )

@@ -80,6 +80,15 @@ class LastSuperAdminError(ConflictError):
     code = "last_super_admin"
 
 
+# Guard refusals of a privileged write, audited with `outcome=denied` (ADM-004b).
+DENIED_ERRORS = (
+    AdminWildcardRequiredError,
+    SelfAssignmentForbiddenError,
+    SelfStatusChangeForbiddenError,
+    LastSuperAdminError,
+)
+
+
 class RoleHasAssignmentsError(ConflictError):
     code = "role_has_assignments"
 

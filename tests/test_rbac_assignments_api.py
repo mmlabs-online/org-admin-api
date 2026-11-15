@@ -417,9 +417,11 @@ async def test_revoke_last_super_admin_409(
 ) -> None:
     user = await make_user(db_session)
     ra_id = await _super_admin(db_session, user)
+    user_id = user.id
+    await db_session.commit()  # the denied revoke rolls back (ADM-004b): keep the setup
 
-    _assert_error(await rbac_client.delete(_url(user.id, ra_id)), 409, "last_super_admin")
-    assert (await rbac_client.get(_url(user.id))).json()["total"] == 1
+    _assert_error(await rbac_client.delete(_url(user_id, ra_id)), 409, "last_super_admin")
+    assert (await rbac_client.get(_url(user_id))).json()["total"] == 1
 
 
 async def test_revoke_one_of_two_super_admins_204(
