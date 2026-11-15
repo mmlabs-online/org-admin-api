@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P2 |
 | Areas | db, security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-15 |
 | PR | — |
 
