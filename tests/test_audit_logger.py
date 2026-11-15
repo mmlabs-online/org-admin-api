@@ -170,7 +170,10 @@ async def test_record_failure_swallows_and_logs(
         actor=ANONYMOUS,
         ctx=AuditContext.NONE,
     )
-    assert "audit_write_failed action=auth.login_failed outcome=failure" in caplog.text
+    assert (
+        "audit_write_failed action=auth.login_failed outcome=failure error=RuntimeError"
+        in caplog.text
+    )
     assert await _count(db_session) == 0
     with pytest.raises(ValueError, match="failure or denied"):
         await AuditLogger(db_session).record_failure(
@@ -229,7 +232,10 @@ async def test_record_in_savepoint_keeps_outer_work(
         ctx=AuditContext.NONE,
         target=target,
     )
-    assert "audit_write_failed action=device_session.reuse_revoked" in caplog.text
+    assert (
+        "audit_write_failed action=device_session.reuse_revoked outcome=success error=RuntimeError"
+        in caplog.text
+    )
     assert await _count(db_session) == 1  # the failed row's savepoint was rolled back
     assert await db_session.scalar(select(Organization.id).where(Organization.id == org_id))
 
@@ -293,7 +299,13 @@ async def test_ipv4_mapped_normalised(db_session: AsyncSession) -> None:
 
 @pytest.mark.parametrize(
     ("ua", "stored"),
-    [("a\x00b\x1fc\x7fd\te", "abcde"), ("\x00\x01\x7f", None), ("\x00" + "u" * 600, "u" * 512)],
+    [
+        ("a\x00b\x1fc\x7fd\te", "abcde"),
+        ("\x00\x01\x7f", None),
+        ("\x00" + "u" * 600, "u" * 512),
+        ("a\x85b\x9bc\x80", "abc"),
+        ("\x9f", None),
+    ],
 )
 async def test_user_agent_control_chars_stripped(
     db_session: AsyncSession, ua: str, stored: str | None

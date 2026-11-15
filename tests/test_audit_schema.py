@@ -158,3 +158,74 @@ async def test_outcome_partial_index_used(db_session: AsyncSession) -> None:
         )
     ).scalars()
     assert "ix_audit_log_outcome" in "\n".join(plan)
+
+
+# Retention purge (ADM-004c): DELETE needs the `audit.allow_purge` latch AND a row older than
+# 90 days. `SET LOCAL` inside a savepoint that rolls back is undone; a released one keeps it, so
+# the passing test resets the flag in `finally`.
+AGED = text(
+    "INSERT INTO audit_log (id, actor_kind, action, occurred_at) VALUES (:id, 'anonymous',"
+    " 'auth.login_failed', now() - CAST(CAST(:age AS text) AS interval))"
+)
+
+
+async def _aged(db_session: AsyncSession, age: str) -> uuid.UUID:
+    row_id = uuid.uuid4()
+    await db_session.execute(AGED, {"id": row_id, "age": age})
+    return row_id
+
+
+async def _refused_with_flag(
+    db_session: AsyncSession, sql: str, value: str = "on", **params: Any
+) -> None:
+    with pytest.raises(DBAPIError, match="audit_log is append-only"):
+        async with db_session.begin_nested():
+            await db_session.execute(text(f"SET LOCAL audit.allow_purge = '{value}'"))
+            await db_session.execute(text(sql), params)
+
+
+async def test_delete_old_row_without_flag_refused(db_session: AsyncSession) -> None:
+    row_id = await _aged(db_session, "91 days")
+    await _append_only(db_session, "DELETE FROM audit_log WHERE id = :id", id=row_id)
+
+
+async def test_purge_flag_deletes_old_row(db_session: AsyncSession) -> None:
+    row_id = await _aged(db_session, "91 days")
+    try:
+        await db_session.execute(text("SET LOCAL audit.allow_purge = 'on'"))
+        result = await db_session.execute(
+            text("DELETE FROM audit_log WHERE id = :id"), {"id": row_id}
+        )
+        assert result.rowcount == 1
+    finally:
+        await db_session.execute(text("SET LOCAL audit.allow_purge = 'off'"))
+
+
+async def test_purge_flag_refuses_recent_row(db_session: AsyncSession) -> None:
+    row_id = await _aged(db_session, "89 days")
+    await _refused_with_flag(db_session, "DELETE FROM audit_log WHERE id = :id", id=row_id)
+
+
+async def test_purge_flag_boundary_90_days_refused(db_session: AsyncSession) -> None:
+    row_id = await _aged(db_session, "90 days")  # same transaction now(): exactly the floor
+    await _refused_with_flag(db_session, "DELETE FROM audit_log WHERE id = :id", id=row_id)
+
+
+@pytest.mark.parametrize("value", ["off", "", "true", "ON", "1"])
+async def test_purge_flag_other_values_refused(db_session: AsyncSession, value: str) -> None:
+    row_id = await _aged(db_session, "91 days")
+    await _refused_with_flag(
+        db_session, "DELETE FROM audit_log WHERE id = :id", value=value, id=row_id
+    )
+
+
+async def test_update_refused_with_flag(db_session: AsyncSession) -> None:
+    row_id = await _aged(db_session, "91 days")
+    await _refused_with_flag(
+        db_session, "UPDATE audit_log SET action = 'user.enabled' WHERE id = :id", id=row_id
+    )
+
+
+async def test_truncate_refused_with_flag(db_session: AsyncSession) -> None:
+    await _aged(db_session, "91 days")
+    await _refused_with_flag(db_session, "TRUNCATE audit_log")

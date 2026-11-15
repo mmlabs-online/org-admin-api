@@ -207,8 +207,9 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   `outcome=failure`. Failure rows are committed alone and an audit error never changes the intended
   error (ADR-0009 amendment). 429s, Turnstile refusals and no-ops write nothing. `changes` holds
   allowlisted fields only, never emails, hashes, tokens or cookies. Each row carries ip, user agent
-  and `X-Request-ID` (kept only from trusted proxies). Retention is ADM-004c; org membership
-  events come with USR-06.
+  and `X-Request-ID` (kept only from trusted proxies). Retention: the operator-only
+  `audit-purge` CLI deletes rows older than N ≥ 90 days (DB-enforced floor, ADM-004c); org
+  membership events come with USR-06.
 
 ## 6. Client libraries (D4)
 

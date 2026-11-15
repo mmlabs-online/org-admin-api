@@ -93,4 +93,27 @@ revocation and cannot run for login before the password check, so each path has 
 - **Not audited:** sign-up and token issuance (follow-up), verification resend, password forgot.
 - **`X-Request-ID`** is kept only from a peer in `TRUSTED_PROXY_CIDRS`, otherwise generated. It is
   a correlation id, not evidence (the trusted proxy forwards client headers).
-- **Retention** stays indefinite until ADM-004c (purge).
+- **Retention** stays indefinite until ADM-004c (purge; see the amendment below).
+
+## Amendment — retention purge (ADM-004c, 2026-11-15)
+
+Supersedes §8's "Retention is indefinite in v1" and the ADM-004b amendment's retention line.
+
+- **Trigger.** `audit_log_immutable()` (migration `d7e4b2a91c3f`) still refuses every UPDATE and
+  TRUNCATE. A DELETE passes only when the transaction set `SET LOCAL audit.allow_purge = 'on'`
+  **and** `OLD.occurred_at < now() - interval '90 days'`. The floor is hard-coded in the function,
+  never read from env or settings; `MIN_DAYS` in `app/modules/audit/purge.py` mirrors it (tested).
+- **Latch vs. floor.** The setting is a latch against accidents, not access control: any session
+  of the owner role can set it. The floor is what guarantees recent evidence cannot be erased
+  without DDL, until the API runs as a role with INSERT/SELECT only (follow-up).
+- **CLI only.** `python -m app.cli audit-purge --older-than-days N [--dry-run]` (90 ≤ N ≤ 3650) is
+  the only caller; `app/modules/audit/purge.py` is the only `app/` module that sets the latch and
+  only `app/cli.py` imports it. There is no HTTP route. Static tests enforce all three.
+- **Summary rows.** Each batch transaction that deletes rows writes one `audit_log.purged` row
+  (`system:cli`, `{cutoff, older_than_days, deleted}`), so no deletion exists without its row
+  (R4). `audit_log.purged` rows are never purged. A run that deletes nothing writes no row (as
+  §3: no-ops record nothing); the ops run summary is the trace. The email cleanup follows the same
+  rule: one `email_retention.purged` row per deleting batch.
+- **Backups** keep purged rows until backup retention expires. Retention period, per-class
+  retention and backup erasure remain owner questions (spec Q6, Decree 13/2023); the default
+  policy is 365 days.

@@ -1,7 +1,9 @@
 """Retention cleanup of the email send log and used/expired email tokens (USR-04d, ADR-0007).
 
 Run by the operator CLI (`python -m app.cli cleanup`); deletes in batches, one commit per batch,
-so a failure leaves earlier batches deleted and a re-run is safe. Takes no lock on `users`.
+so a failure leaves earlier batches deleted and a re-run is safe. Each batch that deletes rows
+writes its `email_retention.purged` summary in the same transaction (ADM-004c). Takes no lock on
+`users`.
 """
 
 from collections.abc import Awaitable, Callable
@@ -72,17 +74,16 @@ class EmailRetentionService:
                 while True:
                     await repo.set_lock_timeout()
                     deleted = await purge(retention, self.batch_size)
+                    if deleted > 0:  # one summary row per deleting batch: a count, never rows
+                        await self.audit.record(
+                            AuditAction.EMAIL_RETENTION_PURGED,
+                            actor=SYSTEM_CLI,
+                            ctx=AuditContext.NONE,
+                            changes={table: change(None, deleted)},
+                        )
                     await repo.commit()
                     rows += deleted
                     if deleted < self.batch_size:
                         break
             counts.append(PurgeCount(table, rows, label))
-        if not dry_run:  # one summary row: counts per table, never row contents
-            await self.audit.record(
-                AuditAction.EMAIL_RETENTION_PURGED,
-                actor=SYSTEM_CLI,
-                ctx=AuditContext.NONE,
-                changes={c.table: change(None, c.rows) for c in counts},
-            )
-            await repo.commit()
         return counts

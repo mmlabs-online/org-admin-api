@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | db, security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/31 |
 
 ## Goal
 Audit rows can be purged after the retention period, only by an operator, with a DB-enforced floor so recent evidence can never be erased.
