@@ -16,7 +16,7 @@ from app.modules.auth.errors import EmailTakenError, WeakPasswordError
 from app.modules.auth.passwords import PasswordHasher, PasswordPolicy
 from app.modules.auth.schemas import PASSWORD_MAX_LENGTH
 from app.modules.membership.service import join_default_role, lock_joinable_app
-from app.modules.rbac.actor import SYSTEM_CLI
+from app.modules.rbac.actor import SYSTEM_CLI, SYSTEM_JOIN
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import AssignmentService
 from app.modules.users.models import User
@@ -76,8 +76,9 @@ class AccountProvisioningService:
         )
         assignment_id = None
         if app is not None and role is not None:
+            # Non-privileged actor: `_guard_privileged` still refuses admin roles. Audited as CLI.
             ra, _ = await AssignmentService(self.session)._grant_locked(
-                app, role, user.id, None, None, actor=SYSTEM_CLI
+                app, role, user.id, None, None, actor=SYSTEM_JOIN
             )
             assignment_id = ra.id
             await audit.record(

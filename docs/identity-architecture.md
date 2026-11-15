@@ -198,7 +198,7 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   `AuditLogger.record` adds one row in the same transaction as the change, after the last guard, for
   every admin mutation (organizations, user status, apps, permissions, roles, role permissions,
   role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
-  grant-super-admin, cleanup summary) and `app.joined` (ADM-004). Failures, refusals and no-ops write
+  grant-super-admin, cleanup summary, create-account: `user.created` + `app.joined`) and `app.joined` (ADM-004). Failures, refusals and no-ops write
   nothing. `changes` holds allowlisted fields only, never emails, hashes, tokens or cookies. Each row
   carries ip, user agent and `X-Request-ID`. Login (success/failure), logout, reuse revocation,
   password reset, email verification, denied privileged attempts (`outcome`) and retention are

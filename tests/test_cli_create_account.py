@@ -1,5 +1,6 @@
 """create-account CLI (USR-09, ADR-0010): verified user, join, refusals, secrecy, one txn."""
 
+import ast
 import getpass
 import io
 import logging
@@ -491,6 +492,46 @@ async def test_failure_after_insert_rolls_back_user(
     assert capsys.readouterr().err == MSG_CREATE_UNEXPECTED + "\n"
     assert await _user(db_session) is None
     assert await _audit(db_session) == []
+
+
+async def test_cli_grant_still_refuses_admin_role(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = await make_login_app(db_session)
+    role = await make_member_role(db_session, app)
+    perm = await make_permission(db_session, app, "stoktok:roles:manage", is_admin=True)
+    await grant(db_session, role, perm)
+
+    async def _role(rbac: Any, app: Any) -> Any:
+        return role
+
+    monkeypatch.setattr("app.modules.auth.provisioning.join_default_role", _role)
+    assignments_before = await _count(db_session, "role_assignments")
+    argv = ["--email", EMAIL, "--join", "stoktok"]
+    assert await _run(argv, scope=_savepoint_scope(db_session)) == 1
+    assert capsys.readouterr().err == MSG_CREATE_UNEXPECTED + "\n"
+    assert await _user(db_session) is None
+    assert await _count(db_session, "role_assignments") == assignments_before
+    assert await _audit(db_session) == []
+
+
+def test_only_cli_imports_provisioning() -> None:
+    target = "app.modules.auth.provisioning"
+    importers: set[str] = set()
+    for path in (REPO_ROOT / "app").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                if node.level:  # resolve relative imports against the file's package
+                    pkg = path.relative_to(REPO_ROOT).with_suffix("").parts[: -node.level]
+                    mod = ".".join((*pkg, *([mod] if mod else [])))
+                names = [mod, *(f"{mod}.{a.name}" for a in node.names)]
+            if any(n == target or n.startswith(target + ".") for n in names):
+                importers.add(path.relative_to(REPO_ROOT).as_posix())
+    assert importers == {"app/cli.py"}
 
 
 async def test_locks_app_before_user_insert(db_session: AsyncSession) -> None:

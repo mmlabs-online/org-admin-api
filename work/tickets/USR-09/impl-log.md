@@ -73,3 +73,12 @@ None. Small deviations: two `# noqa: S105` on message constants in `app/cli.py`,
 ### Scope self-check
 - Could the diff be smaller? No.
 - Diff size: provisioning ~+25/-8, actions +1, tests ~+45, docs ~+8/-6.
+
+## Attempt 3 (REWORK: security items after appsec Attempt 2)
+
+- `app/modules/auth/provisioning.py`: `_grant_locked` now called with `SYSTEM_JOIN` (non-privileged), so `_guard_privileged` applies on the CLI path. `_grant_locked` does not record the actor beyond `granted_by` (None for system actors), and the audit rows still use `SYSTEM_CLI` (`system:cli`). Reused `SYSTEM_JOIN`; no new actor added.
+- `tests/test_cli_create_account.py`: `test_cli_grant_still_refuses_admin_role` (patched `join_default_role` returns a role with an admin permission; exit 1, generic message, no user, no assignment, no audit row) and `test_only_cli_imports_provisioning` (ast walk of `app/`, all import forms incl. relative; only `app/cli.py`). The patch targets by string path: a top-level import of provisioning in the test module made the logger get disabled by the CLI logging config and broke `test_audit_log_line_ids_only`.
+- `docs/identity-architecture.md` S8: added create-account (`user.created` + `app.joined`) to the CLI audit writes.
+- Postgres: `service postgresql start`.
+- `make check`: 1447 passed, 1 warning (pty deprecation); ruff, format, mypy green.
+- Out-of-plan files: none beyond those above. Not committed.
