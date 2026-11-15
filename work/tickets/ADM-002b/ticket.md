@@ -7,7 +7,7 @@
 | Areas | auth, security, api |
 | Attempts | 1 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/27 |
 
 ## Goal
 Make every `# ADM-002 guard` site real, close the known escalation paths, then remove the two admin API flags so the users and RBAC staff APIs are available in production behind Bearer auth.
