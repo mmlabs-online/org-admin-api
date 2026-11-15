@@ -7,12 +7,6 @@ class AudienceMismatchError(PermissionDeniedError):
     code = "audience_mismatch"
 
 
-class AudienceNotSupportedError(PermissionDeniedError):
-    """`admin` until ADM-002 (ADR-0005)."""
-
-    code = "audience_not_supported"
-
-
 class EmailUnverifiedError(PermissionDeniedError):
     code = "email_unverified"
 

@@ -6,8 +6,8 @@ from httpx import ASGITransport, AsyncClient
 from app.core.errors import RateLimitedError, UnprocessableError, register_error_handlers
 
 
-async def test_validation_error_details_have_no_input_or_ctx(client: AsyncClient) -> None:
-    resp = await client.post(
+async def test_validation_error_details_have_no_input_or_ctx(admin_client: AsyncClient) -> None:
+    resp = await admin_client.post(
         "/api/v1/organizations", json={"slug": "Not Valid!", "name": "x" * 300}
     )
     assert resp.status_code == 422

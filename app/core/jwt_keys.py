@@ -8,6 +8,7 @@ import base64
 import binascii
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -85,6 +86,8 @@ class KeySet:
     extra_kids: tuple[str, ...]
     jwks_body: bytes = field(repr=False)
     jwks_etag: str
+    # Every published key by kid (signing + extra), for verifying admin tokens (ADM-002).
+    public_keys: Mapping[str, ec.EllipticCurvePublicKey] = field(repr=False)
 
     def sign(self, claims: dict[str, Any]) -> str:
         return jwt.encode(
@@ -105,6 +108,7 @@ def build_key_set(signing_b64: str | None, extra_b64: list[str]) -> KeySet:
     signing_kid = thumbprint(signing_key.public_key())
     keys = [public_jwk(signing_key.public_key(), signing_kid)]
     kids = [signing_kid]
+    public_keys = {signing_kid: signing_key.public_key()}
     for value in extra_b64:
         pub = parse_public_key_b64(value)
         kid = thumbprint(pub)
@@ -112,6 +116,7 @@ def build_key_set(signing_b64: str | None, extra_b64: list[str]) -> KeySet:
             raise ValueError("duplicate key in JWT_PUBLIC_KEYS_EXTRA")
         kids.append(kid)
         keys.append(public_jwk(pub, kid))
+        public_keys[kid] = pub
     body = json.dumps({"keys": keys}, separators=(",", ":"), sort_keys=True).encode()
     return KeySet(
         signing_key=signing_key,
@@ -119,4 +124,5 @@ def build_key_set(signing_b64: str | None, extra_b64: list[str]) -> KeySet:
         extra_kids=tuple(kids[1:]),
         jwks_body=body,
         jwks_etag=strong_etag(body),
+        public_keys=public_keys,
     )

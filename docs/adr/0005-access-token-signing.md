@@ -47,14 +47,14 @@ architect recommended ES256, the identity and security consults EdDSA (Ed25519).
    `Cache-Control: public, max-age=300`, `Access-Control-Allow-Origin: *` without credentials (the
    credentialed CORS middleware skips `/.well-known/`). Verifiers refetch on an unknown `kid`, at
    most once a minute.
-8. **`audience=admin` is refused** (403 `audience_not_supported`) until ADM-002: nothing verifies
-   admin tokens yet, the admin TTL and staff 2FA are open, and origins are not yet exclusive per
-   app.
+8. **`audience=admin` is issued since ADM-002** and verified per ADR-0008. Admin origins are set
+   only by ADM-002c and are exclusive to `admin`. *(Until ADM-002 it was refused with 403
+   `audience_not_supported`.)*
 9. **`/token` errors** (R6 envelope), checked in this order: 429 `rate_limited`; 403
    `app_header_required` / `origin_not_allowed` (unknown **or disabled** app, bad Origin — one code,
    so no oracle on which app keys exist; the ticket's `app_disabled` is therefore not used);
    401 `session_invalid` (cookie); 422 `validation_error`; 403 `audience_mismatch` (`audience` ≠
-   `X-MM-App`); 403 `audience_not_supported`; 422 `org_not_supported` (until USR-06); 401
+   `X-MM-App`); 422 `org_not_supported` (until USR-06); 401
    `session_invalid` without clearing the cookie (unknown, foreign, revoked or too-new account
    session, or disabled user); 403 `email_unverified` (S5); 403 `not_member` with
    `details.join_available = join_policy != "closed"` (no non-expired app-scope role).

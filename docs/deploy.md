@@ -238,7 +238,8 @@ migration must keep the previous release working:
      Pull requests read/write. (The same kind of token stoktok/calechip use.)
 4. **Cloudflare:** in the tunnel used by `proxy/` (Zero Trust → Networks → Tunnels → the mmlabs
    tunnel → Public hostnames), add `api.mmlabs.online` → `HTTP` → `org-admin-api:8000`.
-   No Cloudflare Access application (owner decision, 2026-11-10 — the API has no auth until ADM-002).
+   No Cloudflare Access application (owner decision, 2026-11-10). Since ADM-002 the admin endpoints
+   need a Bearer `aud=admin` token (see "Admin access (ADM-002)").
 5. Push the branch `release/v0.1.0` from main, merge the release PR it opens, and check
    `https://api.mmlabs.online/healthz`.
 6. **Ops workflow environment:** in `mmlabs-online/deployment` create the GitHub Environment
@@ -325,6 +326,29 @@ then reset it from the emailed link (USR-04b): this ends every signed-in session
 issued stay valid for at most 15 minutes (`ACCESS_TOKEN_TTL_SECONDS`).
 
 Locally: `make grant-super-admin email=you@example.com`.
+
+## Admin access (ADM-002)
+
+**What changed in production:** the organizations endpoints (`/api/v1/organizations`) now answer
+401 without an `Authorization: Bearer` token with audience `admin`, and 403 without the needed
+`admin:*` permission (ADR-0008). Health, JWKS, the role catalog and the `/api/v1/auth/*` endpoints
+are unchanged. The users and RBAC admin APIs stay unmounted in production until ADM-002b.
+
+**Until ADM-002c ships, no admin token can be obtained in production:** the `admin` app has no
+origins, so the login and token calls with `X-MM-App: admin` fail the origin check. The admin
+API is closed to everyone. This is fail-closed and intended.
+
+Runbook, once ADM-002c is released:
+
+1. Deploy (migrations seed the admin leaf permissions).
+2. Sign up and verify your email through a registered app.
+3. Grant yourself `admin:super-admin` ("Bootstrap the first super-admin").
+4. Set the admin origins (ADM-002c, ops workflow).
+5. From an admin origin: `POST /api/v1/auth/login` with `X-MM-App: admin`, then
+   `POST /api/v1/auth/token` `{"audience": "admin", "account_id": …}` with the cookie.
+6. Call the admin endpoints with `Authorization: Bearer <access_token>`. Tokens last
+   `ACCESS_TOKEN_TTL_SECONDS` (15 min); disabling a user or revoking a role applies on the next
+   request.
 
 ## Register an app (USR-07)
 

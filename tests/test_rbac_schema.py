@@ -37,6 +37,40 @@ async def test_seed_admin_app(db_session: AsyncSession) -> None:
     assert await db_session.scalar(select(Role).where(Role.key == "admin:member")) is None
 
 
+ADMIN_LEAF_PERMISSIONS = {
+    "admin:organizations:read",
+    "admin:organizations:write",
+    "admin:users:read",
+    "admin:users:write",
+    "admin:apps:read",
+    "admin:apps:write",
+    "admin:roles:manage",
+    "admin:roles:assign",
+}
+
+
+async def test_admin_leaf_permissions_seeded(db_session: AsyncSession) -> None:
+    app = await db_session.scalar(select(App).where(App.key == "admin"))
+    assert app is not None
+    rows = (
+        await db_session.execute(
+            select(Permission.key, Permission.is_admin).where(
+                Permission.app_id == app.id, Permission.key.in_(ADMIN_LEAF_PERMISSIONS)
+            )
+        )
+    ).all()
+    assert {key for key, _ in rows} == ADMIN_LEAF_PERMISSIONS
+    assert all(is_admin for _, is_admin in rows)
+    super_admin = await db_session.scalar(select(Role).where(Role.key == "admin:super-admin"))
+    assert super_admin is not None
+    held = await db_session.scalars(
+        select(Permission.key)
+        .join(RolePermission, RolePermission.permission_id == Permission.id)
+        .where(RolePermission.role_id == super_admin.id)
+    )
+    assert set(held) == {"admin:*"}
+
+
 async def test_app_defaults(db_session: AsyncSession) -> None:
     # Raw SQL so the server defaults (not the Python ones) are exercised.
     await db_session.execute(

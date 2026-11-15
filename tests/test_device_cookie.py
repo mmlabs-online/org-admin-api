@@ -100,7 +100,9 @@ async def test_duplicate_host_cookie_still_401(
     assert active == 1
 
 
-async def test_non_auth_route_ignores_cookie(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_non_auth_route_ignores_cookie(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
     user = await make_login_user(db_session)
     raw, device, _ = await make_device(db_session, user)
     await shift(db_session, "device_sessions", "rotated_at", device.id, "-25 hours")
@@ -109,7 +111,7 @@ async def test_non_auth_route_ignores_cookie(client: AsyncClient, db_session: As
     token_hash, last_seen_at = before.token_hash, before.last_seen_at
 
     for path in ("/healthz", "/api/v1/organizations"):
-        resp = await client.get(path, headers=auth_headers(cookie=raw))
+        resp = await admin_client.get(path, headers=auth_headers(cookie=raw))
         assert resp.status_code == 200, resp.text
         assert "set-cookie" not in resp.headers
 

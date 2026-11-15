@@ -1,6 +1,7 @@
 import base64
 import os
-from collections.abc import AsyncIterator, Callable
+import uuid
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
@@ -49,6 +50,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.core.config import Settings
 from app.db.session import get_session
 from app.main import create_app
+from app.modules.admin_auth.deps import current_admin
+from app.modules.admin_auth.service import AdminPrincipal
 from app.modules.auth.deps import get_email_dispatcher, get_turnstile_verifier
 from app.modules.email.dispatcher import EmailDispatcher
 from tests.fakes import FakeEmailSender, FakeTurnstileVerifier
@@ -116,6 +119,14 @@ def _use_test_session(app: FastAPI, db_session: AsyncSession) -> None:
     app.state.origin_registry.session_factory = _registry_session
 
 
+def _override_admin(app: FastAPI, admin_permissions: Sequence[str] | None) -> None:
+    """Stand in for a verified staff principal (real verification: `test_admin_auth.py`)."""
+    if admin_permissions is None:
+        return
+    principal = AdminPrincipal(uuid.uuid4(), frozenset(admin_permissions), "test")
+    app.dependency_overrides[current_admin] = lambda: principal
+
+
 @pytest.fixture
 def make_client(
     db_session: AsyncSession,
@@ -125,7 +136,9 @@ def make_client(
     """Build a client for an app with optional settings overrides (same DB session)."""
 
     @asynccontextmanager
-    async def _make(**settings_overrides: Any) -> AsyncIterator[AsyncClient]:
+    async def _make(
+        admin_permissions: Sequence[str] | None = None, **settings_overrides: Any
+    ) -> AsyncIterator[AsyncClient]:
         app = create_app(Settings(**settings_overrides) if settings_overrides else None)
 
         async def _override_session() -> AsyncIterator[AsyncSession]:
@@ -135,6 +148,7 @@ def make_client(
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
         app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
         _use_test_session(app, db_session)
+        _override_admin(app, admin_permissions)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
 
@@ -153,7 +167,7 @@ def make_strict_app(
     """The app behind `make_strict_client`: the session mirrors `get_session` (commit on
     success, rollback on exception)."""
 
-    def _make(**settings_overrides: Any) -> FastAPI:
+    def _make(admin_permissions: Sequence[str] | None = None, **settings_overrides: Any) -> FastAPI:
         app = create_app(Settings(**settings_overrides) if settings_overrides else None)
 
         async def _override_session() -> AsyncIterator[AsyncSession]:
@@ -168,6 +182,7 @@ def make_strict_app(
         app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
         app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
         _use_test_session(app, db_session)
+        _override_admin(app, admin_permissions)
         return app
 
     return _make
@@ -180,8 +195,10 @@ def make_strict_client(make_strict_app: MakeStrictApp) -> MakeClient:
     outer test transaction still rolls back) before calling it."""
 
     @asynccontextmanager
-    async def _make(**settings_overrides: Any) -> AsyncIterator[AsyncClient]:
-        app = make_strict_app(**settings_overrides)
+    async def _make(
+        admin_permissions: Sequence[str] | None = None, **settings_overrides: Any
+    ) -> AsyncIterator[AsyncClient]:
+        app = make_strict_app(admin_permissions, **settings_overrides)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
 
@@ -191,4 +208,11 @@ def make_strict_client(make_strict_app: MakeStrictApp) -> MakeClient:
 @pytest.fixture
 async def client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
     async with make_client() as c:
+        yield c
+
+
+@pytest.fixture
+async def admin_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
+    """`client` signed in as a super-admin (`current_admin` overridden)."""
+    async with make_client(admin_permissions=["admin:*"]) as c:
         yield c

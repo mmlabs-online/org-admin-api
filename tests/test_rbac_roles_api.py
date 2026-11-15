@@ -21,7 +21,7 @@ ROLE_READ_KEYS = {"id", "key", "name", "is_system", "permissions"}
 
 @pytest.fixture
 async def rbac_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_rbac_api_enabled=True) as c:
+    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
         yield c
 
 
@@ -426,9 +426,7 @@ async def test_put_super_admin_without_wildcard_409(
     assert resp.json()["error"]["code"] == "conflict"
     assert await _held(db_session, super_admin.id) == before
 
-    admin = await db_session.scalar(select(App).where(App.key == "admin"))
-    assert admin is not None
-    await make_permission(db_session, admin, "admin:apps:read", is_admin=True)
+    # `admin:apps:read` is seeded (ADM-002).
     resp = await rbac_client.put(
         _put_url(super_admin.id, "admin"),
         json={"permission_keys": ["admin:*", "admin:apps:read"]},

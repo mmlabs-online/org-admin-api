@@ -210,7 +210,7 @@ async def test_catalog_reachable_flag_on_no_clash(
     make_client: MakeClient, db_session: AsyncSession
 ) -> None:
     await _setup(db_session)
-    async with make_client(admin_rbac_api_enabled=True) as c:
+    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
         resp = await c.get(URL)
         assert resp.status_code == 200
         assert set(resp.json()) == {"app", "roles"}

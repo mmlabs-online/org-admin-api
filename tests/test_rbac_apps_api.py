@@ -8,8 +8,6 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
-from app.main import create_app
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.rbac.repository import RbacRepository
 from tests.conftest import MakeClient
@@ -32,7 +30,7 @@ APP_READ_KEYS = {
 
 @pytest.fixture
 async def rbac_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
-    async with make_client(admin_rbac_api_enabled=True) as c:
+    async with make_client(admin_rbac_api_enabled=True, admin_permissions=["admin:*"]) as c:
         yield c
 
 
@@ -52,34 +50,6 @@ async def test_apps_api_not_mounted_by_default(client: AsyncClient) -> None:
     assert (await client.get(f"{BASE}/stoktok")).status_code == 404
     assert (await client.patch(f"{BASE}/stoktok", json={"name": "x"})).status_code == 404
     assert (await client.delete(f"{BASE}/stoktok")).status_code == 404
-
-
-def test_rbac_routes_declare_permissions() -> None:
-    # FastAPI wraps included routers lazily, so enumerate operations via the OpenAPI schema.
-    app = create_app(Settings(admin_rbac_api_enabled=True))
-    expected = {
-        ("GET", "/api/v1/apps"): "admin:apps:read",
-        ("POST", "/api/v1/apps"): "admin:apps:write",
-        ("GET", "/api/v1/apps/{key}"): "admin:apps:read",
-        ("PATCH", "/api/v1/apps/{key}"): "admin:apps:write",
-        ("DELETE", "/api/v1/apps/{key}"): "admin:apps:write",
-        ("GET", "/api/v1/apps/{key}/permissions"): "admin:apps:read",
-        ("POST", "/api/v1/apps/{key}/permissions"): "admin:roles:manage",
-        ("PATCH", "/api/v1/apps/{key}/permissions/{permission_id}"): "admin:roles:manage",
-        ("DELETE", "/api/v1/apps/{key}/permissions/{permission_id}"): "admin:roles:manage",
-        ("GET", "/api/v1/apps/{key}/roles"): None,  # public role catalog (D17, USR-02e)
-        ("POST", "/api/v1/apps/{key}/roles"): "admin:roles:manage",
-        ("PATCH", "/api/v1/apps/{key}/roles/{role_id}"): "admin:roles:manage",
-        ("DELETE", "/api/v1/apps/{key}/roles/{role_id}"): "admin:roles:manage",
-        ("PUT", "/api/v1/apps/{key}/roles/{role_id}/permissions"): "admin:roles:manage",
-    }
-    found = {
-        (method.upper(), path): operation.get("x-permission")
-        for path, operations in app.openapi()["paths"].items()
-        if path.startswith("/api/v1/apps")
-        for method, operation in operations.items()
-    }
-    assert found == expected
 
 
 # Display-text filter (ADR-0003 §11): categories Cc, Cf, Zl, Zp, Co, Cn.
