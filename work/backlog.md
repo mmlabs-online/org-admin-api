@@ -31,7 +31,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-002c | Set admin app origins from the CLI | DONE | P1 | auth, security | 1 | 2026-11-15 |
 | ADM-002b | Enforce admin RBAC guards and mount the users/RBAC APIs | DONE | P1 | auth, security, api | 1 | 2026-11-15 |
 | ADM-002d | Admin auth hardening and runbook fixes | BACKLOG | P2 | auth, security | 0 | 2026-11-15 |
-| ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | REVIEW | P1 | db, api, security | 0 | 2026-11-15 |
+| ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | DONE | P1 | db, api, security | 1 | 2026-11-15 |
 | ADM-004b | Audit identity events, denied privileged attempts and retention | BACKLOG | P1 | db, api, security, auth | 0 | 2026-11-15 |
 | USR-06 | Organizations and org-aware tokens (first consumer: calechip) | BACKLOG | P2 | architecture, db, api, auth, security | 0 | 2026-11-11 |
 | USR-04d | Email hardening: dispatcher shutdown, retention cleanup, daily-cap alert | DONE | P1 | auth, db | 1 | 2026-11-13 |

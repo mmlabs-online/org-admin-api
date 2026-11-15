@@ -31,3 +31,4 @@ Split from ADM-004 (see `work/tickets/ADM-004/plan.md` and consults).
 ADM-004.
 
 ## Notes / answers from owner
+- Carried from ADM-004 review/security review: decide retention + IP truncation (spec Q6) before widening `admin:audit:read`; scope the `email_send_log`/`email_tokens` key exemption to `email_retention.purged` with integer values; consider a cleanup summary row per table (batches commit before the summary); reject scoped IPv6 (`%zone`) before insert; document that `X-Request-ID` is client-supplied (or accept it only from trusted proxies); optionally strip C0 control chars from user agent.
