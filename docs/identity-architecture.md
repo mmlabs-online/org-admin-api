@@ -153,6 +153,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`; `admin:*` for privileged users) | staff user management | USR-01, ADM-002 |
 | Admin: `/api/v1/apps`, `/apps/{key}/permissions`, `/apps/{key}/roles` (writes) | Bearer `aud=admin` + `require_permission` (`admin:apps:read\|write`, `admin:roles:manage`; `admin:*` for the admin app and `is_admin` changes) | apps, permissions, roles | USR-02, ADM-002 |
 | Admin: `/api/v1/users/{id}/role-assignments` | Bearer `aud=admin` + `require_permission` (`admin:users:read`, `admin:roles:assign`; `admin:*` for privileged roles) | role assignments | USR-02, ADM-002 |
+| Admin: `GET /api/v1/audit-logs` (filters `actor_user_id`, `actor_kind`, `action`, `target_type`, `target_id`, `app_key`, `from`/`to`) | Bearer `aud=admin` + `require_permission` (`admin:audit:read`, held only via `admin:*`) | read-only audit log | ADM-004 |
 
 Admin auth (ADR-0008): the Bearer token comes from the `Authorization` header only, never the
 device cookie. It is verified like `docs/consumers.md` prescribes (`typ`, ES256, `kid`, `iss`,
@@ -193,8 +194,15 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 - **S6 Email (D3):** verification/reset resend at most 1/min and 5/day per email; tokens single-use,
   expiring, stored hashed. Gmail App Password only in env.
 - **S7 Tokens (D7, R11):** signing keys from env, `kid`, documented rotation; apps must check `aud` (ADR-0005, rotation in deploy.md).
-- **S8 Audit:** login (success/failure), logout, join, role/assignment changes, org membership changes
-  are audit events (ADM-004).
+- **S8 Audit (ADR-0009):** an append-only `audit_log` (DB trigger refuses UPDATE/DELETE/TRUNCATE).
+  `AuditLogger.record` adds one row in the same transaction as the change, after the last guard, for
+  every admin mutation (organizations, user status, apps, permissions, roles, role permissions,
+  role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
+  grant-super-admin, cleanup summary) and `app.joined` (ADM-004). Failures, refusals and no-ops write
+  nothing. `changes` holds allowlisted fields only, never emails, hashes, tokens or cookies. Each row
+  carries ip, user agent and `X-Request-ID`. Login (success/failure), logout, reuse revocation,
+  password reset, email verification, denied privileged attempts (`outcome`) and retention are
+  ADM-004b; org membership events come with USR-06.
 
 ## 6. Client libraries (D4)
 

@@ -3,6 +3,10 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import LastSuperAdminError, NotFoundError, SelfStatusChangeForbiddenError
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import AuditContext
+from app.modules.audit.diff import change
+from app.modules.audit.service import AuditLogger
 from app.modules.rbac.actor import Actor, actor_user_id, require_super
 from app.modules.rbac.models import ADMIN_APP_KEY
 from app.modules.rbac.repository import RbacRepository
@@ -15,6 +19,7 @@ from app.modules.users.repository import UserRepository
 class UserService:
     def __init__(self, session: AsyncSession) -> None:
         self.repo = UserRepository(session)
+        self.audit = AuditLogger(session)
 
     async def get(self, user_id: uuid.UUID) -> User:
         user = await self.repo.get(user_id)
@@ -27,7 +32,9 @@ class UserService:
     ) -> tuple[list[User], int]:
         return await self.repo.list(email=email, status=status, limit=limit, offset=offset)
 
-    async def set_status(self, user_id: uuid.UUID, status: UserStatus, *, actor: Actor) -> User:
+    async def set_status(
+        self, user_id: uuid.UUID, status: UserStatus, *, actor: Actor, ctx: AuditContext
+    ) -> User:
         """Lock order `admin` app -> user row (as `bootstrap_super_admin`), so the
         last-super-admin guard is serialized with revokes and other status changes."""
         rbac = RbacRepository(self.repo.session)
@@ -51,11 +58,20 @@ class UserService:
                 and await rbac.count_other_active_super_admins(role.id, ra.id) == 0
             ):
                 raise LastSuperAdminError("Cannot disable the last active super-admin")
-        # R4: audit entry in the same transaction once ADM-004 lands.
+        old_status = user.status
         user.status = status.value
         await self.repo.session.flush()
         if status == UserStatus.DISABLED:
             # Admin tokens stop on the next request (per-request reload); app tokens expire.
             await SessionRepository(self.repo.session).revoke_all_accounts_of_user(user.id)
+        await self.audit.record(
+            AuditAction.USER_DISABLED
+            if status == UserStatus.DISABLED
+            else AuditAction.USER_ENABLED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.USER, user.id),
+            changes={"status": change(old_status, status.value)},
+        )
         await self.repo.session.refresh(user)
         return user

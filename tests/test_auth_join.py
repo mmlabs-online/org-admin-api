@@ -11,8 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.recorder import LogAuditRecorder
-from app.modules.auth import router as auth_router
+from app.modules.audit.models import AuditLog
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Role, RoleAssignment
 from app.modules.sessions.models import AccountSession, DeviceSession
@@ -34,24 +33,6 @@ from tests.rbac_factories import assign, grant, make_permission, make_role
 JOIN = "/api/v1/auth/apps/{key}/join"
 TOKEN = "/api/v1/auth/token"
 ADMIN_ORIGIN = "https://admin.mmlabs.online"
-
-
-class FakeRecorder:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, uuid.UUID]]] = []
-
-    async def record(
-        self, event: str, *, actor_user_id: uuid.UUID, app_id: uuid.UUID, **ids: uuid.UUID
-    ) -> None:
-        self.calls.append((event, {"actor_user_id": actor_user_id, "app_id": app_id, **ids}))
-
-
-@pytest.fixture
-def recorder(monkeypatch: pytest.MonkeyPatch) -> FakeRecorder:
-    """Replaces what `get_audit_recorder` returns for every app built in the test."""
-    fake = FakeRecorder()
-    monkeypatch.setattr(auth_router, "_audit_recorder", fake)
-    return fake
 
 
 @pytest.fixture
@@ -94,6 +75,11 @@ async def _assignments(db_session: AsyncSession, user: User) -> list[RoleAssignm
     return list(rows)
 
 
+async def _audit_rows(db_session: AsyncSession) -> list[AuditLog]:
+    rows = await db_session.scalars(select(AuditLog).where(AuditLog.action == "app.joined"))
+    return list(rows)
+
+
 async def _join(
     client: AsyncClient, account_id: uuid.UUID, raw: str, key: str = "stoktok", **headers: Any
 ) -> Any:
@@ -103,7 +89,7 @@ async def _join(
 
 
 async def test_join_open_assigns_default_role(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     resp = await _join(client, account.id, raw)
@@ -116,11 +102,11 @@ async def test_join_open_assigns_default_role(
         None,
         None,
     )
-    assert len(recorder.calls) == 1
+    assert len(await _audit_rows(db_session)) == 1
 
 
 async def test_join_then_token_200(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     _, raw, account = await _signed_in(db_session)
     token_body = {"audience": "stoktok", "account_id": str(account.id)}
@@ -138,7 +124,7 @@ async def test_join_then_token_200(
 
 
 async def test_join_idempotent_no_write(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     first = await _join(client, account.id, raw)
@@ -146,7 +132,7 @@ async def test_join_idempotent_no_write(
     assert (first.status_code, second.status_code) == (200, 200)
     assert first.json() == second.json() == {"status": "member"}
     assert len(await _assignments(db_session, user)) == 1
-    assert len(recorder.calls) == 1
+    assert len(await _audit_rows(db_session)) == 1
 
 
 async def test_join_existing_other_role_no_write(
@@ -154,7 +140,6 @@ async def test_join_existing_other_role_no_write(
     db_session: AsyncSession,
     stoktok: App,
     member_role: Role,
-    recorder: FakeRecorder,
 ) -> None:
     viewer = await make_role(db_session, stoktok, "stoktok:viewer")
     user, raw, account = await _signed_in(db_session)
@@ -162,11 +147,11 @@ async def test_join_existing_other_role_no_write(
     resp = await _join(client, account.id, raw)
     assert resp.status_code == 200
     assert [ra.role_id for ra in await _assignments(db_session, user)] == [viewer.id]
-    assert recorder.calls == []
+    assert await _audit_rows(db_session) == []
 
 
 async def test_join_org_scope_role_is_not_membership(
-    client: AsyncClient, db_session: AsyncSession, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession
 ) -> None:
     app = await make_login_app(db_session, org_mode="required")
     member = await make_member_role(db_session, app)
@@ -180,11 +165,11 @@ async def test_join_org_scope_role_is_not_membership(
     assert resp.status_code == 200, resp.text
     rows = {(ra.role_id, ra.org_id) for ra in await _assignments(db_session, user)}
     assert rows == {(org_role.id, org.id), (member.id, None)}
-    assert len(recorder.calls) == 1
+    assert len(await _audit_rows(db_session)) == 1
 
 
 async def test_join_revives_expired_assignment(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     expired = await assign(
@@ -194,19 +179,19 @@ async def test_join_revives_expired_assignment(
     assert resp.status_code == 200, resp.text
     (ra,) = await _assignments(db_session, user)
     assert (ra.id, ra.expires_at, ra.org_id) == (expired.id, None, None)
-    assert len(recorder.calls) == 1
-    assert recorder.calls[0][1]["assignment_id"] == expired.id
+    (row,) = await _audit_rows(db_session)
+    assert row.target_id == expired.id
 
 
 async def test_join_unverified_403(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session, verified=False)
     resp = await _join(client, account.id, raw)
     assert resp.status_code == 403
     assert _error(resp)["code"] == "email_unverified"
     assert await _assignments(db_session, user) == []
-    assert recorder.calls == []
+    assert await _audit_rows(db_session) == []
 
 
 @pytest.mark.parametrize(
@@ -216,7 +201,6 @@ async def test_join_unverified_403(
 async def test_join_policy_refused_403(
     client: AsyncClient,
     db_session: AsyncSession,
-    recorder: FakeRecorder,
     join_policy: str,
     code: str,
 ) -> None:
@@ -228,11 +212,11 @@ async def test_join_policy_refused_403(
     assert resp.status_code == 403
     assert _error(resp)["code"] == code
     assert await _assignments(db_session, user) == []
-    assert recorder.calls == []
+    assert await _audit_rows(db_session) == []
 
 
 async def test_join_null_default_role_403(
-    client: AsyncClient, db_session: AsyncSession, stoktok: App, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, stoktok: App
 ) -> None:
     await make_role(db_session, stoktok, "stoktok:member")  # exists, but not the default
     user, raw, account = await _signed_in(db_session)
@@ -247,7 +231,6 @@ async def test_join_default_role_with_admin_permission_403(
     db_session: AsyncSession,
     stoktok: App,
     member_role: Role,
-    recorder: FakeRecorder,
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -267,7 +250,7 @@ async def test_join_default_role_with_admin_permission_403(
 
 
 async def test_join_admin_refused_even_if_open(
-    client: AsyncClient, db_session: AsyncSession, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession
 ) -> None:
     admin = await db_session.scalar(select(App).where(App.key == "admin"))
     assert admin is not None
@@ -283,7 +266,7 @@ async def test_join_admin_refused_even_if_open(
 
 
 async def test_join_app_mismatch_403(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     other = await make_login_app(db_session, "ricotdin", origins=["https://ricotdin.mmlabs.online"])
     await make_member_role(db_session, other)
@@ -296,7 +279,7 @@ async def test_join_app_mismatch_403(
 
 
 async def test_join_other_device_account_401(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     _, raw, _ = await _signed_in(db_session)
     foreign_user, _, foreign = await _signed_in(db_session)
@@ -308,7 +291,7 @@ async def test_join_other_device_account_401(
 
 
 async def test_join_unknown_account_401(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     _, raw, _ = await _signed_in(db_session)
     resp = await _join(client, uuid.uuid4(), raw)
@@ -318,7 +301,7 @@ async def test_join_unknown_account_401(
 
 
 async def test_join_revoked_account_401(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     await db_session.execute(
@@ -334,7 +317,7 @@ async def test_join_revoked_account_401(
 
 
 async def test_join_previous_cookie_newer_account_401(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     alice = await make_login_user(db_session)
     bob = await make_login_user(db_session)
@@ -354,7 +337,7 @@ async def test_join_previous_cookie_newer_account_401(
 
 
 async def test_join_disabled_user_401(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session, status="disabled")
     resp = await _join(client, account.id, raw)
@@ -364,7 +347,7 @@ async def test_join_disabled_user_401(
 
 
 async def test_join_already_member_of_closed_app(
-    client: AsyncClient, db_session: AsyncSession, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession
 ) -> None:
     app = await make_login_app(db_session, join_policy="closed")
     viewer = await make_role(db_session, app, "stoktok:viewer")
@@ -374,11 +357,11 @@ async def test_join_already_member_of_closed_app(
     assert resp.status_code == 200
     assert resp.json() == {"status": "member"}
     assert len(await _assignments(db_session, user)) == 1
-    assert recorder.calls == []
+    assert await _audit_rows(db_session) == []
 
 
 async def test_join_locks_app_before_reads_and_writes(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     _, raw, account = await _signed_in(db_session)
     statements: list[str] = []
@@ -407,54 +390,8 @@ async def test_join_locks_app_before_reads_and_writes(
     assert lock < min(guarded)
 
 
-async def test_join_audit_ids_only(
-    client: AsyncClient,
-    db_session: AsyncSession,
-    stoktok: App,
-    member_role: Role,
-    recorder: FakeRecorder,
-) -> None:
-    user, raw, account = await _signed_in(db_session)
-    assert (await _join(client, account.id, raw)).status_code == 200
-    (ra,) = await _assignments(db_session, user)
-    assert recorder.calls == [
-        (
-            "app.join",
-            {
-                "actor_user_id": user.id,
-                "app_id": stoktok.id,
-                "role_id": member_role.id,
-                "assignment_id": ra.id,
-            },
-        )
-    ]
-
-
-async def test_join_default_recorder_logs_ids_only(
-    client: AsyncClient,
-    db_session: AsyncSession,
-    stoktok: App,
-    member_role: Role,
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert isinstance(auth_router._audit_recorder, LogAuditRecorder)
-    for name in ("app.modules.audit.recorder", "app.modules.membership.service"):
-        monkeypatch.setattr(logging.getLogger(name), "disabled", False)
-    user, raw, account = await _signed_in(db_session)
-    with caplog.at_level(logging.INFO):
-        assert (await _join(client, account.id, raw)).status_code == 200
-    (line,) = [r.getMessage() for r in caplog.records if r.getMessage().startswith("audit ")]
-    assert "event=app.join" in line
-    assert f"actor_user_id={user.id}" in line
-    assert f"app_id={stoktok.id}" in line
-    assert f"role_id={member_role.id}" in line
-    assert user.email not in caplog.text
-    assert raw not in caplog.text
-
-
 async def test_join_no_store_and_rotation(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user = await make_login_user(db_session)
     raw, device, (account,) = await make_device(db_session, user)
@@ -478,7 +415,7 @@ async def _token_hash(db_session: AsyncSession, device_id: uuid.UUID) -> bytes:
 
 
 async def test_join_error_after_rotation_rolls_back(
-    make_strict_client: MakeClient, db_session: AsyncSession, recorder: FakeRecorder
+    make_strict_client: MakeClient, db_session: AsyncSession
 ) -> None:
     await make_login_app(db_session, join_policy="closed")
     user = await make_login_user(db_session)
@@ -495,7 +432,7 @@ async def test_join_error_after_rotation_rolls_back(
 
 
 async def test_join_rate_limited_429(
-    make_client: MakeClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    make_client: MakeClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     _, raw, account = await _signed_in(db_session)
     async with make_client(join_rate_limit=1) as client:
@@ -507,16 +444,14 @@ async def test_join_rate_limited_429(
     assert "retry-after" in second.headers
 
 
-async def test_join_missing_cookie_401(
-    client: AsyncClient, member_role: Role, recorder: FakeRecorder
-) -> None:
+async def test_join_missing_cookie_401(client: AsyncClient, member_role: Role) -> None:
     resp = await client.post(_url(), json=_body(uuid.uuid4()), headers=auth_headers())
     assert resp.status_code == 401
     assert _error(resp)["code"] == "session_invalid"
 
 
 async def test_join_missing_app_header_403(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     resp = await _join(client, account.id, raw, app_key=None)
@@ -526,7 +461,7 @@ async def test_join_missing_app_header_403(
 
 
 async def test_join_bad_origin_403(
-    client: AsyncClient, db_session: AsyncSession, member_role: Role, recorder: FakeRecorder
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     for origin in ("https://evil.example", None):
@@ -548,7 +483,6 @@ async def test_join_body_validation_422(
     client: AsyncClient,
     db_session: AsyncSession,
     member_role: Role,
-    recorder: FakeRecorder,
     body: dict[str, Any],
 ) -> None:
     _, raw, _ = await _signed_in(db_session)
@@ -557,9 +491,7 @@ async def test_join_body_validation_422(
     assert _error(resp)["code"] == "validation_error"
 
 
-async def test_join_disabled_app_403(
-    client: AsyncClient, db_session: AsyncSession, recorder: FakeRecorder
-) -> None:
+async def test_join_disabled_app_403(client: AsyncClient, db_session: AsyncSession) -> None:
     app = await make_login_app(db_session, status="disabled")
     await make_member_role(db_session, app)
     user, raw, account = await _signed_in(db_session)
@@ -567,3 +499,39 @@ async def test_join_disabled_app_403(
     assert resp.status_code == 403
     assert _error(resp)["code"] == "origin_not_allowed"
     assert await _assignments(db_session, user) == []
+
+
+async def test_join_writes_audit_row(
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
+) -> None:
+    user, raw, account = await _signed_in(db_session)
+    headers = {**auth_headers(cookie=raw), "X-Request-ID": "req-join-1"}
+    resp = await client.post(_url(), json=_body(account.id), headers=headers)
+    assert resp.status_code == 200, resp.text
+    (ra,) = await _assignments(db_session, user)
+    (row,) = await _audit_rows(db_session)
+    assert (row.actor_kind, row.actor_user_id, row.actor_label) == ("user", user.id, None)
+    assert (row.target_type, row.target_id) == ("role_assignment", ra.id)
+    assert (row.app_key, row.org_id) == ("stoktok", None)
+    assert row.changes == {"role_key": {"from": None, "to": "stoktok:member"}}
+    assert (str(row.ip), row.request_id) == ("127.0.0.1", "req-join-1")
+    assert user.email not in str(row.changes)
+
+
+async def test_join_already_member_no_audit_row(
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
+) -> None:
+    user, raw, account = await _signed_in(db_session)
+    await assign(db_session, user, member_role)
+    resp = await _join(client, account.id, raw)
+    assert resp.status_code == 200
+    assert await _audit_rows(db_session) == []
+
+
+async def test_join_closed_no_audit_row(client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_login_app(db_session, join_policy="closed")
+    await make_member_role(db_session, app)
+    _, raw, account = await _signed_in(db_session)
+    resp = await _join(client, account.id, raw)
+    assert resp.status_code == 403
+    assert await _audit_rows(db_session) == []

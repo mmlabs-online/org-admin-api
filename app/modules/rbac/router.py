@@ -13,6 +13,7 @@ from app.api.deps import PageDep, SessionDep
 from app.core.config import Settings
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
+from app.modules.audit.deps import AuditContextDep
 from app.modules.rbac.schemas import (
     AppCreate,
     AppRead,
@@ -53,8 +54,10 @@ async def list_apps(session: SessionDep, page: PageDep) -> Page[AppRead]:
     status_code=status.HTTP_201_CREATED,
     **_with_409("admin:apps:write", "Key or origin already taken"),
 )
-async def register_app(session: SessionDep, principal: AdminDep, body: AppCreate) -> AppRead:
-    return AppRead.model_validate(await AppService(session).create(body, actor=principal))
+async def register_app(
+    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, body: AppCreate
+) -> AppRead:
+    return AppRead.model_validate(await AppService(session).create(body, actor=principal, ctx=ctx))
 
 
 @router.get("/{key}", response_model=AppRead, **require_permission("admin:apps:read"))
@@ -68,10 +71,17 @@ async def get_app(session: SessionDep, key: str) -> AppRead:
     **_with_409("admin:apps:write", "Admin app invariant or origin already taken"),
 )
 async def update_app(
-    session: SessionDep, principal: AdminDep, request: Request, key: str, body: AppUpdate
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    request: Request,
+    key: str,
+    body: AppUpdate,
 ) -> AppRead:
     settings: Settings = request.app.state.settings
-    app = await AppService(session).update(key, body, actor=principal, app_env=settings.app_env)
+    app = await AppService(session).update(
+        key, body, actor=principal, ctx=ctx, app_env=settings.app_env
+    )
     return AppRead.model_validate(app)
 
 
@@ -80,8 +90,10 @@ async def update_app(
     status_code=status.HTTP_204_NO_CONTENT,
     **require_permission("admin:apps:write"),
 )
-async def delete_app(session: SessionDep, principal: AdminDep, key: str) -> None:
-    await AppService(session).delete(key, actor=principal)
+async def delete_app(
+    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str
+) -> None:
+    await AppService(session).delete(key, actor=principal, ctx=ctx)
 
 
 # --- permissions -------------------------------------------------------------
@@ -111,9 +123,9 @@ async def list_permissions(session: SessionDep, key: str, page: PageDep) -> Page
     **require_permission("admin:roles:manage"),
 )
 async def create_permission(
-    session: SessionDep, principal: AdminDep, key: str, body: PermissionCreate
+    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str, body: PermissionCreate
 ) -> PermissionRead:
-    perm = await PermissionService(session).create(key, body, actor=principal)
+    perm = await PermissionService(session).create(key, body, actor=principal, ctx=ctx)
     return PermissionRead.model_validate(perm)
 
 
@@ -125,11 +137,14 @@ async def create_permission(
 async def update_permission(
     session: SessionDep,
     principal: AdminDep,
+    ctx: AuditContextDep,
     key: str,
     permission_id: uuid.UUID,
     body: PermissionUpdate,
 ) -> PermissionRead:
-    perm = await PermissionService(session).update(key, permission_id, body, actor=principal)
+    perm = await PermissionService(session).update(
+        key, permission_id, body, actor=principal, ctx=ctx
+    )
     return PermissionRead.model_validate(perm)
 
 
@@ -139,9 +154,13 @@ async def update_permission(
     **require_permission("admin:roles:manage"),
 )
 async def delete_permission(
-    session: SessionDep, principal: AdminDep, key: str, permission_id: uuid.UUID
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    key: str,
+    permission_id: uuid.UUID,
 ) -> None:
-    await PermissionService(session).delete(key, permission_id, actor=principal)
+    await PermissionService(session).delete(key, permission_id, actor=principal, ctx=ctx)
 
 
 # --- roles -------------------------------------------------------------------
@@ -154,9 +173,9 @@ async def delete_permission(
     **require_permission("admin:roles:manage"),
 )
 async def create_role(
-    session: SessionDep, principal: AdminDep, key: str, body: RoleCreate
+    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str, body: RoleCreate
 ) -> RoleRead:
-    return await RoleService(session).create(key, body, actor=principal)
+    return await RoleService(session).create(key, body, actor=principal, ctx=ctx)
 
 
 @router.patch(
@@ -165,9 +184,14 @@ async def create_role(
     **require_permission("admin:roles:manage"),
 )
 async def update_role(
-    session: SessionDep, principal: AdminDep, key: str, role_id: uuid.UUID, body: RoleUpdate
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    key: str,
+    role_id: uuid.UUID,
+    body: RoleUpdate,
 ) -> RoleRead:
-    return await RoleService(session).update(key, role_id, body, actor=principal)
+    return await RoleService(session).update(key, role_id, body, actor=principal, ctx=ctx)
 
 
 @router.delete(
@@ -176,9 +200,9 @@ async def update_role(
     **require_permission("admin:roles:manage"),
 )
 async def delete_role(
-    session: SessionDep, principal: AdminDep, key: str, role_id: uuid.UUID
+    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str, role_id: uuid.UUID
 ) -> None:
-    await RoleService(session).delete(key, role_id, actor=principal)
+    await RoleService(session).delete(key, role_id, actor=principal, ctx=ctx)
 
 
 @router.put(
@@ -189,8 +213,11 @@ async def delete_role(
 async def replace_role_permissions(
     session: SessionDep,
     principal: AdminDep,
+    ctx: AuditContextDep,
     key: str,
     role_id: uuid.UUID,
     body: RolePermissionsReplace,
 ) -> RoleRead:
-    return await RoleService(session).replace_permissions(key, role_id, body, actor=principal)
+    return await RoleService(session).replace_permissions(
+        key, role_id, body, actor=principal, ctx=ctx
+    )

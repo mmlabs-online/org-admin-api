@@ -68,6 +68,7 @@ BEARER = {
     ("PATCH", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("DELETE", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("PUT", f"{V1}/apps/{{key}}/roles/{{role_id}}/permissions"): "admin:roles:manage",
+    ("GET", f"{V1}/audit-logs"): "admin:audit:read",
 }
 _PRODUCTION = {
     "app_env": "production",

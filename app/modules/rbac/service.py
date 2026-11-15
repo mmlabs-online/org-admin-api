@@ -3,6 +3,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,10 @@ from app.core.errors import (
     SelfAssignmentForbiddenError,
     UnprocessableError,
 )
+from app.modules.audit import diff
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import AuditContext
+from app.modules.audit.service import AuditLogger
 from app.modules.rbac.actor import SYSTEM_CLI, Actor, actor_user_id, require_super
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
@@ -252,8 +257,8 @@ class RoleCatalogService:
         """The caller holds the app lock (`lock_app`) or owns the uncommitted new app row.
 
         With `set_default=False`, `apps.default_role_id` is left as it is, even when NULL.
+        Internal: never audits (the public mutator that calls it records one row).
         """
-        # R4: audit entry once ADM-004 lands.
         if app.key == ADMIN_APP_KEY:
             raise ConflictError("The admin app has no member role")
 
@@ -282,6 +287,7 @@ class AppService:
     def __init__(self, session: AsyncSession) -> None:
         self.repo = RbacRepository(session)
         self.catalog = RoleCatalogService(session)
+        self.audit = AuditLogger(session)
 
     async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
         return await self.repo.list_apps(limit=limit, offset=offset)
@@ -292,8 +298,20 @@ class AppService:
             raise NotFoundError("App not found")
         return app
 
-    async def create(self, data: AppCreate, *, actor: Actor) -> App:
-        """No `admin:*` needed: a new app has no admins yet. R4: audit (actor) once ADM-004."""
+    async def create(self, data: AppCreate, *, actor: Actor, ctx: AuditContext) -> App:
+        """No `admin:*` needed: a new app has no admins yet."""
+        app = await self._create(data)
+        await self.audit.record(
+            AuditAction.APP_CREATED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.APP, app.id),
+            app_key=app.key,
+            changes=diff.diff(None, diff.snapshot(app, diff.APP)),
+        )
+        return app
+
+    async def _create(self, data: AppCreate) -> App:
         if await self.repo.get_app_by_key(data.key) is not None:
             raise ConflictError("App key is already taken")
         claimed = [o for o in data.origins if not is_loopback_origin(o)]
@@ -316,8 +334,28 @@ class AppService:
         self.repo.mark_apps_changed()
         return app
 
-    async def update(self, key: str, data: AppUpdate, *, actor: Actor, app_env: str) -> App:
+    async def update(
+        self, key: str, data: AppUpdate, *, actor: Actor, ctx: AuditContext, app_env: str
+    ) -> App:
+        app, before = await self._update(key, data, actor=actor, app_env=app_env)
+        changes = diff.diff(before, diff.snapshot(app, diff.APP))
+        if changes:
+            await self.audit.record(
+                AuditAction.APP_UPDATED,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.APP, app.id),
+                app_key=app.key,
+                changes=changes,
+            )
+        return app
+
+    async def _update(
+        self, key: str, data: AppUpdate, *, actor: Actor, app_env: str
+    ) -> tuple[App, dict[str, Any]]:
+        """Returns the app and its allowlisted snapshot from before the change."""
         app = await _locked_app(self.repo, key)
+        before = diff.snapshot(app, diff.APP)
         fields = data.model_fields_set
         changes: dict[str, object] = {}
         for field in fields:
@@ -357,31 +395,38 @@ class AppService:
                 raise _origin_taken()
 
         if not changes:
-            return app  # no write: updated_at stays unchanged
+            return app, before  # no write: updated_at stays unchanged
         for field, value in changes.items():
             setattr(app, field, value)
 
-        # R4: audit entry in the same transaction once ADM-004 lands.
         try:
             await self.repo.save()
         except IntegrityError as exc:  # e.g. the role was deleted concurrently
             raise ConflictError("App was changed concurrently") from exc
         self.repo.mark_apps_changed()
         await self.repo.session.refresh(app)
-        return app
+        return app, before
 
-    async def delete(self, key: str, *, actor: Actor) -> None:
+    async def delete(self, key: str, *, actor: Actor, ctx: AuditContext) -> None:
         app = await _locked_app(self.repo, key)
         if app.key == ADMIN_APP_KEY:
             raise ConflictError("The admin app cannot be deleted")
         if await self.repo.app_has_assignments(app.id):
             raise ConflictError("App has role assignments; disable it instead")
-        # R4: audit entry in the same transaction once ADM-004 lands.
+        app_id, before = app.id, diff.snapshot(app, diff.APP)
         try:
             await self.repo.delete_app(app)
         except IntegrityError as exc:  # an assignment was added concurrently
             raise ConflictError("App has role assignments; disable it instead") from exc
         self.repo.mark_apps_changed()
+        await self.audit.record(
+            AuditAction.APP_DELETED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.APP, app_id),
+            app_key=key,
+            changes=diff.diff(before, None),
+        )
 
     async def register(self, data: AppRegister, *, app_env: str) -> RegisterResult:
         """Create or update an app from the operator CLI (USR-07); the caller owns the transaction.
@@ -448,19 +493,17 @@ class AppService:
         if await self.repo.app_keys_holding_origins(claimed, data.key):
             raise _origin_taken()
 
-        # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
         changes: list[tuple[str, str, str]] = []
         created = app is None
         if app is None:
-            app = await self.create(
+            app = await self._create(
                 AppCreate(
                     key=data.key,
                     name=data.name,
                     join_policy=data.join_policy or JoinPolicy.OPEN,
                     org_mode=data.org_mode or OrgMode.NONE,
                     origins=data.origins,
-                ),
-                actor=SYSTEM_CLI,
+                )
             )
             origins_added, origins_removed = sorted(app.origins), []
         else:
@@ -470,7 +513,7 @@ class AppService:
                 fields["origins"] = data.origins
             if data.join_policy is not None:
                 fields["join_policy"] = data.join_policy
-            app = await self.update(
+            app, _ = await self._update(
                 data.key, AppUpdate.model_validate(fields), actor=SYSTEM_CLI, app_env=app_env
             )
             if app.name != old_name:
@@ -483,7 +526,7 @@ class AppService:
         added = [k for k in requested if k not in existing]
         permission_service = PermissionService(self.repo.session)
         for perm_key in added:
-            await permission_service.create(
+            await permission_service._create(
                 data.key, PermissionCreate(key=perm_key, is_admin=False), actor=SYSTEM_CLI
             )
 
@@ -506,6 +549,26 @@ class AppService:
             outcome = RegisterOutcome.UPDATED
         else:
             outcome = RegisterOutcome.UNCHANGED
+        if outcome != RegisterOutcome.UNCHANGED:
+            audit: dict[str, diff.Change] = {}
+            if created:
+                audit.update(diff.diff(None, diff.snapshot(app, diff.APP)))
+            else:
+                audit.update({field: diff.change(old, new) for field, old, new in changes})
+                if origins_added or origins_removed:
+                    audit["origins"] = diff.change(origins_removed, origins_added)
+            if added:
+                audit["permissions_added"] = diff.change([], sorted(added))
+            if member_added or member_removed:
+                audit["member_permissions"] = diff.change(member_removed, member_added)
+            await self.audit.record(
+                AuditAction.APP_REGISTERED,
+                actor=SYSTEM_CLI,
+                ctx=AuditContext.NONE,
+                target=(AuditTarget.APP, app.id),
+                app_key=app.key,
+                changes=audit,
+            )
         return RegisterResult(
             outcome=outcome,
             key=app.key,
@@ -552,7 +615,6 @@ class AppService:
         old = list(app.origins)
         outcome = AdminOriginsOutcome.UNCHANGED
         if set(origins) != set(old):
-            # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
             app.origins = list(origins)
             try:
                 await self.repo.save()
@@ -560,6 +622,14 @@ class AppService:
                 raise ConflictError("App was changed concurrently") from exc
             self.repo.mark_apps_changed()
             outcome = AdminOriginsOutcome.UPDATED
+            await self.audit.record(
+                AuditAction.APP_ADMIN_ORIGINS_SET,
+                actor=SYSTEM_CLI,
+                ctx=AuditContext.NONE,
+                target=(AuditTarget.APP, app.id),
+                app_key=app.key,
+                changes={"origins": diff.change(old, app.origins)},
+            )
         return AdminOriginsResult(
             outcome=outcome,
             key=app.key,
@@ -577,6 +647,7 @@ class PermissionService:
 
     def __init__(self, session: AsyncSession) -> None:
         self.repo = RbacRepository(session)
+        self.audit = AuditLogger(session)
 
     async def list_permissions(
         self, key: str, *, limit: int, offset: int
@@ -592,7 +663,21 @@ class PermissionService:
             raise NotFoundError("Permission not found")
         return perm
 
-    async def create(self, key: str, data: PermissionCreate, *, actor: Actor) -> Permission:
+    async def create(
+        self, key: str, data: PermissionCreate, *, actor: Actor, ctx: AuditContext
+    ) -> Permission:
+        perm = await self._create(key, data, actor=actor)
+        await self.audit.record(
+            AuditAction.PERMISSION_CREATED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.PERMISSION, perm.id),
+            app_key=key,
+            changes=diff.diff(None, diff.snapshot(perm, diff.PERMISSION)),
+        )
+        return perm
+
+    async def _create(self, key: str, data: PermissionCreate, *, actor: Actor) -> Permission:
         app = await _locked_app(self.repo, key)
         if data.key.split(":", 1)[0] != app.key:
             raise _prefix_mismatch()
@@ -606,7 +691,6 @@ class PermissionService:
             require_super(actor)
         if await self.repo.get_permission_by_key(app.id, data.key) is not None:
             raise ConflictError("Permission key is already taken")
-        # R4: audit entry in the same transaction once ADM-004 lands.
         try:
             return await self.repo.add_permission(
                 Permission(
@@ -623,9 +707,11 @@ class PermissionService:
         data: PermissionUpdate,
         *,
         actor: Actor,
+        ctx: AuditContext,
     ) -> Permission:
         app = await _locked_app(self.repo, key)
         perm = await self._get(app, permission_id)
+        before = diff.snapshot(perm, diff.PERMISSION)
         fields = data.model_fields_set
 
         if "is_admin" in fields and data.is_admin is False and perm.key.endswith(":*"):
@@ -653,15 +739,24 @@ class PermissionService:
         for field, value in changes.items():
             setattr(perm, field, value)
 
-        # R4: audit entry in the same transaction once ADM-004 lands.
         try:
             await self.repo.save()
         except IntegrityError as exc:
             raise ConflictError("Permission was changed concurrently") from exc
         await self.repo.session.refresh(perm)
+        await self.audit.record(
+            AuditAction.PERMISSION_UPDATED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.PERMISSION, perm.id),
+            app_key=key,
+            changes=diff.diff(before, diff.snapshot(perm, diff.PERMISSION)),
+        )
         return perm
 
-    async def delete(self, key: str, permission_id: uuid.UUID, *, actor: Actor) -> None:
+    async def delete(
+        self, key: str, permission_id: uuid.UUID, *, actor: Actor, ctx: AuditContext
+    ) -> None:
         app = await _locked_app(self.repo, key)
         perm = await self._get(app, permission_id)
         if app.key == ADMIN_APP_KEY:
@@ -670,11 +765,19 @@ class PermissionService:
             raise ConflictError("The admin wildcard permission cannot be deleted")
         if await self.repo.permission_held_by_any_role(perm.id):
             raise ConflictError("Permission is held by a role; remove it from the roles first")
-        # R4: audit entry in the same transaction once ADM-004 lands.
+        before = diff.snapshot(perm, diff.PERMISSION)
         try:
             await self.repo.delete_permission(perm)
         except IntegrityError as exc:
             raise ConflictError("Permission was changed concurrently") from exc
+        await self.audit.record(
+            AuditAction.PERMISSION_DELETED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.PERMISSION, permission_id),
+            app_key=key,
+            changes=diff.diff(before, None),
+        )
 
 
 class RoleService:
@@ -682,6 +785,7 @@ class RoleService:
 
     def __init__(self, session: AsyncSession) -> None:
         self.repo = RbacRepository(session)
+        self.audit = AuditLogger(session)
 
     async def _get(self, app: App, role_id: uuid.UUID) -> Role:
         role = await self.repo.get_role(app.id, role_id)
@@ -699,7 +803,9 @@ class RoleService:
             permissions=sorted(keys.values()),
         )
 
-    async def create(self, key: str, data: RoleCreate, *, actor: Actor) -> RoleRead:
+    async def create(
+        self, key: str, data: RoleCreate, *, actor: Actor, ctx: AuditContext
+    ) -> RoleRead:
         app = await _locked_app(self.repo, key)
         if data.key.split(":", 1)[0] != app.key:
             raise _prefix_mismatch()
@@ -707,35 +813,51 @@ class RoleService:
             require_super(actor)
         if await self.repo.get_role_by_key(app.id, data.key) is not None:
             raise ConflictError("Role key is already taken")
-        # R4: audit entry in the same transaction once ADM-004 lands.
         try:
             role = await self.repo.add_role(
                 Role(app_id=app.id, key=data.key, name=data.name, is_system=False)
             )
         except IntegrityError as exc:  # concurrent insert with the same key
             raise ConflictError("Role key is already taken") from exc
+        await self.audit.record(
+            AuditAction.ROLE_CREATED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.ROLE, role.id),
+            app_key=key,
+            changes=diff.diff(None, diff.snapshot(role, diff.ROLE)),
+        )
         return RoleRead(
             id=role.id, key=role.key, name=role.name, is_system=role.is_system, permissions=[]
         )
 
     async def update(
-        self, key: str, role_id: uuid.UUID, data: RoleUpdate, *, actor: Actor
+        self, key: str, role_id: uuid.UUID, data: RoleUpdate, *, actor: Actor, ctx: AuditContext
     ) -> RoleRead:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
         if data.name is not None and data.name != role.name:
             if app.key == ADMIN_APP_KEY:
                 require_super(actor)
-            role.name = data.name
-            # R4: audit entry in the same transaction once ADM-004 lands.
+            old_name, role.name = role.name, data.name
             try:
                 await self.repo.save()
             except IntegrityError as exc:
                 raise ConflictError("Role was changed concurrently") from exc
             await self.repo.session.refresh(role)
+            await self.audit.record(
+                AuditAction.ROLE_UPDATED,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.ROLE, role.id),
+                app_key=key,
+                changes={"name": diff.change(old_name, role.name)},
+            )
         return await self._read(role)
 
-    async def delete(self, key: str, role_id: uuid.UUID, *, actor: Actor) -> None:
+    async def delete(
+        self, key: str, role_id: uuid.UUID, *, actor: Actor, ctx: AuditContext
+    ) -> None:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
         if app.key == ADMIN_APP_KEY:
@@ -746,11 +868,19 @@ class RoleService:
             raise ConflictError("The app's default role cannot be deleted")
         if await self.repo.role_has_assignments(role.id):
             raise ConflictError("Role has assignments")
-        # R4: audit entry in the same transaction once ADM-004 lands.
+        before = diff.snapshot(role, diff.ROLE)
         try:
             await self.repo.delete_role(role)
         except IntegrityError as exc:  # an assignment or default was added concurrently
             raise ConflictError("Role was changed concurrently") from exc
+        await self.audit.record(
+            AuditAction.ROLE_DELETED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.ROLE, role_id),
+            app_key=key,
+            changes=diff.diff(before, None),
+        )
 
     async def replace_permissions(
         self,
@@ -759,6 +889,7 @@ class RoleService:
         data: RolePermissionsReplace,
         *,
         actor: Actor,
+        ctx: AuditContext,
     ) -> RoleRead:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
@@ -799,8 +930,18 @@ class RoleService:
             raise ConflictError("admin:super-admin must keep admin:*")
         if any(p.is_admin for p in added) and await self.repo.role_has_assignments(role.id):
             raise _role_has_assignments("permission_keys")  # G3 (USR-02d)
-        # R4: audit entry in the same transaction once ADM-004 lands.
-        await _set_role_permissions(self.repo, role, {p.id: p.key for p in found.values()})
+        added_keys, removed_keys = await _set_role_permissions(
+            self.repo, role, {p.id: p.key for p in found.values()}
+        )
+        if added_keys or removed_keys:
+            await self.audit.record(
+                AuditAction.ROLE_PERMISSIONS_REPLACED,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.ROLE, role.id),
+                app_key=key,
+                changes={"permissions": diff.change(removed_keys, added_keys)},
+            )
         return RoleRead(
             id=role.id,
             key=role.key,
@@ -833,6 +974,20 @@ def _is_super_admin(app: App, role: Role) -> bool:
     return app.key == ADMIN_APP_KEY and role.key == SUPER_ADMIN_ROLE
 
 
+def assignment_changes(
+    ra: RoleAssignment, role_key: str, *, granted: bool
+) -> dict[str, diff.Change]:
+    """Grant: `{from: null, to: v}`; revoke: `{from: v, to: null}`. The user id, never the email."""
+    values = {
+        "user_id": ra.user_id,
+        "role_key": role_key,
+        "role_id": ra.role_id,
+        "org_id": ra.org_id,
+        "expires_at": ra.expires_at,
+    }
+    return diff.diff(None, values) if granted else diff.diff(values, None)
+
+
 class AssignmentService:
     """Writes lock the role's app first and decide every guard after it (ADR-0003 §10).
 
@@ -843,6 +998,7 @@ class AssignmentService:
 
     def __init__(self, session: AsyncSession) -> None:
         self.repo = RbacRepository(session)
+        self.audit = AuditLogger(session)
 
     async def list(
         self, user_id: uuid.UUID, *, app_key: str | None, limit: int, offset: int
@@ -855,7 +1011,7 @@ class AssignmentService:
         return [_assignment_read(r) for r in rows], total
 
     async def assign(
-        self, user_id: uuid.UUID, data: AssignmentCreate, *, actor: Actor
+        self, user_id: uuid.UUID, data: AssignmentCreate, *, actor: Actor, ctx: AuditContext
     ) -> AssignmentRead:
         if not await self.repo.user_exists(user_id):
             raise NotFoundError("User not found")
@@ -872,7 +1028,21 @@ class AssignmentService:
         row = await self.repo.get_assignment_row(user_id, ra.id)
         if row is None:  # unreachable while the transaction holds the app lock
             raise ConflictError("Assignment was changed concurrently")
+        await self._record_grant(ra, app, role, actor, ctx)
         return _assignment_read(row)
+
+    async def _record_grant(
+        self, ra: RoleAssignment, app: App, role: Role, actor: Actor, ctx: AuditContext
+    ) -> None:
+        await self.audit.record(
+            AuditAction.ROLE_ASSIGNMENT_GRANTED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.ROLE_ASSIGNMENT, ra.id),
+            app_key=app.key,
+            org_id=ra.org_id,
+            changes=assignment_changes(ra, role.key, granted=True),
+        )
 
     async def bootstrap_super_admin(self, email: str) -> BootstrapResult:
         """CLI only (USR-02f). The caller owns the transaction; `email` is already normalized.
@@ -897,8 +1067,8 @@ class AssignmentService:
         ):
             outcome = BootstrapOutcome.ALREADY_HELD
         else:
-            # R4: ADM-004 audit entry (actor system:cli) in the same transaction.
-            await self._grant_locked(app, role, user.id, None, None, actor=SYSTEM_CLI)
+            ra, _ = await self._grant_locked(app, role, user.id, None, None, actor=SYSTEM_CLI)
+            await self._record_grant(ra, app, role, SYSTEM_CLI, AuditContext.NONE)
         return BootstrapResult(
             outcome,
             user_id=user.id,
@@ -917,7 +1087,7 @@ class AssignmentService:
         *,
         actor: Actor,
     ) -> tuple[RoleAssignment, bool]:
-        """The caller holds `lock_app(app.key)`. Returns (assignment, created)."""
+        """The caller holds `lock_app(app.key)`. Returns (assignment, created). Never audits."""
         if org_id is not None:
             if app.org_mode == OrgMode.NONE:
                 raise _assignment_unprocessable(
@@ -944,14 +1114,12 @@ class AssignmentService:
             # Expired duplicate: replaced in place (same id and created_at).
             existing.expires_at = expires_at
             existing.granted_by = granted_by
-            # R4: audit entry in the same transaction once ADM-004 lands.
             try:
                 await self.repo.save()
             except IntegrityError as exc:
                 raise ConflictError("Assignment was changed concurrently") from exc
             return existing, False
 
-        # R4: audit entry in the same transaction once ADM-004 lands.
         try:
             ra = await self.repo.add_assignment(
                 RoleAssignment(
@@ -977,7 +1145,9 @@ class AssignmentService:
         if app.key == ADMIN_APP_KEY and user_id == actor_user_id(actor):
             raise SelfAssignmentForbiddenError("Cannot change your own admin roles")
 
-    async def revoke(self, user_id: uuid.UUID, assignment_id: uuid.UUID, *, actor: Actor) -> None:
+    async def revoke(
+        self, user_id: uuid.UUID, assignment_id: uuid.UUID, *, actor: Actor, ctx: AuditContext
+    ) -> None:
         row = await self.repo.get_assignment_row(user_id, assignment_id)
         if row is None:
             raise NotFoundError("Assignment not found")
@@ -994,8 +1164,18 @@ class AssignmentService:
             and await self.repo.count_other_active_super_admins(ra.role_id, ra.id) == 0
         ):
             raise LastSuperAdminError("Cannot revoke the last active super-admin")
-        # R4: audit entry in the same transaction once ADM-004 lands.
+        changes = assignment_changes(ra, role_key, granted=False)
+        org_id = ra.org_id
         try:
             await self.repo.delete_assignment(ra)
         except IntegrityError as exc:
             raise ConflictError("Assignment was changed concurrently") from exc
+        await self.audit.record(
+            AuditAction.ROLE_ASSIGNMENT_REVOKED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.ROLE_ASSIGNMENT, assignment_id),
+            app_key=app.key,
+            org_id=org_id,
+            changes=changes,
+        )

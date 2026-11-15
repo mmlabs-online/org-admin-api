@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cli import CLEANUP_USAGE, MSG_CLEANUP_FAILED, MSG_DB_ECHO, amain
 from app.core.config import Settings
+from app.modules.audit.models import AuditLog
 from app.modules.auth.models import EmailSendLog, EmailToken
 from app.modules.auth.repository import EmailRetentionRepository
 from app.modules.auth.retention import EmailRetentionService, PurgeCount
@@ -204,3 +205,28 @@ async def test_cleanup_refuses_db_echo(capsys: pytest.CaptureFixture[str]) -> No
     out, err = capsys.readouterr()
     assert out == ""
     assert err == MSG_DB_ECHO + "\n"
+
+
+async def _audit_rows(db_session: AsyncSession) -> list[AuditLog]:
+    rows = await db_session.scalars(
+        select(AuditLog).where(AuditLog.action == "email_retention.purged")
+    )
+    return list(rows)
+
+
+async def test_cleanup_audit_summary(db_session: AsyncSession) -> None:
+    await _seed(db_session)
+    assert await _run(db_session) == 0
+    (row,) = await _audit_rows(db_session)
+    assert (row.actor_kind, row.actor_user_id, row.actor_label) == ("system", None, "system:cli")
+    assert (row.target_type, row.target_id, row.app_key, row.ip) == (None, None, None, None)
+    assert row.changes == {
+        "email_send_log": {"from": None, "to": 1},
+        "email_tokens": {"from": None, "to": 2},
+    }
+
+
+async def test_cleanup_dry_run_no_audit_row(db_session: AsyncSession) -> None:
+    await _seed(db_session)
+    assert await _run(db_session, "--dry-run") == 0
+    assert await _audit_rows(db_session) == []

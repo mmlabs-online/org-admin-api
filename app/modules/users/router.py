@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
+from app.modules.audit.deps import AuditContextDep
 from app.modules.users.models import UserStatus
 from app.modules.users.schemas import UserRead, UserStatusUpdate
 from app.modules.users.service import UserService
@@ -48,7 +49,11 @@ _WRITE["responses"][409] = {"description": "Last active super-admin"}
 
 @router.patch("/{user_id}", response_model=UserRead, **_WRITE)
 async def update_user_status(
-    session: SessionDep, principal: AdminDep, user_id: uuid.UUID, body: UserStatusUpdate
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    user_id: uuid.UUID,
+    body: UserStatusUpdate,
 ) -> UserRead:
-    user = await UserService(session).set_status(user_id, body.status, actor=principal)
+    user = await UserService(session).set_status(user_id, body.status, actor=principal, ctx=ctx)
     return UserRead.model_validate(user)

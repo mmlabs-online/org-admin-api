@@ -27,6 +27,7 @@ from app.cli import (
 )
 from app.core.config import Settings
 from app.core.text import mask_email
+from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import RoleAssignment
 from app.modules.rbac.repository import RbacRepository
 from app.modules.users.models import User, UserStatus
@@ -389,3 +390,38 @@ def test_subprocess_unreachable_db_exit_1() -> None:
     assert "s3cr3t-pw" not in both
     assert "127.0.0.1" not in both
     _assert_no_leak(proc.stdout, proc.stderr, "Secret.Person@example.com")
+
+
+async def _audit_rows(session: AsyncSession) -> list[AuditLog]:
+    rows = await session.scalars(
+        select(AuditLog).where(AuditLog.action == "role_assignment.granted")
+    )
+    return list(rows)
+
+
+async def test_grant_audit_row(db_session: AsyncSession) -> None:
+    user = await _make_user(db_session)
+    assert await _run(db_session, "grant-super-admin", "--email", EMAIL) == 0
+    (ra,) = await _rows(db_session, user)
+    role = await super_admin_role(db_session)
+    (row,) = await _audit_rows(db_session)
+    assert (row.actor_kind, row.actor_user_id, row.actor_label) == ("system", None, "system:cli")
+    assert (row.target_type, row.target_id, row.app_key, row.org_id) == (
+        "role_assignment",
+        ra.id,
+        "admin",
+        None,
+    )
+    assert row.changes == {
+        "user_id": {"from": None, "to": str(user.id)},
+        "role_key": {"from": None, "to": "admin:super-admin"},
+        "role_id": {"from": None, "to": str(role.id)},
+    }
+    assert EMAIL not in str(row.changes) and "@" not in str(row.changes)
+
+
+async def test_already_held_no_audit_row(db_session: AsyncSession) -> None:
+    await _make_user(db_session)
+    assert await _run(db_session, "grant-super-admin", "--email", EMAIL) == 0
+    assert await _run(db_session, "grant-super-admin", "--email", EMAIL) == 0
+    assert len(await _audit_rows(db_session)) == 1

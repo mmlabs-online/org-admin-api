@@ -1,6 +1,7 @@
 """Import every module's models here so Alembic sees the full metadata."""
 
 from app.db.base import Base
+from app.modules.audit.models import AuditLog
 from app.modules.auth.models import EmailSendLog, EmailToken, LoginFailure
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
@@ -10,6 +11,7 @@ from app.modules.users.models import User
 __all__ = [
     "AccountSession",
     "App",
+    "AuditLog",
     "Base",
     "DeviceSession",
     "EmailSendLog",
