@@ -314,3 +314,68 @@ None.
 
 ### Scope self-check
 - Could the diff be smaller? Not meaningfully. The src is 179 lines against the planned ~150. The tests are 436 lines against ~150, because they cover 18 cases including the extra no-token-render test. The README is 280 lines against ~200, partly from Biome's table padding.
+
+## Stage D — Attempt 1 — 2026-11-16
+
+Repo `/home/user/mmlabs-auth`, branch `claude/blissful-wozniak-fx4lm9`, on top of `7079675`. Working tree only: nothing committed or pushed (the orchestrator commits).
+
+### Files touched (mmlabs-auth)
+| File | Change |
+|---|---|
+| `python/src/mmlabs_auth/access_token.py` | new: verbatim copy of org-admin-api `app/core/access_token.py`. Only the planned changes: `keys: Mapping[str, EllipticCurvePublicKey]`, local `ALGORITHM`/`TOKEN_TYP`, `leeway > 30` → `ValueError`, `kid` > 128 chars → reason `kid` |
+| `python/src/mmlabs_auth/authz.py` | new: verbatim `permits()` (with the `str` guard) |
+| `python/src/mmlabs_auth/_http.py` | new: `check_url` (HTTPS, or loopback `http` with opt-in), `new_client` (verify on, no redirects, `Timeout(5, connect=3)`, `User-Agent`), `fetch_json` (`asyncio.timeout(5)` total, 3xx → error, streamed byte cap, `If-None-Match`, `max-age` parse), `FetchError(reason)` |
+| `python/src/mmlabs_auth/errors.py` | new: `JwksUnavailableError`, `CatalogUnavailableError`, `CatalogConfigError` (fixed messages) |
+| `python/src/mmlabs_auth/jwks.py` | new: `JwksCache` (TTL = max-age capped 3600, default 300; 304 extends; unknown-kid refetch ≤ 1/60 s, also after failure; failed refresh not retried for 60 s; `asyncio.Lock` single-flight with re-check; EC P-256 / ES256 / `use=sig` only, private `d` and off-curve points refused; stale until `max_ttl` after the last success, then fail closed; `flush()` with a generation counter so an in-flight fetch cannot repopulate after a flush; `aclose()`) |
+| `python/src/mmlabs_auth/catalog.py` | new: `RoleCatalogCache` (refuses `admin` and keys not matching the server's `APP_KEY_RE`; ETag; ≥ 60 s between checks, also after failure; 15 min max staleness; 404 → `CatalogConfigError` and cache dropped; shape validation; foreign-prefix roles/permissions dropped; single-flight) |
+| `python/src/mmlabs_auth/verifier.py` | new: async `AccessTokenVerifier`; reads only the header `kid`; a header that fails anyway (malformed, wrong `typ`/`alg`, bad `kid`) causes no JWKS fetch |
+| `python/src/mmlabs_auth/fastapi.py` | new: `MmlabsAuth`, `.require_permission()` (definition-time check `<audience>:<res>:<action>` or `<audience>:*`), `Principal` (frozen, `email`/`claims` not in repr), `AuthHTTPError`, `register_exception_handler`, `aclose()`; 401 `unauthorized` + `WWW-Authenticate: Bearer` / `Bearer error="invalid_token"`, 403 `permission_denied` + `details.required`, 503 `auth_unavailable`; logger `mmlabs_auth` logs reason / jti / required only |
+| `python/src/mmlabs_auth/__init__.py` | exports the core names; does not import `fastapi` |
+| `python/pyproject.toml` | restored `readme = "README.md"` |
+| `python/README.md` | new: integration guide, plan outline points 1–9 |
+| `python/tests/__init__.py` | new, empty (so tests import `tests.conftest`) |
+| `python/tests/conftest.py` | new: ephemeral P-256 keys per run, `mint`, `mint_raw` (hand-signed ES256 for headers PyJWT refuses to encode), JWKS builder, `FakeClock` |
+| `python/tests/test_access_token.py`, `test_authz.py`, `test_http.py`, `test_jwks.py`, `test_catalog.py`, `test_verifier.py`, `test_fastapi.py`, `test_contract.py` | new: every planned Stage D test plus a few extras (below) |
+| `python/tests/test_drift.py` | new: drift guard against the org-admin-api checkout |
+| `python/tests/test_smoke.py` | contract parsing moved to `test_contract.py`; added "core does not import fastapi" (subprocess) |
+
+### Tests (Python 2 → 148)
+- All tests listed in the plan for `test_access_token.py` (incl. list `aud`, issuer prefix / CVE-2024-53861, alg none / HS256 (hand-signed with the PEM as HMAC secret) / ES384, wrong and missing `typ`, each missing claim, future `iat`, `email_verified` false/missing/"true"/1, leeway > 30, error repr without token), `test_authz.py`, `test_http.py`, `test_jwks.py`, `test_catalog.py`, `test_verifier.py`, `test_fastapi.py`, `test_contract.py`.
+- Extras: 128-char kid accepted; total-timeout (5 s `asyncio.timeout`, patched to 50 ms); body cap without `Content-Length` (streamed); client timeout values; concurrent cold-start single fetch; failed refresh not retried before cooldown; header that fails anyway causes no fetch; catalog 256 KB cap; invalid app keys / `http://` api_base refused; `Principal` repr without email.
+- **Drift test** (`test_drift.py`, 5 tests): reads `$ORG_ADMIN_API_DIR` or the sibling `../org-admin-api`; skips cleanly when missing (`ORG_ADMIN_API_DIR=/nonexistent` → "143 passed, 5 skipped"). Compares by AST: `InvalidAccessTokenError` identical; `verify_access_token` body identical after an AST transformer undoes exactly the planned adaptations (drops the leeway `if`, drops the `len(kid) > …` operand, maps `keys` → `key_set.public_keys`); reason-code sequence identical; `REQUIRED_CLAIMS`, `ALGORITHM`, `TOKEN_TYP` equal the server's; `permits` identical (incl. docstring). Mutation check (reverted): renaming reason `issuer`, flipping `strict_aud`, and weakening the `permits` guard each failed the matching drift test.
+
+### Deviation: reason for a non-string `kid`
+PyJWT 2.12 `get_unverified_header` already rejects a non-string `kid` (`InvalidTokenError`), so the verbatim code (server included) returns **`malformed`**, not `kid`. As the plan says, the test asserts what the verbatim code produces: `test_non_string_kid_reason_malformed` (int, list; hand-signed via `mint_raw`). A long (> 128) string `kid` gives `kid` even when that kid is in the key map.
+
+### Other deviations
+- `MmlabsAuth` takes `allow_insecure_loopback=False` (passed to both caches) so local development against `http://localhost:8000` is possible; not in the plan's signature.
+- `JwksCache`: a failed refresh is also not retried for `cooldown` (60 s), not only unknown-kid refetches, so an outage is not hammered. Consequence (documented in README §4): a failed first fetch at startup gives 503 for up to 60 s. The same holds for the catalog (60 s between checks, also after failure).
+- A JWKS 200 with no usable key counts as a failed fetch (keeps the last good set / fails closed) instead of replacing the keys with an empty set.
+- Catalog: role keys without the `<app_key>:` prefix are also dropped (the plan mentions permissions only).
+- `ruff format` 0.17 also formats Markdown, so `python/README.md` went through it.
+
+### Stage gate (actual output)
+- `pnpm -C ts install --frozen-lockfile`: "Done in 386ms using pnpm v10.28.0"
+- `pnpm -C ts lint`: "Checked 30 files in 35ms. No fixes applied."
+- `pnpm -C ts typecheck`: exit 0
+- `pnpm -C ts test`: "Test Files 12 passed (12)", "Tests 146 passed (146)"
+- `pnpm -C ts build`: exit 0 (`dist/` removed afterwards)
+- `uv sync --locked --directory python`: "Checked 33 packages"
+- `ruff check .`: "All checks passed!"
+- `ruff format --check .`: "22 files already formatted"
+- `mypy`: "Success: no issues found in 21 source files"
+- `pytest`: "148 passed" (with the org-admin-api checkout); "143 passed, 5 skipped" without it (CI case)
+- Extra: `uv build --wheel` built `mmlabs_auth-0.1.0-py3-none-any.whl` into the scratchpad (readme field OK).
+
+### Out-of-plan files
+- `python/tests/__init__.py` (empty): needed so tests can `from tests.conftest import …`.
+- `python/tests/test_drift.py`: requested by the orchestrator for this attempt (it pulls plan follow-up F2's "pin the copies" part into the library repo, local-only).
+
+### Follow-ups (noticed, not done)
+- Root `README.md`: the `python/README.md` link is live now; release/install summary still a stub (E1).
+- F2 remains for the org-admin-api side (its `AppError` codes vs `contract/error-codes.json`).
+- `contract/SOURCE` is `74e9b62…`; org-admin-api HEAD is `e4d6890…`. `access_token.py`, `authz.py` and `jwt_keys.py` are unchanged between the two (`git diff --stat` empty), so no refresh is needed for Stage D; E1 may bump it.
+- Consider exposing `require_permission` in OpenAPI (`x-permission`) like the server's admin deps.
+
+### Scope self-check
+- src ≈ 795 lines incl. docstrings (plan ~500), tests ≈ 1,380 (plan ~550), README ≈ 190. The extra is the drift test, the security-consult test cases and docstrings; no features beyond the plan's surface except `allow_insecure_loopback` on `MmlabsAuth`.
