@@ -115,3 +115,29 @@ Scope: `ts/src/*`, `.github/workflows/*`, `.github/dependabot.yml`, `ts/package.
 - CLAUDE.md R11 still describes `mm_device; Path=/api/v1/auth`, which is out of date since D20 (`__Host-mm_device`, `Path=/`). Already flagged in the consult.
 
 **Verdict:** PASS with should-fix. There are no 🔴 findings. 🟡 1 (stale token reaching callers after logout or an account switch, and a 401 retry sent under a different account) and 🟡 2 (no Bearer destination guard) should be fixed in this ticket, and 🟡 3 is a one-line CI pin.
+
+## Final — Attempt 1
+
+**Scope:** mmlabs-auth `main..HEAD` (1f6dcf7 Stage B hardening, 7079675 Stage C React, cf911ac Stage D Python, 3c84715 Stage E1 release) + org-admin-api `docs/consumers.md` (6933962).
+
+### Re-check of Stages A+B findings
+All fixed with no bypass: 🟡1 stale token/identity confusion, 🟡2 Bearer destination guard, 🟡3 pinned pip-audit, 💭4 hatchling range, 💭5 Retry-After clamp, 💭6 code regex, 💭7 accountId validation, 💭8 authFetch traversal, 💭9 fallback-path token clear.
+
+### New findings
+- **🟡 A. Deeply nested JSON from JWKS/catalog escapes fail-closed and cooldown** — `python/src/mmlabs_auth/_http.py:117-119`, `jwks.py:155`, `catalog.py` `_refresh`. `json.loads` raises `RecursionError` (not `ValueError`) on deep nesting; only `(ValueError, UnicodeDecodeError)` is caught → unhandled exception → 500 instead of 503, and JWKS cooldown is not set so every request refetches. Needs a hostile/misconfigured HTTPS upstream; access outcome is still deny. Fix: catch `RecursionError` in `fetch_json` → `FetchError("invalid_json")`; optional catch-all around parse in `_refresh`; test with `b"[" * 60000`.
+- **💭 B. Decompression not bounded per chunk** — `_http.py:92-106`. Fix: send `Accept-Encoding: identity`.
+- **💭 C. JWKS TTL has no floor** — `jwks.py:167`. Fix: `max(min_ttl, …)` with a 30–60 s floor.
+- **💭 D. Token length not capped before parsing** — `verifier.py:31`, `fastapi.py:~137`. Reject >8 KB as `malformed`.
+- **💭 E. Release job holds `contents: write` while running build/test code** — `release.yml:24-25, 81-82`. Fix: split build (`contents: read`, upload artefact) and release (`contents: write`, no repo code) jobs.
+- **💭 F. Release can be cut from any commit; tags can move** — `release.yml:6-10`. Fix: tag ruleset for `ts-v*`/`py-v*`; `git merge-base --is-ancestor "$GITHUB_SHA" origin/main`; docs note on pinning by commit SHA.
+
+### Verified OK
+Stage C React (token never in state/context/render; `useJoin` only on explicit call; reload sequence guard). Stage D verifier parity with `org-admin-api/app/core/access_token.py` (typ→alg→kid order, ES256 pinned, strict_aud, issuer, email_verified, PyJWT>=2.10.1). Key selection by header `kid` only (jku/x5u/jwk ignored). JWKS parsing (P-256 only, no `d`, on-curve, empty set keeps old keys, flush generation guard). JWKS fetch (HTTPS only, no redirects, timeouts, byte caps, 60 s unknown-kid / failure cooldown, single-flight, bounded stale serving, fixed error strings). Role catalog (admin refused, app match, prefix filter, 60 s revalidate, 15 min stale cap, 404 → 503). FastAPI dependency (401/403/503 mapping, no token/email in logs, `repr=False`). Release workflow E1 (tag-only trigger, env-only tag use, caches off, SHA-pinned actions, no long-lived secrets). `docs/consumers.md` E2 (links only, tag-pinned installs).
+
+### Follow-ups (out of scope)
+- Repo settings: tag ruleset, branch protection, secret scanning + push protection, `SECURITY.md`.
+- Release provenance (`actions/attest-build-provenance`) — deferred in ADR-0001.
+- `LICENSE` still missing (owner decision).
+- CLAUDE.md R11 cookie wording stale vs D20.
+
+**Verdict:** PASS with should-fix — no 🔴; 🟡A is a one-line fix that should land in this ticket.
