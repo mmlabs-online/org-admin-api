@@ -43,3 +43,40 @@ No violations found. Docs only: R3 auth classes are unchanged, and the consumers
 - CLAUDE.md R11 still says `mm_device` / `Path=/api/v1/auth`, but the code uses `__Host-mm_device` / `Path=/` (already tracked from ADM-012).
 - Test constants still use `https://admin.mmlabs.online` as the sample admin origin (`tests/test_admin_guards.py`, `test_auth_app_context.py`, `test_auth_join.py`, `test_cli_set_admin_origins.py`, `test_cli_register_app.py`).
 - Optional hardening: `set-admin-origins` could refuse `https://admin.mmlabs.online` in staging/production (code change, needs an owner decision).
+
+## Attempt 2 — 2026-11-16
+Verdict: PASS
+
+### Checks (run by reviewer)
+- `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: green. ruff clean, `225 files already formatted`, mypy `Success: no issues found in 102 source files`, pytest `1736 passed, 1 warning in 120.95s`. The warning is the existing `forkpty()` DeprecationWarning. I did not reproduce the `test_purge_batches_share_cutoff` flake that impl-log reports for its first run. That test is unrelated to this docs-only diff.
+- alembic check: n/a (no migrations changed).
+- Scoped grep `grep -rnE '(^|[^-[:alnum:].])admin\.mmlabs\.online' docs README.md CLAUDE.md Makefile`: 6 hits, all "not used / must not exist / superseded / clean-up" statements: `docs/deploy.md:209,559,560,566` and `docs/adr/0008-admin-api-authentication.md:56,59`. This matches impl-log attempt 2.
+- `grep -n 'so CORS answers the preflight' docs/consumers.md`: no hits (rc=1).
+- `sh -n` on the 21-line admin-token runbook block (the "Log in, get a token" `sh` fence, from `(` to `)`): rc=0.
+- `bash -n` on the extracted `set-admin-origins` bash block: rc=0.
+- `git diff --name-only origin/main...HEAD`: `Makefile`, `docs/adr/0008-…`, `docs/consumers.md`, `docs/deploy.md`, plus `work/` files only. Attempt 2 (`git diff 1e65a16 HEAD`) touches only `docs/consumers.md`, `docs/deploy.md`, `impl-log.md`, `ticket.md` and `backlog.md` (state rows).
+
+### Acceptance criteria
+- [x] AC1: deploy.md uses `https://admin-portal.mmlabs.online` throughout, and `admin.mmlabs.online` must have no DNS record or tunnel route. Evidence: `docs/deploy.md:434,447,456,458,507,510,519-520` (unchanged since attempt 1) and Host policy `:553-567`. Attempt 2 adds three things: a concrete `dig +short` check, a catch-all `service: http_status:404` clause, and an unconditional dry-run clean-up with a 60 s wait and the 15 min token note.
+- [x] AC2: ADR-0008 dated note and superseded marker at `docs/adr/0008-admin-api-authentication.md:55-60`. `Makefile:29` help line updated. The scoped grep is clean apart from the "must not exist" notes.
+- [x] AC3: consumers.md uses `omit` for signup, forgot, verify-email and reset, and `include` for login and cookie-class calls. Attempt 1 Issue 1 is fixed:
+  - `docs/consumers.md:42-43` now reads "Only login creates the cookie; every cookie-class call may rotate it (R11), and logout or a 401 clears it." This matches `app/modules/auth/router.py` (rotation via `set_device_cookie`) and `deps.py` (a 401 clears the cookie).
+  - `docs/consumers.md:119-120` now reads "sign-up neither reads nor sets the cookie; only login creates it". Both lines are exactly as instructed.
+- [x] AC4: no code change (no `app/`, `tests/` or `migrations/` in the diff). The runbook blocks pass `sh -n` / `bash -n`.
+
+### Issues
+None.
+
+### Rules R1–R11
+No violations found. Docs only.
+- R3: auth classes unchanged.
+- R5/R11: no secrets added. The new deploy.md text keeps the existing replace-semantics, 60 s CORS cache and 15 min TTL facts consistent with the `--clear` paragraph (`docs/deploy.md:548-551`).
+- R7: every changed file is in the plan. The deploy.md attempt-2 edits apply the attempt-1 nits and the appsec notes inside the planned Host policy paragraph.
+
+### Nits (do not block)
+- `docs/consumers.md:42` is now 136 characters, well past the ~100-column wrap of the surrounding paragraph (`:119` is 103). Reflow it when you next touch the file.
+- `docs/deploy.md:563-564`: "Reusing it needs an owner decision." is followed by "One-off clean-up: run" on a new source line with no blank line. It renders fine, but a blank line would make the clean-up its own paragraph.
+
+### Follow-ups (out of scope)
+- Unchanged from attempt 1: plan F-1 to F-5; CLAUDE.md R11 cookie name/path drift (`__Host-mm_device`, `Path=/`); test constants that still use `https://admin.mmlabs.online`; optional `set-admin-origins` refusal of the old host (code change, needs an owner decision).
+- `tests/test_cli_audit_purge.py::test_purge_batches_share_cutoff` may be timing-sensitive under load (impl-log attempt 2). It passed in the reviewer run. Track it if it recurs.
