@@ -85,3 +85,58 @@ Scope: `git diff origin/main...HEAD` (9937599). I worked read-only. I ran no `ma
 - `tests/test_config.py`: the `.env.example` tests open the file by a relative path, so they only work from the repo root. Anchor the path to `Path(__file__).parent.parent`.
 
 **Verdict:** PASS with one 🟡: change conftest to fall back to the test DB when `TEST_DATABASE_URL` is empty. I found no way to bypass the APP_ENV gate, no secret leakage, and no deadlock in the current lock orders.
+
+## Attempt 2
+
+## Security review: ADM-002e, attempt 2 (appsec-engineer)
+
+I re-checked `git show HEAD` (084693f, "ADM-002e: rework 2 …") read-only. I ran no `make check`, pytest suite, alembic or psql. In the scratchpad I checked the runbook's syntax and dry-ran it with dash against a local mock HTTP server. I also imported `tests.conftest` once with `TEST_DATABASE_URL=` set to empty; that only imports the module and opens no DB connection.
+
+### Attempt-1 findings
+
+**🟡 1 (empty `TEST_DATABASE_URL` points tests at the dev DB): fixed.** `tests/conftest.py:9-14`
+- conftest now uses `os.environ.get("TEST_DATABASE_URL") or "<…>/org_admin_test"`.
+- **Checked:** with `TEST_DATABASE_URL=` empty, both `c.TEST_DATABASE_URL` and `os.environ["DATABASE_URL"]` resolve to `…/org_admin_test`.
+- **Regression test** `tests/test_config.py:380-392`: the old `.get(key, default)` form returns `""`, so the test would fail on the old code and pass on the new.
+- **Subprocess safety:** the test always forces the variable to empty, so a CI value is never used. Importing conftest only sets environment variables and builds keys; it opens no connection. The 60 s timeout bounds it, and `check=True` keeps the command fixed (no shell, no user input).
+
+**💭 2 (lock order in resend): addressed correctly.** `app/modules/users/repository.py:49-50`
+- The docstring now says to keep the lock `FOR SHARE`, and why: resend locks the device row before the user row, while login locks the user row before the device row.
+- This matches the orders I traced in attempt 1.
+
+**💭 3 (concurrency coverage): also addressed.** `tests/test_email_lock_concurrency.py:156-190, 212-227`
+- New `unlocked` variants swap `get_for_share` for `get` and keep the real `get_for_update`. They assert `[202, 204]` / `[202, 422]`.
+- If `get_for_update` went back to plain `FOR UPDATE`, these variants would now fail.
+- The control test uses the same helper. The module docstring is accurate.
+- `get` and `get_for_share` have the same signature, so the patch is type-compatible.
+
+**💭 4 (runbook deletes `$body` after logout): fixed.** `docs/deploy.md:446`
+- The `EXIT` trap now deletes `$hdr` and `$body` before the logout curl, and deletes `$jar` after it.
+- The prose at `docs/deploy.md:469-472` matches the new order.
+- So a failed login (where `: > "$body"` never ran) now has its password file removed before the 10 s logout window.
+
+**💭 5 (exit code 130 for every signal):** not changed. It was optional and cosmetic. In the dry-run my wrapper reported 130 for INT, 143 for TERM and 129 for HUP; logout and cleanup ran in every case.
+
+### Rework checks
+
+| Check | Result |
+|---|---|
+| Syntax | `sh -n`, `dash -n` and `bash --posix -n` all pass |
+| Normal run (password contains `"` and `\`) | Exit 0. Login, token call, admin call with `Bearer`, logout sent with the cookie. 0 temp files left |
+| Failing admin call (500) | Exit 22. Logout sent. 0 temp files |
+| `</dev/null` | Exit 1. No logout (no cookie). 0 temp files |
+| INT, TERM or HUP to the process group during a slow admin call | 3 temp files exist mid-run. Logout sent with the cookie in every case. 0 temp files left |
+
+- The trap still runs under `set +e` and ignores signals, and `set -u` is still safe because `jar`, `body` and `hdr` are set before the trap.
+- No secret or token reaches argv.
+- No new production code paths: the only app change is a docstring.
+
+### New findings
+None.
+
+### Follow-ups (out of scope)
+Unchanged from attempt 1:
+- Remove the unused `APP_DEBUG` setting.
+- The `.env.example` tests in `tests/test_config.py` open the file by a relative path. Anchor it to `Path(__file__).parent.parent`, as the new subprocess test already does.
+
+**Verdict:** PASS. 🟡1 is fixed, 💭2, 💭3 and 💭4 are addressed correctly, and the rework adds no new issue.
