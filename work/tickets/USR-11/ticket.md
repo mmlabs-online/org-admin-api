@@ -7,7 +7,7 @@
 | Areas | api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/41 |
 
 ## Goal
 The admin UI (`admin-pan`) can read the signed-in caller's own `user_id`, admin roles and effective `admin:*` permissions with its `aud=admin` Bearer token, so it can hide or disable what the caller may not do. The API keeps enforcing every permission; tokens stay without a permissions claim.
