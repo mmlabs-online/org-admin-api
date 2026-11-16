@@ -232,3 +232,85 @@ None. Every file was named by the review items or already belongs to stage B.
 ### Follow-ups (noticed, not done)
 - `ts/README.md` / integration guide (stage E): document `apiOrigins` and the `account_changed` / `bearer_origin_not_allowed` codes.
 - Review nits that were not in this pass: serve a fresh cache during a 429 block for other keys; non-forced retry for concurrent 401s; `redirect: "error"`; check `token_type`/`audience` in `/token`.
+
+## Stage C — Attempt 1 — 2026-11-16
+
+Repo `/home/user/mmlabs-auth`, branch `claude/blissful-wozniak-fx4lm9`, on top of `1f6dcf7`. Working tree only: nothing committed or pushed (the orchestrator commits).
+
+### Files touched
+| File (mmlabs-auth) | Lines | Required because |
+|---|---|---|
+| `ts/src/react/index.tsx` | 179 (new) | `AuthProvider({client, children})`, `useAuth()`, `useAccessToken()`, `useJoin()`, types `AuthStatus`, `AuthState`, `AccessToken`, `JoinState`. Imports only `react` and core modules; core never imports it |
+| `ts/test/react.test.tsx` | 353 (new) | Every plan Stage C React test, plus the no-token-in-rendered-output test and a join-failure test |
+| `ts/test/package-exports.test.ts` | 83 (new) | The 4 packaging tests |
+| `ts/README.md` | 280 (new, Biome-formatted) | Integration guide, following the plan's 10-point outline |
+
+`ts/package.json` was unchanged: `./react` export, optional `react` peer and the React/testing devDeps were already there from stage A.
+
+### Design notes
+- The wrapper has no auth logic. It calls `listAccounts()` on mount and on every `client.onChange` event. Status: empty list or `SessionInvalidError` → `signed-out`; the stored id is listed → `ready`; other accounts are listed → `needs-account`; any other error → `error` (with `error`). `accountId` is set only when `ready`. A stale stored id counts as `needs-account`.
+- There are two contexts. One holds the `AuthClient`, whose tokens live in `#private` fields. The other holds the state, and `useAuth()` returns that context value unchanged. Neither ever holds a token. `useAccessToken()` returns only stable `getToken` / `fetchWithToken` functions.
+- A sequence ref means only the latest `listAccounts()` result sets state. Unmount invalidates any call still in flight and unsubscribes.
+- `logout` calls `reload()` again after the POST settles. The client emits `signed-out` before the POST, so without this the first list could still show the account that was just logged out.
+- `useJoin().join(accountId)` sets `pending` and `error`, and rethrows so the caller can use `instanceof`. Nothing in the wrapper calls `join`.
+
+### Tests added (18; TS total 128 → 146 in 12 files)
+`react.test.tsx` (14):
+- status loading → ready when the stored account is listed
+- signed-out on empty list or session_invalid
+- needs-account when accounts exist but none chosen (also covers a stale stored id)
+- error status on NetworkError
+- selectAccount updates accountId and status
+- login and logout update state (also checks that the last list call comes after the logout POST)
+- another tab's broadcast re-renders (two clients, `FakeBroadcastHub`, shared storage)
+- hooks outside provider throw (all three hooks)
+- unmount unsubscribes
+- useAccessToken exposes getToken/fetchWithToken and no token value. It fetches a real token and calls `fetchWithToken`. It then checks `JSON.stringify` and a deep walk of all reachable strings, over the `useAuth()` context value, the client in context, `useAccessToken()` and `useJoin()`. It also checks that the callbacks stay stable.
+- no token value appears in rendered output. A component renders `JSON.stringify` of all three hooks and fetches a token on click. The test checks `container.innerHTML` and `document.documentElement.outerHTML`. (extra, requested by the orchestrator)
+- admin-pan smoke: appKey "admin", getToken() requests audience admin, with `X-MM-App: admin`
+- useJoin calls join only when invoked; NotMemberError surfaces via instanceof. It checks 0 join calls after `not_member`, then `pending` true → false, 1 join call, then a token.
+- join failure sets error and rethrows (extra)
+
+`package-exports.test.ts` (4):
+- exports . and ./react (also checks the optional peer)
+- core does not import react. It walks relative imports from `src/index.ts`: no `src/react` file and no bare specifier at all. As a positive control, the React entry's graph does contain `react`.
+- no runtime dependencies
+- no lifecycle scripts
+
+Mutation check, reverted afterwards. Each of these changes failed exactly the matching test:
+1. the `useAccessToken` result keeps the last token
+2. the `SessionInvalidError` branch is removed
+3. no unsubscribe on unmount
+4. auto-join on `not_member`
+5. no reload after logout
+
+### Stage gate (actual output)
+- `pnpm -C ts install --frozen-lockfile`: "Lockfile is up to date … Already up to date"
+- `pnpm -C ts lint`: "Checked 30 files … No fixes applied." (exit 0)
+- `pnpm -C ts typecheck`: exit 0
+- `pnpm -C ts test`: "Test Files 12 passed (12)", "Tests 146 passed (146)"
+- `pnpm -C ts build`: exit 0, emits `dist/react/index.js` and `index.d.ts`. `dist/` was removed afterwards and is git-ignored.
+- `uv sync --locked --directory python`: "Resolved 34 packages … Checked 33 packages"
+- `ruff check .`: "All checks passed!"
+- `ruff format --check .`: "2 files already formatted"
+- `mypy`: "Success: no issues found in 2 source files"
+- `pytest`: "2 passed"
+- Extra checks:
+  - `pnpm -C ts audit --prod`: "No known vulnerabilities found"
+  - `pnpm pack` (into the scratchpad): `mmlabs-auth-client-0.1.0.tgz` contains `dist/react/index.{js,d.ts}`, `README.md` and `package.json`. This matches the README install line.
+
+### Deviations from the plan
+- **Biome 2.6 also formats Markdown.** `ts/README.md` was run through `biome format --write`, so its tables are column-padded. I did not add a Biome exclude, because that would change `biome.json`, which is outside the plan.
+- **`useAuth().error` is typed `Error | null`.** A non-`Error` rejection is wrapped as `Error("mmlabs-auth: unexpected error")`.
+- **README install.** The repo is now public, so the README gives a token-free `curl` of the Release asset, vendored as `file:vendor/…tgz` and checked against the SHA-256 in the release notes. It also uses the D20 cookie wording from the spec and makes no claims about `mm_device` paths.
+
+### Out-of-plan files
+None.
+
+### Follow-ups (noticed, not done)
+- Root `README.md`: the `ts/README.md` link is live now. "Install instructions follow with the release workflow" is still a stub (E1).
+- The README's CSP is a starting point. Each app must add its own backend origins to `connect-src`.
+- When USR-03g adds `202 {status:"pending"}`, `JoinState.join` has to widen its return type together with the core `join()`.
+
+### Scope self-check
+- Could the diff be smaller? Not meaningfully. The src is 179 lines against the planned ~150. The tests are 436 lines against ~150, because they cover 18 cases including the extra no-token-render test. The README is 280 lines against ~200, partly from Biome's table padding.
