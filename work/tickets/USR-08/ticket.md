@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BLOCKED |
+| State | PLANNING |
 | Priority | P1 |
 | Areas | architecture, auth, security |
 | Attempts | 0 |
@@ -37,3 +37,4 @@ USR-03b (join API). Owner must create the new repo and add it to the session.
 - Carried from USR-03b: USR-03c security review S1/S2 (flushable JWKS cache, `cooldown_duration=60`, emergency-rotation cache flush).
 - 2026-11-16 (orchestrator): **BLOCKED**, because the library repo does not exist yet. No `mmlabs-online/mmlabs-auth` (or similar) appears in the account's repositories. The owner needs to create it and add it to the session. Priority raised to P1: it blocks real login in `admin-pan` (PAN-010).
 - 2026-11-16 (owner, optional): consider having the client also cover forgot / reset / verify-email later. `admin-pan` calls those three public endpoints directly with `credentials:'omit'` today.
+- 2026-11-16 (owner): repo created: `mmlabs-online/mmlabs-auth` (private). Initial commit on `main` (README, .gitignore); work goes on branch `claude/blissful-wozniak-fx4lm9` with a PR into `main` (owner merges). **Scope: both libraries in this ticket** (`ts/` `@mmlabs/auth-client` + React, and `python/` `mmlabs-auth`).
