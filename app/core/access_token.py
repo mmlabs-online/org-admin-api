@@ -28,7 +28,8 @@ class InvalidAccessTokenError(Exception):
 def verify_access_token(
     token: str, key_set: KeySet, *, audience: str, issuer: str, leeway: int = 30
 ) -> dict[str, Any]:
-    """The verified claims, or `InvalidAccessTokenError`."""
+    """The verified claims, or `InvalidAccessTokenError`. `aud` must be a string equal to
+    `audience`; a list (even `["admin"]`) fails with reason `audience` (`strict_aud`)."""
     try:
         header = jwt.get_unverified_header(token)
     except jwt.InvalidTokenError:
@@ -48,7 +49,7 @@ def verify_access_token(
             audience=audience,
             issuer=issuer,
             leeway=leeway,
-            options={"require": REQUIRED_CLAIMS},
+            options={"require": REQUIRED_CLAIMS, "strict_aud": True},
         )
     except jwt.ExpiredSignatureError:
         raise InvalidAccessTokenError("expired") from None

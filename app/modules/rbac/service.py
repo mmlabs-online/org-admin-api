@@ -209,6 +209,13 @@ def _wildcard_must_be_admin() -> UnprocessableError:
     )
 
 
+def _admin_app_permission_must_be_admin() -> UnprocessableError:
+    return UnprocessableError(
+        "Admin app permissions must be is_admin",
+        details=[{"field": "is_admin", "reason": "admin_app_permission_must_be_admin"}],
+    )
+
+
 async def _locked_app(repo: RbacRepository, key: str) -> App:
     app = await repo.lock_app(key)
     if app is None:
@@ -242,9 +249,7 @@ class RoleCatalogService:
             ],
         )
 
-    async def build_default_role(
-        self, app_key: str, actor: uuid.UUID | None = None
-    ) -> DefaultRoleResult:
+    async def build_default_role(self, app_key: str) -> DefaultRoleResult:
         """Create or update `<app>:member` = every permission of the app with `is_admin = false`.
 
         Runs only when called (seed, app creation, USR-05 manifest), never automatically on
@@ -378,8 +383,12 @@ class AppService:
             ("join_policy" in fields and data.join_policy != JoinPolicy.CLOSED)
             or ("default_role_id" in fields and data.default_role_id is not None)
             or ("status" in fields and data.status != AppStatus.ACTIVE)
+            or ("org_mode" in fields and data.org_mode != OrgMode.NONE)
         ):
-            raise ConflictError("The admin app must stay active, closed and without a default role")
+            raise ConflictError(
+                "The admin app must stay active, closed, without org mode and without a "
+                "default role"
+            )
 
         if "default_role_id" in fields and data.default_role_id is not None:
             if await self.repo.get_role(app.id, data.default_role_id) is None:
@@ -598,18 +607,22 @@ class AppService:
 
         Writes only `origins`: never `status`, `join_policy`, `org_mode`, `default_role_id` or
         the admin roles. Fails closed (no repair) when the admin row is missing or has drifted
-        from its seed. Every refusal happens before the first write.
+        from its seed, except that clearing (`origins == []`) skips the drift check: the
+        break-glass must work on a drifted row (ADM-002d). Every refusal happens before the
+        first write.
         """
         origins = data.origins
         _validate_admin_origins(origins, app_env)
 
         app = await self.repo.lock_app(ADMIN_APP_KEY)
-        if (
-            app is None
-            or app.status != AppStatus.ACTIVE
-            or app.join_policy != JoinPolicy.CLOSED
-            or app.org_mode != OrgMode.NONE
-            or app.default_role_id is not None
+        if app is None or (
+            origins
+            and (
+                app.status != AppStatus.ACTIVE
+                or app.join_policy != JoinPolicy.CLOSED
+                or app.org_mode != OrgMode.NONE
+                or app.default_role_id is not None
+            )
         ):
             raise _register_refusal(
                 ConflictError, "The admin app is not in its seeded state", "key", "admin_not_seeded"
@@ -698,6 +711,10 @@ class PermissionService:
             if data.is_admin is False:
                 raise _wildcard_must_be_admin()
             is_admin = True
+        elif app.key == ADMIN_APP_KEY:  # admin-app permissions are always is_admin (ADM-002d)
+            if data.is_admin is False:
+                raise _admin_app_permission_must_be_admin()
+            is_admin = True
         else:
             is_admin = bool(data.is_admin)
         if app.key == ADMIN_APP_KEY or is_admin:  # is_admin includes <app>:*
@@ -729,6 +746,8 @@ class PermissionService:
 
         if "is_admin" in fields and data.is_admin is False and perm.key.endswith(":*"):
             raise _wildcard_must_be_admin()
+        if "is_admin" in fields and data.is_admin is False and app.key == ADMIN_APP_KEY:
+            raise _admin_app_permission_must_be_admin()
         changes = {f: getattr(data, f) for f in fields if getattr(perm, f) != getattr(data, f)}
         # true -> false makes a permission eligible for the default role; false -> true can
         # move it out of members' reach (both directions cross the is_admin boundary).

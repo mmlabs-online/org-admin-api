@@ -127,3 +127,17 @@ Supersedes §8's "Retention is indefinite in v1" and the ADM-004b amendment's re
   disable it inside a rolled-back transaction (`backdate_audit` marker).
 - **Latch wording.** Any DB role can set `audit.allow_purge`, not only the owner (corrects the
   ADM-004c amendment).
+
+## Amendment — generated request id (ADM-002d, 2026-11-15)
+
+Supersedes §5's "keeps a valid inbound `X-Request-ID`" and the ADM-004b `X-Request-ID` bullet.
+
+- **Always generated.** The middleware generates a UUID4 for every request, stores it in the
+  request state (and so on the audit row) and echoes it. An inbound `X-Request-ID` is ignored
+  from any peer, trusted proxies included: the stored id is unique and no client can choose it.
+  Callers no longer get their own id echoed back.
+- **Cloudflare correlation**, if ever wanted, logs a validated `cf-ray` next to the id in the app
+  log (no schema change; not done here). `CF-Ray` is not used as the id: any container on the
+  trusted network could forge it.
+- **Older rows.** Rows written before this release may hold client-supplied ids (correlation only,
+  not evidence).

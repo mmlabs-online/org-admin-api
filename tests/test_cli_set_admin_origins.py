@@ -289,6 +289,62 @@ async def test_service_refuses_drift(field: str, db_session: AsyncSession) -> No
     assert (admin.status, admin.join_policy, admin.org_mode, admin.default_role_id) == drifted
 
 
+async def _drift(session: AsyncSession, field: str) -> App:
+    admin = await _admin(session)
+    if field == "status_disabled":
+        admin.status = "disabled"
+    elif field == "join_open":
+        admin.join_policy = "open"
+    elif field == "org_required":
+        admin.org_mode = "required"
+    else:
+        admin.default_role_id = (await super_admin_role(session)).id
+    await session.flush()
+    return admin
+
+
+@pytest.mark.parametrize(
+    "field", ["status_disabled", "join_open", "org_required", "default_role_set"]
+)
+async def test_service_clear_on_drift(field: str, db_session: AsyncSession) -> None:
+    # Break-glass (ADM-002d): `--clear` skips only the drift check and writes only origins.
+    await _set(db_session, ADMIN)
+    admin = await _drift(db_session, field)
+    drifted = (admin.status, admin.join_policy, admin.org_mode, admin.default_role_id)
+
+    result = await _service_set(db_session)
+    assert result.outcome == AdminOriginsOutcome.UPDATED
+    admin = await _admin(db_session)
+    assert admin.origins == []
+    assert (admin.status, admin.join_policy, admin.org_mode, admin.default_role_id) == drifted
+    (row,) = await _audit_rows(db_session)
+    assert row.changes == {"origins": {"from": [ADMIN], "to": []}}
+
+
+async def test_service_clear_on_drift_already_empty_unchanged(db_session: AsyncSession) -> None:
+    await _set(db_session)
+    await _drift(db_session, "join_open")
+    before = (await _admin(db_session)).updated_at
+    db_session.info.pop(APPS_CHANGED_KEY, None)
+    result = await _service_set(db_session)
+    assert result.outcome == AdminOriginsOutcome.UNCHANGED
+    assert (await _admin(db_session)).updated_at == before
+    assert APPS_CHANGED_KEY not in db_session.info
+    assert await _audit_rows(db_session) == []
+
+
+async def test_service_refuses_missing_admin_on_clear(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _none(*_: Any) -> None:
+        return None
+
+    monkeypatch.setattr(RbacRepository, "lock_app", _none)
+    with pytest.raises(ConflictError) as info:
+        await _service_set(db_session)
+    assert info.value.details == [{"field": "key", "reason": "admin_not_seeded"}]
+
+
 async def test_service_refuses_missing_admin(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -511,6 +567,19 @@ async def test_cli_drift_exit_1(
     out, err = capsys.readouterr()
     assert out == ""
     assert err == MSG_ADMIN_NOT_SEEDED + "\n"
+
+
+async def test_cli_clear_on_drift_exit_0(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await _set(db_session, ADMIN)
+    await _drift(db_session, "join_open")
+    assert await _run(db_session, "--clear") == 0
+    out, err = capsys.readouterr()
+    assert out.splitlines()[0] == "updated app admin"
+    assert err == ""
+    admin = await _admin(db_session)
+    assert (admin.origins, admin.join_policy) == ([], "open")
 
 
 @pytest.mark.parametrize(

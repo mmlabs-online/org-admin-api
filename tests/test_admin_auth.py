@@ -88,6 +88,8 @@ _HEADERS = {"kid": KEY_SET.signing_kid, "typ": "at+jwt"}
 REJECTED: dict[str, Callable[[User], str]] = {
     "expired": lambda u: mint(u, iat=int(time.time()) - 1000, exp=int(time.time()) - 60),
     "wrong_aud": lambda u: mint(u, aud="stoktok"),
+    "list_aud": lambda u: mint(u, aud=["admin"]),
+    "list_aud_multi": lambda u: mint(u, aud=["stoktok", "admin"]),
     "wrong_iss": lambda u: mint(u, iss="https://evil.invalid"),
     "unknown_kid": lambda u: mint_raw(
         {"kid": "nope", "typ": "at+jwt"}, claims_for(u), KEY_SET.signing_key, "ES256"

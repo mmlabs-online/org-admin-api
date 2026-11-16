@@ -57,6 +57,10 @@ first time and kept in `~/.config/org-admin-api/secrets/` (`identity_hmac_key`,
 `apps/org-admin-api/compose.yml`. Nothing to set by hand; the details below are for other
 environments and for rotation.
 
+- **`APP_ENV`** (ADM-002d): required, and set explicitly, whenever `DATABASE_URL` is not a
+  loopback host. Production sets `APP_ENV: production` in `apps/org-admin-api/compose.yml` →
+  `x-app.environment`; local `docker-compose.yml` sets `local`. When it is missing (or empty),
+  **the API, `migrate` and the CLI refuse to start** instead of falling back to `local`.
 - **`TRUSTED_PROXY_CIDRS`** (ADM-011): the CIDR(s) of the Docker network cloudflared reaches the
   API on (`web`). Without it every client shares one rate-limit bucket, so in staging/production
   **both `migrate` and the API refuse to start** when it is empty or unsafe (deploy step 5 fails,
@@ -94,7 +98,9 @@ environments and for rotation.
   every consumer pins it.
 - **`JWT_PUBLIC_KEYS_EXTRA`** (USR-03c): JSON list (in a quoted string, like
   `TRUSTED_PROXY_CIDRS`) of base64 public PEMs that the JWKS publishes next to the signing key.
-  Not a secret (`compose.yml`). Empty except during a rotation (below).
+  Not a secret (`compose.yml`). Empty except during a rotation (below). Holds only this
+  service's own previous/next public keys: `verify_access_token` trusts every key in it, so any
+  key placed there can mint admin tokens.
 - **`API_DOCS_ENABLED`** (ADM-002b, optional): `true`/`false` for Swagger UI (`/docs`) and
   `/openapi.json`. Unset: off in production, on elsewhere. Not a secret.
 
@@ -409,32 +415,43 @@ Runbook:
 4. Set the admin origin: `set-admin-origins --origin https://admin.mmlabs.online`, first with
    `dry_run` on, then off ("Set admin origins (ADM-002c)").
 5. Wait 60 s (the API reloads app origins within 60 s).
-6. Log in and get a token with curl. Both calls send an explicit
-   `Origin: https://admin.mmlabs.online` and `X-MM-App: admin`. The cookie jar and the request
-   body are created with mode 0600 and deleted afterwards; the password is read with `read -s`,
-   never on the command line or in shell history:
+6. Log in, get a token and call the admin API in one POSIX `sh` subshell (needs `python3` and
+   curl ≥ 7.55 for `-H @file`). Paste it into `sh` (or `dash`), not `bash -i`, and put your admin
+   calls in the marked section:
 
-   ```bash
-   umask 077
-   jar=$(mktemp) body=$(mktemp)
-   read -r -p 'email: ' email; read -r -s -p 'password: ' pw; echo
-   printf '{"email": "%s", "password": "%s"}' "$email" "$pw" > "$body"; unset pw
-   curl -sS -c "$jar" -X POST https://api.mmlabs.online/api/v1/auth/login \
-     -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' \
-     -H 'Content-Type: application/json' -d @"$body"
-   rm -f "$body"
-   # copy account_id from the response
-   curl -sS -b "$jar" -c "$jar" -X POST https://api.mmlabs.online/api/v1/auth/token \
-     -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' \
-     -H 'Content-Type: application/json' \
-     -d '{"audience": "admin", "account_id": "<account_id>"}'
-   rm -f "$jar"
+   ```sh
+   (
+     set -eu
+     umask 077
+     api=https://api.mmlabs.online/api/v1
+     jar=$(mktemp) body=$(mktemp) hdr=$(mktemp)
+     trap 'stty echo 2>/dev/null; if [ -s "$jar" ]; then curl -sS -o /dev/null -b "$jar" -X POST "$api/auth/logout" -H "Origin: https://admin.mmlabs.online" -H "X-MM-App: admin" -H "Content-Type: application/json" -d "{\"all\":true}" || true; fi; rm -f "$jar" "$body" "$hdr"' EXIT
+     trap 'exit 130' HUP INT TERM
+     printf 'email: '; IFS= read -r email
+     printf 'password: '; stty -echo; IFS= read -r pw; stty echo; printf '\n'
+     printf '%s\n%s\n' "$email" "$pw" | python3 -c 'import json,sys;e,p=sys.stdin.read().split("\n")[:2];print(json.dumps({"email":e,"password":p}))' > "$body"
+     pw=
+     acct=$(curl -fsS -c "$jar" -X POST "$api/auth/login" -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' -H 'Content-Type: application/json' -d @"$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["account_id"])')
+     : > "$body"
+     curl -fsS -b "$jar" -c "$jar" -X POST "$api/auth/token" -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' -H 'Content-Type: application/json' -d "{\"audience\":\"admin\",\"account_id\":\"$acct\"}" | python3 -c 'import json,sys;print("Authorization: Bearer "+json.load(sys.stdin)["access_token"])' > "$hdr"
+     # --- admin calls (the token only via -H @"$hdr") ---
+     curl -fsS -H @"$hdr" "$api/users?limit=5"
+     # ---
+   )
    ```
 
-   `printf` is a shell builtin, so the password never appears in `ps`; a password containing `"`
-   or `\` must be JSON-escaped in the body. After 3 failed logins for the email, Turnstile is required (`turnstile_token`) and curl cannot
-   pass it: get the password right, or wait for the backoff to expire.
-7. Call the admin endpoints with `Authorization: Bearer <access_token>`. Tokens last
+   - The password is read with echo off and reaches curl only through the 0600 body file
+     (`printf` is a builtin, so it never appears in `ps`); python3 builds the JSON, so any
+     character is safe.
+   - The access token goes from the token response straight into the 0600 header file. It never
+     enters argv, a shell variable, shell history or stdout.
+   - The `EXIT` trap runs on any exit, Ctrl-C included: it restores echo, logs out
+     (`{"all": true}`, revoking the device session) and deletes the jar, body and header files.
+   - Logout does not end the access token: one already issued stays valid until
+     `ACCESS_TOKEN_TTL_SECONDS` (15 min).
+   - After 3 failed logins for the email, Turnstile is required (`turnstile_token`) and curl
+     cannot pass it: get the password right, or wait for the backoff to expire.
+7. Every admin call goes inside the marked section with `-H @"$hdr"`. Tokens last
    `ACCESS_TOKEN_TTL_SECONDS` (15 min); disabling a user or revoking a role applies on the next
    request.
 
@@ -491,6 +508,8 @@ dry-run: rolled back, nothing was saved      (only with dry_run)
 - Only `origins` changes. `status`, `join_policy`, `org_mode`, the default role and the admin
   roles never change. If the admin row is missing or has drifted from its seed (not `active`,
   `closed`, `none` with no default role), the command refuses and repairs nothing (exit 1).
+  Exception: `--clear` skips the drift check (break-glass must work on a drifted row); it still
+  refuses a missing row and changes only origins (ADM-002d).
 - The API applies origin changes within 60 s (CORS cache).
 - The CLI writes a `system:cli` audit row (ADM-004); the workflow run (actor, time, inputs,
   summary) stays the operator trail.
@@ -501,7 +520,8 @@ dry-run: rolled back, nothing was saved      (only with dry_run)
 | 1 | settings, `DB_ECHO`, admin app missing or drifted, origin held by another app, concurrent change, database; one fixed line, no details |
 | 64 | usage or validation error (bad origin, apex, more than 2, loopback in staging/production, `--clear` with `--origin`) |
 
-**Break-glass `--clear`:** empties the admin origins. No new admin token can be obtained after at
+**Break-glass `--clear`:** empties the admin origins, also on a drifted admin row (only a missing
+row is refused). No new admin token can be obtained after at
 most 60 s; tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (15 min). To cut them
 sooner, revoke the role or disable the user (reloaded on every request, ADR-0008 §3).
 
@@ -655,9 +675,9 @@ Locally: `uv run python -m app.cli create-account --email you@example.com [--joi
   rewrites every `occurred_at` to the restore time. Never set `session_replication_role` on the
   live database.
 - Read it with `GET /api/v1/audit-logs` (`admin:audit:read`, held only through `admin:*`).
-  Every response carries `X-Request-ID`; the same id is stored on the audit row. A valid inbound
-  value is kept only from a peer in `TRUSTED_PROXY_CIDRS` (cloudflared), else a UUID4 is
-  generated. Cloudflare forwards client headers, so treat it as a correlation id, not evidence.
+  Every response carries `X-Request-ID`, a UUID4 generated per request; the same id is stored on
+  the audit row. An inbound `X-Request-ID` is ignored. Rows written before ADM-002d may hold a
+  client-chosen id (correlation only, not evidence).
 - Since ADM-004b each row has `outcome` (`success|failure|denied`; filter `?outcome=`). Failed
   logins (`auth.login_failed`, anonymous actor, no email) and denied privileged attempts
   (`outcome=denied`) are recorded, plus logins, logouts, device-session reuse, password resets and

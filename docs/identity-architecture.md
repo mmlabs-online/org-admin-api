@@ -218,8 +218,8 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   account choice in `localStorage.mm_account_id`, error types (`not_member`, `email_unverified`, backoff).
   Thin wrappers: Angular (service + guard/interceptor), React (provider + hooks). Credentials are posted
   straight to the API, never through the app's backend.
-- **`mmlabs-auth`** (Python, for app backends): JWKS fetch + cache, JWT verification (`iss`, `aud`,
-  `exp`, `kid`), role-catalog cache with ETag, `require_permission("<app>:<res>:<action>")` (FastAPI
+- **`mmlabs-auth`** (Python, for app backends): JWKS fetch + cache, JWT verification (`iss`, string-only
+  `aud` via `strict_aud`, `exp`, `kid`), role-catalog cache with ETag, `require_permission("<app>:<res>:<action>")` (FastAPI
   dependency first).
 - They live in a **separate repo** for the `@mmlabs` libraries (owner creates it) and are built in
   USR-08 (D21). Until then apps call the API with plain `fetch` (`docs/consumers.md`).

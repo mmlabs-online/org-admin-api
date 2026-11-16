@@ -506,7 +506,7 @@ async def test_join_writes_audit_row(
 ) -> None:
     user, raw, account = await _signed_in(db_session)
     headers = {**auth_headers(cookie=raw), "X-Request-ID": "req-join-1"}
-    # An inbound request id is kept only from a trusted proxy peer (ADM-004b).
+    # The stored id is always generated; an inbound one is ignored (ADM-002d).
     async with make_client(trusted_proxy_cidrs=["127.0.0.0/8"]) as client:
         resp = await client.post(_url(), json=_body(account.id), headers=headers)
     assert resp.status_code == 200, resp.text
@@ -516,7 +516,10 @@ async def test_join_writes_audit_row(
     assert (row.target_type, row.target_id) == ("role_assignment", ra.id)
     assert (row.app_key, row.org_id) == ("stoktok", None)
     assert row.changes == {"role_key": {"from": None, "to": "stoktok:member"}}
-    assert (str(row.ip), row.request_id) == ("127.0.0.1", "req-join-1")
+    echoed = resp.headers["x-request-id"]
+    assert (str(row.ip), row.request_id) == ("127.0.0.1", echoed)
+    assert echoed != "req-join-1"
+    assert uuid.UUID(echoed).version == 4
     assert user.email not in str(row.changes)
 
 

@@ -220,13 +220,15 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
    (`jku`, `x5u`, `jwk`).
 3. Select the key by `kid`. Cache the JWKS (at most 1 h; the server sends `max-age=300`). On an
    unknown `kid`, refetch at most once a minute.
-4. Require `iss == "https://api.mmlabs.online"` exactly and `aud == "ricotdin"`.
+4. Require `iss == "https://api.mmlabs.online"` exactly, and `aud` must be a **string** equal to
+   `"ricotdin"` (a list is rejected; PyJWT `strict_aud=True`).
 5. Require `exp`, `iat`, `sub`, `jti`. Leeway at most 60 s (30 s recommended).
 6. Require header `typ == "at+jwt"` and claim `email_verified is True`.
 7. Map `roles` to permissions only through ricotdin's own role catalog
    (`GET /api/v1/apps/ricotdin/roles`).
 8. Never log tokens.
-9. Use `PyJWT[crypto]>=2.10.1` (2.10.0 has CVE-2024-53861, a partial `iss` match).
+9. Use `PyJWT[crypto]>=2.10.1` (2.10.0 has CVE-2024-53861, a partial `iss` match; also needed
+   for `strict_aud`).
 10. Set a `User-Agent` on the JWKS fetch: Cloudflare may block the urllib default.
 11. Revocation lag: a logout, a disabled user or a removed role takes effect within 15 minutes
     (the token TTL).
@@ -260,7 +262,7 @@ def verify(token: str) -> dict:
         audience="ricotdin",
         issuer=ISSUER,
         leeway=30,
-        options={"require": ["exp", "iat", "sub", "jti", "iss", "aud"]},
+        options={"require": ["exp", "iat", "sub", "jti", "iss", "aud"], "strict_aud": True},
     )
     if claims.get("email_verified") is not True:
         raise jwt.InvalidTokenError("email_verified")

@@ -12,6 +12,7 @@ from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
 from app.modules.audit.diff import change
 from app.modules.audit.service import AuditLogger
+from app.modules.auth.repository import EmailTokenRepository
 from app.modules.rbac.actor import Actor, actor_user_id, require_super
 from app.modules.rbac.models import ADMIN_APP_KEY
 from app.modules.rbac.repository import RbacRepository
@@ -78,6 +79,8 @@ class UserService:
         if status == UserStatus.DISABLED:
             # Admin tokens stop on the next request (per-request reload); app tokens expire.
             await SessionRepository(self.repo.session).revoke_all_accounts_of_user(user.id)
+            # A reset/verify link must not come back to life on re-enable (ADM-002d).
+            await EmailTokenRepository(self.repo.session).invalidate_all(user.id)
         await self.audit.record(
             action,
             actor=actor,

@@ -14,6 +14,7 @@ from tests.rbac_factories import grant, make_app, make_permission, make_role
 
 BASE = "/api/v1/apps"
 URL = f"{BASE}/stoktok/permissions"
+ADMIN_URL = f"{BASE}/admin/permissions"
 PERMISSION_READ_KEYS = {"id", "key", "description", "is_admin"}
 
 
@@ -130,6 +131,32 @@ async def test_create_wildcard_not_admin_422(
     assert error["code"] == "unprocessable"
     assert error["details"] == [{"field": "is_admin", "reason": "wildcard_must_be_admin"}]
     assert await _perm(db_session, "stoktok:*") is None
+
+
+@pytest.mark.parametrize(
+    "body", [{"key": "admin:zz:read"}, {"key": "admin:zz:read", "is_admin": None}]
+)
+async def test_create_admin_app_permission_forced_admin(
+    rbac_client: AsyncClient, db_session: AsyncSession, body: dict[str, Any]
+) -> None:
+    resp = await rbac_client.post(ADMIN_URL, json=body)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_admin"] is True
+    perm = await _perm(db_session, "admin:zz:read")
+    assert perm is not None and perm.is_admin
+
+
+async def test_create_admin_app_permission_not_admin_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    resp = await rbac_client.post(ADMIN_URL, json={"key": "admin:zz:read", "is_admin": False})
+    assert resp.status_code == 422
+    error = resp.json()["error"]
+    assert error["code"] == "unprocessable"
+    assert error["details"] == [
+        {"field": "is_admin", "reason": "admin_app_permission_must_be_admin"}
+    ]
+    assert await _perm(db_session, "admin:zz:read") is None
 
 
 @pytest.mark.parametrize("key", ["calechip:x:read", "admin:x:read"])
@@ -282,6 +309,26 @@ async def test_patch_wildcard_not_admin_422(
     for key in ("stoktok:*", "admin:*"):
         perm = await _perm(db_session, key)
         assert perm is not None and perm.is_admin
+
+
+async def test_patch_admin_app_permission_not_admin_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    perm = await _perm(db_session, "admin:users:read")
+    assert perm is not None and perm.is_admin
+    url = f"{ADMIN_URL}/{perm.id}"
+    resp = await rbac_client.patch(url, json={"is_admin": False})
+    assert resp.status_code == 422
+    error = resp.json()["error"]
+    assert error["code"] == "unprocessable"
+    assert error["details"] == [
+        {"field": "is_admin", "reason": "admin_app_permission_must_be_admin"}
+    ]
+    refreshed = await _perm(db_session, "admin:users:read")
+    assert refreshed is not None and refreshed.is_admin
+    same = await rbac_client.patch(url, json={"is_admin": True})
+    assert same.status_code == 200
+    assert same.json()["is_admin"] is True
 
 
 async def test_patch_permission_admin_while_default_holds_409(

@@ -1,0 +1,39 @@
+# Review — ADM-002d
+
+## Attempt 1 — 2026-11-15
+Verdict: PASS
+
+### Checks (run by reviewer)
+- make check (`env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`): ruff "All checks passed!"; ruff format "455 files already formatted"; mypy "Success: no issues found in 100 source files"; pytest "1622 passed, 1 warning in 82.07s" (pre-existing forkpty DeprecationWarning). Exit 0. Matches impl-log (1622 passed; impl-log says 454 formatted files vs 455 here: cosmetic, not a mismatch in outcome).
+- alembic: `upgrade head` → `check` "No new upgrade operations detected." → `downgrade -1` (a7c3e5f19b42 → e91b6c3d58a2) → `upgrade head` (→ a7c3e5f19b42 (head)) → `check` clean.
+- Runbook block (`docs/deploy.md:422-442`, extracted): `sh -n` OK, `dash -n` OK; shellcheck not installed. Dry run under `dash` with stub `curl`/`stty` and a password containing `"` and `\`: the token reached curl only via `-H @file`, the EXIT trap POSTed `/auth/logout` `{"all":true}` with the jar, all three temp files were deleted.
+- Config sanity (outside pytest): `Settings(_env_file=None)` with no `APP_ENV`/`DATABASE_URL` → `local` (release smoke test path); `DATABASE_URL=…@db…` without `APP_ENV` → `ValidationError` "APP_ENV must be set explicitly…" with no DSN in the message.
+
+### Acceptance criteria
+- [x] 1 strict_aud — `app/core/access_token.py:52`; `tests/jwt_verifier.py:27`; tests `test_access_token.py › test_list_audience_rejected[["admin"], ["stoktok","admin"]]`, `test_admin_auth.py › test_rejected_tokens_401[list_aud, list_aud_multi]`, `test_token_verification.py › test_reference_rejects_list_audience`. Docs: `docs/consumers.md` checklist 4, item 9, sketch; `docs/identity-architecture.md` `mmlabs-auth` bullet.
+- [x] 2 admin-app is_admin — migration `migrations/versions/20261115_a7c3e5f19b42_admin_permissions_is_admin.py` (idempotent UPDATE by `key = 'admin'`, documented no-op `downgrade()`, R2 exception stated); service `app/modules/rbac/service.py:212,714-717` (create: omitted/null → true, false → 422) and `:749-750` (PATCH false → 422; PATCH null already refused by `PermissionUpdate._non_null`). Tests `test_rbac_migrations.py › test_admin_permissions_backfill` (admin row flipped, non-admin-app row untouched, always ends at head), `test_rbac_permissions_api.py › test_create_admin_app_permission_forced_admin[2]`, `…_not_admin_422`, `test_patch_admin_app_permission_not_admin_422`. Cycle green.
+- [x] 3 `--clear` on drift — `app/modules/rbac/service.py:618-629`: `lock_app` always runs, `app is None` always refused, drift predicates only `if origins`; write/audit path unchanged. Tests `test_service_clear_on_drift[4 drifts]` (UPDATED, only origins changed, one audit row with `origins` diff only), `…_already_empty_unchanged`, `test_service_refuses_missing_admin_on_clear`, `test_cli_clear_on_drift_exit_0`; existing `test_service_refuses_drift`, `test_cli_drift_exit_1` green. ADR-0008 amendment + drift bullet; `docs/deploy.md:511-512,523-524`.
+- [x] 4 runbook — POSIX subshell, `set -eu`, `umask 077`, EXIT trap (echo restore, logout, rm), `trap 'exit 130' HUP INT TERM`, `stty -echo` + `IFS= read -r` (no `read -p/-s`), JSON via python3, token only in 0600 header file used with `-H @"$hdr"` (the only `Bearer` literal is inside the python string, never argv), TTL sentence, Turnstile note; `JWT_PUBLIC_KEYS_EXTRA` sentence at `docs/deploy.md:101-103`. Endpoint/field names match `LoginResponse.account_id`, `TokenRequest`, `TokenResponse.access_token`, `LogoutRequest.all`.
+- [x] 5 mail-link refusal — `app/modules/auth/deps.py:81-89`; used only at `app/modules/auth/router.py:77` (signup), `:307` (resend), `:341` (forgot), and by `get_link_origin`. Login (`:112`), logout (`:157`), token (`:184`) keep `AppContextDep`; verify-email/reset have no app context. Tests `test_auth_app_context.py › test_admin_context_refused_on_mail_routes[signup, forgot, resend]` (403 `origin_not_allowed`, no Turnstile call, no user/email_token/send-log rows, no email, no Set-Cookie), `test_admin_context_refusal_matches_unknown_app` (identical body), `test_admin_context_refused_even_if_link_origin_overridden`. Existing admin login/token and join-admin tests green.
+- [x] 6 APP_ENV — `app/core/config.py:16,122-132` (first model validator; `model_fields_set` covers env and .env sources; `env_ignore_empty=True` makes `APP_ENV=` unset; message never formats the URL; `hide_input_in_errors` on). Tests `test_config.py › test_app_env_required_for_remote_db[db, 10.0.0.5, localhost+db]`, `…_socket_dsn_fails_closed`, `…_default_ok_for_loopback[localhost, 127.0.0.1, [::1]]`, `…_explicit_ok_for_remote_db[local, test, production]`, `…_from_env_counts_as_explicit`, `…_empty_counts_as_unset`, `…_error_does_not_echo_dsn`. CI: tests set `APP_ENV=test` and use localhost; `ci.yml` alembic step uses localhost; `release.yml:106` smoke runs with no `DATABASE_URL` (default localhost → OK, verified); Dockerfile sets no APP_ENV; `docker-compose.yml:22` `APP_ENV: local` for the `db`-host `api` service.
+- [x] 7 email tokens on disable — `app/modules/auth/repository.py:126-133` (scoped to `user_id`, `used_at IS NULL`), called at `app/modules/users/service.py:83` inside `set_status` (same transaction, DISABLED only). Tests `test_users_admin.py › test_disable_invalidates_email_tokens` (old reset and verify links → 422 `token_invalid` after re-enable), `test_disable_leaves_other_users_tokens`.
+- [x] 8 org_mode pinned — `app/modules/rbac/service.py:386`; `test_rbac_apps_api.py › test_admin_app_locked_fields_409[org_mode]`, `test_admin_app_same_value_patch_ok` (+`org_mode: none` → 200).
+- [x] 9 `build_default_role` has no actor — `app/modules/rbac/service.py:252`; `test_rbac_default_role.py › test_build_default_role_has_no_actor_param`; mypy green.
+- [x] 10 request id — `app/core/request_id.py:24` always UUID4, inbound parse and trusted-peer branch removed, `app/main.py:60` no kwargs. Tests `test_request_id.py › test_inbound_ignored[trusted, untrusted]`, `test_same_inbound_gives_distinct_ids`, `test_echoed_on_error_response`, `test_echoed_on_health` (single header value), `test_generated_when_absent`; stored == echoed ≠ inbound in `test_audit_coverage.py › test_row_carries_request_context` and `test_auth_join.py › test_join_writes_audit_row`. ADR-0009 amendment; `docs/deploy.md:678-680`.
+- [x] 11 `make check` green — see Checks.
+
+### Issues
+None.
+
+### Rules R1–R11
+No violations found. R1: the new dependency raises `OriginNotAllowedError` (AppError); rules stay in services; repository only does SQL. R2: data-only migration with the ticket-requested, documented no-op downgrade; `alembic check` clean. R4: `--clear` keeps its audit row; token invalidation runs inside the audited disable. R5: gate error carries no DSN (tested). R6: existing envelope/codes. R7: all changed files are in the plan; the only out-of-plan file is `plan.md` (justified, see Nits). R11: strengthened (`aud`, email tokens, runbook secrets).
+
+### Nits (do not block)
+- `work/tickets/ADM-002d/plan.md`: the implementer added 3 blank lines inside two Python snippets so `ruff format --check .` passes. Content unchanged, recorded under Out-of-plan files; acceptable.
+- `tests/test_auth_app_context.py` override test covers forgot and resend only. Signup is fine because its route-level dependency is the one under test in the main param test.
+- The trap's logout runs whenever the jar file is non-empty. After a failed login the jar may hold only curl's header comment, so the call sends no cookie and gets a harmless 401 (no `-f`, `|| true`).
+
+### Follow-ups (out of scope)
+- Exclude `work/**/*.md` (or all Markdown) from `ruff format`, so Python snippets in ticket docs cannot break `make check`.
+- `.env.example` holds values (`APP_ENV=local`, `APP_DEBUG=true`, …) although R5 says keys without values (pre-existing).
+- PR body: call out the visible behaviour change (an inbound `X-Request-ID` is no longer echoed).
