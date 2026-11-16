@@ -92,7 +92,7 @@ the `admin` app's origins (set with `set-admin-origins`).
   `/reset-password`, but must serve `/verify-email`.
 - **Unverified staff email (USR-12).** `/auth/token` answers 403 `email_unverified`. The UI may
   call `POST /api/v1/auth/verify-email/resend` `{account_id}` with `credentials: "include"`,
-  `X-MM-App: admin` (the only admin-context call that uses the cookie). 202: tell the user to
+  `X-MM-App: admin` (cookie class, like `/auth/token`; the only admin-context call that sends mail). 202: tell the user to
   open the link; 429: back off for `Retry-After` (1/min, 5/day per email); 409: already verified,
   call `/auth/token`; 403 `origin_not_allowed`: the account has no admin role. The link is
   `https://admin-portal.mmlabs.online/verify-email#token=...`; the page is public (outside the auth
@@ -145,7 +145,7 @@ points at the page origin that made the request; there is no API-wide fallback o
 > because no consumer used sign-up yet.
 
 **Link format (fixed for every app):** `{origin}/verify-email#token=<43 chars>`. **Every registered
-origin of an app must serve `/verify-email` and `/reset-password`** (see "Password reset"). The
+origin of an app must serve `/verify-email` and `/reset-password`** (see "Password reset"; admin-portal: `/verify-email` only, see the admin UI section). The
 token is in the fragment, so it never reaches a server log. The page:
 
 1. reads `location.hash`, then removes it at once (`history.replaceState(null, "", "/verify-email")`);

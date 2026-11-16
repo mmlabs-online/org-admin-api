@@ -36,3 +36,19 @@ None.
 ### Scope self-check
 - Could the diff be smaller? No.
 - Diff size: about +440 / -35 lines (mostly tests and docs).
+
+## Should-fix (post-PASS doc/test nits)
+
+### Files touched
+- `docs/consumers.md`: resend parenthetical now "(cookie class, like `/auth/token`; the only admin-context call that sends mail)"; origin rule notes admin-portal serves `/verify-email` only. Required because review/security-review nits 1 and 2.
+- `docs/adr/0008-admin-api-authentication.md`: "an `admin:*` role" -> "an admin-app role" in the USR-12 amendment. Required because nit 3.
+- `tests/test_auth_app_context.py`: pin test also asserts `get_resend_link_origin` is not on signup or forgot. Required because nit 4.
+
+### Checks
+- `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: green, pytest "1776 passed".
+
+### Out-of-plan files
+None. Follow-ups: none.
+
+### Scope self-check
+Only the four listed nits; diff is a few lines.

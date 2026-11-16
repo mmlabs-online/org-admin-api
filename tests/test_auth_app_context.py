@@ -287,5 +287,7 @@ def test_mail_link_routes_dependency_pin() -> None:
     }
     assert get_mail_link_app_context in routes[SIGNUP]
     assert get_mail_link_app_context in routes[FORGOT]
+    assert get_resend_link_origin not in routes[SIGNUP]
+    assert get_resend_link_origin not in routes[FORGOT]
     assert get_mail_link_app_context not in routes[RESEND]
     assert {get_app_context, get_resend_link_origin} <= routes[RESEND]

@@ -168,7 +168,7 @@ allow open account creation and admin-branded mail.
 **Why it does not hold for resend.** Resend is cookie class: it needs a `__Host-mm_device` with an
 active account, so the caller proved the password. It mails only that account's own address, runs
 no Turnstile path and creates no account. The token only marks the email verified; admin access
-still needs an `admin:*` role. Limits (1/min, 5/day per email HMAC shared across apps, per-IP, global
+still needs an admin-app role. Limits (1/min, 5/day per email HMAC shared across apps, per-IP, global
 cap) are unchanged, so admin context adds no sending capacity and no new oracle.
 
 **Staff-only rule.** Without it, an attacker could pre-register a future staff member's email,
