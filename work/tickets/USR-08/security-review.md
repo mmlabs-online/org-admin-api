@@ -141,3 +141,11 @@ Stage C React (token never in state/context/render; `useJoin` only on explicit c
 - CLAUDE.md R11 cookie wording stale vs D20.
 
 **Verdict:** PASS with should-fix — no 🔴; 🟡A is a one-line fix that should land in this ticket.
+
+## Final — re-check of should-fix (mmlabs-auth 2295b75)
+- 🟡A fixed — `python/src/mmlabs_auth/_http.py:118` catches `RecursionError` → `FetchError("invalid_json")`; JWKS cooldown and catalog stale-serving apply; tests in test_http/test_jwks/test_catalog.
+- 💭B fixed — `_http.py:87` sends `Accept-Encoding: identity` (a server ignoring it can still send gzip; accepted, trusted upstream).
+- 💭C fixed — `jwks.py:29` `MIN_TTL = 30.0`, `jwks.py:169` `min(max(ttl, MIN_TTL), max_ttl)`; unknown-kid refetch unaffected.
+- No new 🔴/🟡. 💭D–F and follow-ups remain open.
+
+**Verdict:** PASS — no open 🔴 or 🟡.

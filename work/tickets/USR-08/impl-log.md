@@ -407,3 +407,16 @@ PyJWT 2.12 `get_unverified_header` already rejects a non-string `kid` (`InvalidT
 - `contract/SOURCE` not bumped in E1 (no contract change needed for release).
 - Optional: build provenance (`actions/attest-build-provenance`) once the owner wants it (ADR "Deferred").
 - LICENSE for mmlabs-auth (owner decision).
+
+## Final should-fix
+
+Fixes for appsec findings A–C (mmlabs-auth, commit "USR-08: fix final appsec findings A–C").
+
+Files touched (python/):
+- src/mmlabs_auth/_http.py: catch `RecursionError` -> `FetchError("invalid_json")` (A); send `Accept-Encoding: identity` (B).
+- src/mmlabs_auth/jwks.py: `MIN_TTL = 30` floor on the JWKS TTL (C); docstring updated.
+- tests/test_http.py: header assertion; deep-nesting -> invalid_json.
+- tests/test_jwks.py: TTL floor (max-age 0 and 5); `b"[" * 60000` fails closed, second call does not refetch.
+- tests/test_catalog.py: same deep-nesting test; fails closed, no refetch on the second call.
+
+Gate (python/): `uv sync --locked` ok; `ruff check` All checks passed; `ruff format --check` 22 files already formatted; `mypy` Success: no issues in 21 source files; `pytest` 154 passed.
