@@ -72,9 +72,20 @@ the `admin` app's origins (set with `set-admin-origins`).
   + token, "Content-Type": "application/json"}})`. Never `credentials: "include"`, never send the
   cookie, never send `X-MM-App` (the admin preflight refuses it).
 - Keep the token in memory only (not `localStorage`). Call `/auth/token` again about 60 s before
-  `expires_in` runs out, and after a role change.
+  `expires_in` runs out. Role changes show up in `GET /api/v1/me/permissions` on the next call;
+  the token's `roles` claim may lag up to the token TTL.
 - On a 401 from an admin endpoint, call `/auth/token` once; if that fails too, send the user to
   login (401 `session_invalid` from `/token` = sign in again).
+- To learn the signed-in staff member's own id, roles and permissions, call
+  `GET /api/v1/me/permissions` with the same Bearer token, for example
+  `{"user_id": "…", "roles": ["admin:super-admin"], "permissions": ["admin:*"]}`. Do not decode the
+  token for `sub`. It is a UI hint only: the API still enforces every call (403
+  `permission_denied`, and `admin_wildcard_required`, `self_assignment_forbidden`,
+  `self_status_change_forbidden` cannot be inferred from the list). Match with
+  `has(k) = perms.includes(k) || perms.includes("admin:*")`; there is no other wildcard. Unknown
+  keys may appear (additive). Empty lists mean "no admin access" (re-login). The response is
+  `no-store`: keep it in memory only. Fetch on session start, after each `/auth/token` call and
+  after any 403, not on every navigation.
 - 401/403/404/409/422 envelopes are readable; `Retry-After`, `ETag` and `X-Request-ID` are
   exposed. A 500 is not readable cross-origin. Responses carry `Cache-Control: no-store`.
 - `admin-portal` cannot host the sign-up, forgot-password or resend-verification screens

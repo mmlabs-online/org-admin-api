@@ -19,6 +19,13 @@ class AdminPrincipal:
     token_id: str
 
 
+@dataclass(frozen=True)
+class AdminSelfView:
+    user_id: uuid.UUID
+    roles: list[str]
+    permissions: list[str]
+
+
 class AdminAuthService:
     def __init__(self, session: AsyncSession) -> None:
         self.users = UserRepository(session)
@@ -31,3 +38,8 @@ class AdminAuthService:
             raise UnauthorizedError("Authentication required")
         permissions = await self.authz.effective_permissions(user.id, ADMIN_APP_KEY)
         return AdminPrincipal(user.id, frozenset(permissions), token_id)
+
+    async def self_view(self, principal: AdminPrincipal) -> AdminSelfView:
+        """The caller's own roles (app scope, like enforcement) and this request's permissions."""
+        roles = await self.authz.effective_roles(principal.user_id, ADMIN_APP_KEY)
+        return AdminSelfView(principal.user_id, roles, sorted(principal.permissions))
