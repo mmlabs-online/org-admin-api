@@ -18,7 +18,7 @@ From `work/tickets/ADM-002d/security-review.md` and `review.md`.
 2. 🟡 `docs/deploy.md` admin-token runbook: the EXIT trap runs under `set -eu`; a failing `stty` (no tty, e.g. SIGHUP after an SSH drop) aborts the trap before logout and cleanup. Start the trap with `set +e`, use `stty echo 2>/dev/null || true`, initialise `jar= body= hdr=` before the trap and create the temp files after it.
 3. 💭 `resend` verification: take a share lock on the user (like forgot) so a concurrent disable's `invalidate_all` cannot miss a freshly issued VERIFY token.
 4. 💭 Test that after `upgrade head` every `admin`-app permission row has `is_admin = true` (guards future data migrations).
-5. Exclude `work/**/*.md` from `ruff format` (it formats Markdown code blocks; plan snippets made `make check` red).
+5. ~~Exclude `work/**/*.md` from `ruff format`~~ — done in solo 2026-11-16 (`extend-exclude = ["work"]`).
 6. `.env.example` holds values; R5 says keys only — strip values (keep comments).
 
 ## Acceptance criteria

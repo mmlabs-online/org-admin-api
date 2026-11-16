@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     reset_rate_limit: int = Field(default=10, ge=1)
     reset_rate_window_seconds: int = Field(default=60, ge=1)
 
-    password_min_length: int = Field(default=12, ge=8)
+    password_min_length: int = Field(default=6, ge=6)  # owner, 2026-11-16: minimum 6 (was 12)
 
     argon2_time_cost: int = Field(default=3, ge=1)
     argon2_memory_kib: int = Field(default=65536, ge=8)

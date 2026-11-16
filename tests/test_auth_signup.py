@@ -74,7 +74,7 @@ async def test_duplicate_email_any_case_returns_409(client: AsyncClient) -> None
 async def test_weak_password_too_short_returns_422(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    resp = await client.post(URL, json=_body(password="Zq8!vR2#"), headers=auth_headers())
+    resp = await client.post(URL, json=_body(password="Zq8!v"), headers=auth_headers())
     assert resp.status_code == 422
     error = resp.json()["error"]
     assert error["code"] == "weak_password"

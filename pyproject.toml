@@ -29,6 +29,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Ticket folders hold agent output saved verbatim (plans, reviews); never reformat it.
+extend-exclude = ["work"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "SIM", "RUF"]
