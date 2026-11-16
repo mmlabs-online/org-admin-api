@@ -33,7 +33,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-002d | Admin auth hardening and runbook fixes | DONE | P2 | auth, security | 1 | 2026-11-15 |
 | ADM-002e | Close the APP_ENV ?host= bypass and fix the admin runbook trap | DONE | P1 | auth, security | 2 | 2026-11-15 |
 | ADM-012 | Non-credentialed CORS for the Bearer admin endpoints | DONE | P1 | api, security, auth | 1 | 2026-11-16 |
-| USR-11 | Caller's effective admin permissions endpoint for the admin UI | BACKLOG | P1 | api, auth, security | 0 | 2026-11-16 |
+| USR-11 | Caller's effective admin permissions endpoint for the admin UI | PLANNING | P1 | api, auth, security | 0 | 2026-11-16 |
 | ADM-013 | OpenAPI contract that clients can generate types from | DONE | P2 | api | 0 | 2026-11-16 |
 | USR-12 | Allow resend-verification for the admin app | BACKLOG | P2 | api, auth, security | 0 | 2026-11-16 |
 | ADM-014 | Docs — admin UI hostname and forgot-password credentials | DONE | P2 | security | 1 | 2026-11-16 |
