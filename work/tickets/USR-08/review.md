@@ -101,3 +101,98 @@ No violations found. R1, R2, R4 and R9 do not apply, because there is no org-adm
 - org-admin-api `app/core/cors.py:39`: `IDENTITY_POLICY.expose_headers` is only `Retry-After`. Because `X-Request-ID` is not exposed, `AuthError.requestId` is always undefined for cross-origin browser auth calls. Consider exposing it (server ticket).
 - `fetchWithToken` sends the Bearer token to any URL the caller passes. An optional `allowedOrigins` option for the app's own backend would limit a misuse leak.
 - These are already in the impl-log: map a 429 without an envelope to `RateLimitedError`; `join()` must accept `"pending"` when USR-03g lands; wrap backend `TypeError` in `fetchWithToken`.
+
+## Final — Attempt 1 — 2026-11-16
+Verdict: PASS
+
+Scope: the whole ticket. mmlabs-auth `main..HEAD` on `claude/blissful-wozniak-fx4lm9` = `4ad6e5c` (A), `9b723d9` (B), `1f6dcf7` (B hardening), `7079675` (C), `cf911ac` (D), `3c84715` (E1). A and B were already reviewed above, so this pass focuses on B hardening, C, D and E1. org-admin-api `origin/main...HEAD` = `docs/consumers.md` (E2, +29 lines) plus `work/` bookkeeping only. Both working trees were clean before and after the review.
+
+### Checks (run by the reviewer)
+mmlabs-auth, from a clean tree at `3c84715`:
+- `pnpm -C ts install --frozen-lockfile`: "Lockfile is up to date, resolution step is skipped"
+- `pnpm -C ts lint`: "Checked 30 files in 23ms. No fixes applied."
+- `pnpm -C ts typecheck`: exit 0
+- `pnpm -C ts test`: "Test Files 12 passed (12)", "Tests 146 passed (146)"
+- `pnpm -C ts build`: exit 0. I removed `ts/dist/` afterwards.
+- `pnpm -C ts audit --prod`: "No known vulnerabilities found"
+- `uv sync --locked --directory python`: "Resolved 34 packages … Checked 33 packages"
+- `ruff check .`: "All checks passed!"
+- `ruff format --check .`: "22 files already formatted"
+- `mypy`: "Success: no issues found in 21 source files"
+- `pytest`, with the org-admin-api checkout present: "148 passed". With `ORG_ADMIN_API_DIR=/nonexistent` (the CI case): "143 passed, 5 skipped", so the drift tests skip cleanly.
+- `uvx zizmor@1.16.3 --offline .github/workflows`: "No findings to report. Good job! (4 suppressed)", covering ts.yml, python.yml and release.yml.
+
+org-admin-api: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check` (local Postgres) exited 0:
+- ruff: "All checks passed!"
+- format: "222 files already formatted"
+- mypy: "Success: no issues found in 101 source files"
+- pytest: "1716 passed, 1 warning"
+
+All of these results match impl-log.md (Stage D and Stage E) exactly. `alembic check` does not apply: no org-admin-api code or migration changed.
+
+### Acceptance criteria → evidence
+| AC | Evidence | Result |
+|---|---|---|
+| Separate repo, with CI and versioning there | `/home/user/mmlabs-auth` has `ts/`, `python/`, `contract/`. CI: `.github/workflows/ts.yml`, `python.yml`. Versioning: `.github/workflows/release.yml:6-10` (tags `ts-v*` / `py-v*`), tag-vs-manifest checks at `release.yml:37-47` and `:94-102`, and `docs/adr/0001-packaging-and-release.md:19-31`. Green CI on the PR is still to be confirmed once the PR is open (the orchestrator's DONE condition). | met |
+| TS unit tests: account choice per origin, token refresh, error mapping | `ts/test/accounts.test.ts`, `token-cache.test.ts` and `errors.test.ts` (contract-driven `it.each`) are green: 146/146. | met |
+| Python tests: valid / expired / wrong-aud / unknown-kid token, ETag cache, JWKS cooldown | `python/tests/test_access_token.py:48` (valid), `:54` (expired), `:65` (wrong aud), `:115` (unknown kid). ETag: `test_jwks.py:52` (`304_keeps_keys_and_extends_ttl`) and `test_catalog.py:44/56/66` (ETag 304, no revalidation within 60 s, revalidation after 60 s). Cooldown: `test_jwks.py:72/83/95/106` (refetch once, none within 60 s, again after cooldown, cooldown after a failed fetch) and `:137` (flush). Unknown-kid refetch through the verifier: `test_verifier.py:33`. All 148 green. | met |
+| org-admin-api `docs/consumers.md` links to the libraries | The diff adds `## Client libraries` (links to `ts/README.md` and `python/README.md` on GitHub, tag-pinned install lines, and "this page wins"), plus the pointer above `## PyJWT sketch`. | met |
+| React wrapper (provider + hooks) usable by admin-pan | `ts/src/react/index.tsx:57-130` (`AuthProvider`), `:139` (`useAuth`), `:146` (`useAccessToken`, functions only), `:159` (`useJoin`). `./react` is exported (`package-exports.test.ts`). `react.test.tsx:274` is the admin-pan smoke test (`appKey "admin"` → `audience admin`, `X-MM-App: admin`). The admin-pan example is in `ts/README.md` §7 (`:195`+). | met |
+| `getToken` in-memory cache, refresh before expiry, single-flight, never persisted | Reviewed at A+B: `token-cache.ts` skew `min(60 s, 20 %)`, single-flight, generation guard. Hardening: an in-flight result that lands after logout or a switch is now rejected with `account_changed` and is neither cached nor returned (`token-cache.ts` `#fetch`). The storage-hygiene test still passes with `apiOrigins`. | met |
+| `listAccounts()`, `mm_account_id` per origin, logout one / all | Reviewed at A+B (`accounts.ts`, `client.ts` logout clears synchronously). React `logout` reloads after the POST (`react/index.tsx:109-118`). | met |
+| Typed errors `not_member`, `email_unverified`, `session_invalid`, `rate_limited` (`retryAfter`) plus a generic fallback | Reviewed at A+B. Hardening: `errors.ts` `CODE_RE` (an untrusted code becomes `unexpected_response`); `retry-after.ts` clamps to [0, 900] s, with a second clamp in `token-cache.ts`. Errors table: `ts/README.md` §6. | met |
+| `credentials:"include"` + `X-MM-App` only on `/api/v1/auth/*`; Bearer never sends cookies | Reviewed at A+B. Hardening: `transport.ts` `isAuthPath` (refuses `..` and `%2e`, checks the resolved prefix). The Bearer destination guard `bearer.ts` `assertDestination` requires https or opted-in loopback, an origin in `apiOrigins`, and never the identity `/api/v1/auth` (decoded, slash-collapsed, case-insensitive). Tests: `bearer.test.ts:164-221`. | met |
+| Resend verification, then a fresh token after the email is verified | Reviewed at A+B (`endpoints.test.ts`, `token-cache.test.ts` "fresh token after verifyEmail"). Documented flow: `ts/README.md` §5. | met |
+| Python scope: JWKS by `kid` (flushable, ≤ 1 refetch / 60 s), ES256 (`iss`, `aud`, `exp`, `typ`), catalog with ETag, `require_permission()` | `jwks.py:97-105` (flush with generation), `:117-128` (unknown-kid cooldown under a lock with re-check), `:30-49` (EC P-256 / ES256 / `sig` only; private `d` and off-curve points refused). `access_token.py:48-85` is the verbatim server logic plus the planned leeway and `kid` changes. Drift guard: `test_drift.py:92-118`, comparing against the org-admin-api checkout. `catalog.py` (admin refused, `APP_KEY_RE` identical to server `rbac/models.py:33`, 60 s / 15 min bounds, 404 → config error, foreign prefixes dropped). `fastapi.py:296` permission regex equals server `PERMISSION_KEY_RE` (`rbac/models.py:34`) with the audience fixed; 401, 403 and 503 use the R6 envelope; logs carry reason, jti and required only. | met |
+| Integration guide and publishing | `ts/README.md` (§1–8), `python/README.md` (§1–9), root `README.md` Install/Releases, and ADR-0001 (public repo, no token, Release tarball vendored, git-tag install, provenance deferred, LICENSE open). | met |
+
+### Focus review (B hardening, C, D, E1)
+- **B hardening** (`1f6dcf7`) closes the security review's 🟡1–3 and 💭4–9 as specified:
+  - stale-token rejection, with the account fixed for the 401 retry (`bearer.ts` checks `getAccountId() !== accountId` before and after the forced refresh);
+  - the destination guard is lazy, so SSR clients that never call `fetchWithToken` need no `apiOrigins`;
+  - `pip-audit==2.10.1` is pinned;
+  - hatchling is bounded `>=1.27,<2`;
+  - the storage fallback clears tokens and is installed only without `BroadcastChannel`.
+  - No regressions: the A+B tests remain green.
+- **C:** the wrapper holds no auth logic. A sequence ref drops stale `listAccounts()` results, and unmount unsubscribes and invalidates. No token ever enters state or context: `react.test.tsx` deep-walks the context, hooks and rendered HTML. The core graph never imports `react` (`package-exports.test.ts`).
+- **D:** the verifier never fetches JWKS for a header that would fail anyway (`verifier.py:40-49`). It never reads `jku`, `x5u` or `jwk`. JWKS/catalog unavailability → 503 `auth_unavailable`, fail closed. `Principal` keeps `email` and `claims` out of its repr. `_http.py` streams with a byte cap, enforces a 5 s total timeout via `asyncio.timeout`, refuses redirects, and is HTTPS-only.
+- **E1:** release.yml has top-level `contents: read` and job-level `contents: write` only. Actions are SHA-pinned (the same SHAs as CI), `persist-credentials: false`, caches are disabled, all `${{ }}` values pass through `env:`, and `gh release create --verify-tag` uses `github.token` only. zizmor is clean.
+
+### Scope (R7)
+Every changed file is in the plan or justified in the impl-log:
+- `python/tests/__init__.py` (imports).
+- `python/tests/test_drift.py` (orchestrator request; pulls part of F2 forward).
+- `allow_insecure_loopback` on `MmlabsAuth` (local development; does not weaken production defaults).
+
+org-admin-api source diff is `docs/consumers.md` only, as planned. The E2 wording "public, no token" replaces the plan's "private repo" line, following the 2026-11-16 owner decision recorded in ticket.md.
+
+### Rules R1–R11
+No violations.
+- R1, R2, R4 and R9 do not apply: there is no org-admin-api code change.
+- R3: each TS transport class matches its endpoint class.
+- R5: there are no secrets. Tests mint ephemeral keys, and `contract/` holds dummies only.
+- R6: the envelope is used in `require_permission` (`fastapi.py:58-65`).
+- R10: there is no OIDC or social login.
+- R11: tokens stay in memory, there is no console or log output of tokens or emails, and the JWKS cooldown and flush are implemented.
+
+### Issues
+None blocking.
+
+### Nits (do not block)
+- 💭 `.github/workflows/release.yml:24-25,81-82`: `contents: write` covers the whole job, including install and test steps. Splitting it into a read-only build job (uploading an artifact) and a small publish job with write access would narrow this further. zizmor does not flag it, and installs run with `ignore-scripts`.
+- 💭 `ts/src/react/index.tsx:163-176`: `useJoin` can call `setPending` or `setError` after unmount. This is harmless in React 18+.
+- 💭 `python/src/mmlabs_auth/jwks.py:227-248`: when the TTL has expired and the `kid` is unknown, one call can make two fetches (the TTL refresh, then the unknown-`kid` refresh). This is bounded by the cooldown.
+
+### Process notes for the orchestrator (not code issues)
+- `security-review.md` covers only stages A+B. CLAUDE.md requires the appsec pass at REVIEW for `auth`/`security` areas. If no appsec pass for C–E1 is planned, run one before DONE. This review found no security defect in C, D or E1.
+- DONE still needs both PRs opened and the mmlabs-auth PR green on `ts.yml` and `python.yml`.
+
+### Follow-ups (out of scope)
+- The `ts-v0.1.0` and `py-v0.1.0` tags and Releases do not exist yet. The install lines in `docs/consumers.md` and both READMEs go live once the owner tags after the merge.
+- LICENSE for mmlabs-auth (owner decision).
+- F1: CLAUDE.md R11 cookie wording versus D20.
+- F2: org-admin-api side of the `error-codes.json` drift check.
+- F4: provenance.
+- F5: Angular.
+- `join()` must accept `"pending"` when USR-03g lands.
+- Expose `X-Request-ID` in identity CORS (server).
