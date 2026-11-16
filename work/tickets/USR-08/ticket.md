@@ -7,7 +7,7 @@
 | Areas | architecture, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-13 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/mmlabs-auth/pull/1 · https://github.com/mmlabs-online/org-admin-api/pull/37 |
 
 ## Goal
 Shared client libraries so each mmlabs app does not re-implement login, account choice, token caching and token verification.
