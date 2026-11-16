@@ -34,7 +34,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-002e | Close the APP_ENV ?host= bypass and fix the admin runbook trap | DONE | P1 | auth, security | 2 | 2026-11-15 |
 | ADM-012 | Non-credentialed CORS for the Bearer admin endpoints | DONE | P1 | api, security, auth | 1 | 2026-11-16 |
 | ADM-013 | OpenAPI contract that clients can generate types from | DONE | P2 | api | 0 | 2026-11-16 |
-| ADM-014 | Docs — admin UI hostname and forgot-password credentials | REVIEW | P2 | security | 0 | 2026-11-16 |
+| ADM-014 | Docs — admin UI hostname and forgot-password credentials | REWORK | P2 | security | 1 | 2026-11-16 |
 | ADM-015 | Dashboard stats endpoint for the admin UI | BACKLOG | P3 | api, db | 0 | 2026-11-16 |
 | ADM-016 | `member_count` on the staff apps list and app detail | BACKLOG | P3 | api, db | 0 | 2026-11-16 |
 | USR-10 | Staff session management for a user (list, revoke one, revoke all) | BACKLOG | P3 | api, auth, security, db | 0 | 2026-11-16 |
