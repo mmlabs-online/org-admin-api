@@ -147,9 +147,16 @@ def test_bearer_route_permission_map() -> None:
 
 
 def _input_params(dependant: Dependant) -> list[str]:
-    """Names of path, query and body params of the dependant and all its sub-dependencies."""
+    """Names of path, query, body, header and cookie params, including sub-dependencies."""
     found = [
-        f.name for f in (*dependant.path_params, *dependant.query_params, *dependant.body_params)
+        f.name
+        for f in (
+            *dependant.path_params,
+            *dependant.query_params,
+            *dependant.body_params,
+            *dependant.header_params,
+            *dependant.cookie_params,
+        )
     ]
     for sub in dependant.dependencies:
         found.extend(_input_params(sub))

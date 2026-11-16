@@ -40,3 +40,4 @@ None.
 - `docs/identity-architecture.md` §4: `/me/permissions` row moved out of the identity (`/api/v1/auth`) rows into the Admin rows, labelled "Admin (self-scoped)".
 - Checks: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check` -> `1757 passed, 1 warning`; ruff, format, mypy clean.
 - Out-of-plan files: none. Follow-ups: none.
+- Follow-up from security re-check: `_input_params` also collects `header_params` and `cookie_params`, so a self-scoped route cannot take its subject from a custom header or cookie; still `[]` for `/me/permissions`. `make check`: 1757 passed.
