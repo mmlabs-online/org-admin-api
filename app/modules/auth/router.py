@@ -24,6 +24,7 @@ from app.modules.auth.deps import (
     get_link_origin,
     get_password_hasher,
     get_password_policy,
+    get_resend_link_origin,
     get_signup_hook,
     get_turnstile_verifier,
 )
@@ -304,22 +305,22 @@ async def resend_verification(
     session: SessionDep,
     background_tasks: BackgroundTasks,
     _cookie: DeviceCookieDoc,
-    _app: MailLinkAppContextDep,
+    app: AppContextDep,
     body: ResendVerificationRequest,
-    link_origin: Annotated[str, Depends(get_link_origin)],
+    link_origin: Annotated[str, Depends(get_resend_link_origin)],
     device: DeviceDep,
     dispatcher: EmailDispatcherDep,
 ) -> None:
     """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`.
 
-    The route-level `MailLinkAppContextDep` comes before `DeviceDep`, so a bad app context
-    answers 403 before any device lookup or cookie rotation, even if `get_link_origin` changes.
-    `X-MM-App: admin` gets the same 403 (ADM-002d).
+    The route-level `AppContextDep` comes before `DeviceDep`, so a bad app context
+    answers 403 before any device lookup or cookie rotation.
+    `X-MM-App: admin` is accepted for staff only (USR-12); others get 403.
     """
     settings: Settings = request.app.state.settings
     email = await EmailVerificationService(
         session, email_hasher=get_email_hasher(request), daily_cap=settings.email_daily_cap
-    ).resend(device, body.account_id, link_origin)
+    ).resend(app, device, body.account_id, link_origin)
     background_tasks.add_task(dispatcher.enqueue, email)
     if device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)

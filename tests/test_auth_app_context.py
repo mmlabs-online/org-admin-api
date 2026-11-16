@@ -2,15 +2,20 @@ import uuid
 from typing import Any
 
 import pytest
+from fastapi.routing import iter_route_contexts
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
 from app.main import create_app
+from app.modules.admin_auth.route_classes import dependant_calls
 from app.modules.auth.deps import (
+    get_app_context,
     get_email_dispatcher,
     get_link_origin,
+    get_mail_link_app_context,
+    get_resend_link_origin,
     get_signup_hook,
     get_turnstile_verifier,
 )
@@ -199,17 +204,13 @@ async def _counts(db_session: AsyncSession) -> list[int | None]:
 
 
 async def _prepare(db_session: AsyncSession, route: str) -> tuple[str, dict[str, Any], str | None]:
-    """(path, body, device cookie) for one mail-link route; resend gets an unverified user."""
+    """(path, body, device cookie) for one mail-link route (signup, forgot)."""
     if route == "signup":
         return SIGNUP, _SIGNUP_BODY, None
-    if route == "forgot":
-        return FORGOT, _MAIL_BODY, None
-    user = await make_login_user(db_session, verified=False)
-    raw, _, (account,) = await make_device(db_session, user)
-    return RESEND, {"account_id": str(account.id)}, raw
+    return FORGOT, _MAIL_BODY, None
 
 
-@pytest.mark.parametrize("route", ["signup", "forgot", "resend"])
+@pytest.mark.parametrize("route", ["signup", "forgot"])
 async def test_admin_context_refused_on_mail_routes(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -229,7 +230,7 @@ async def test_admin_context_refused_on_mail_routes(
     assert fake_turnstile.calls == []
     assert fake_email.calls == 0
     assert await _counts(db_session) == before
-    assert "set-cookie" not in resp.headers  # resend: no device lookup, no rotation
+    assert "set-cookie" not in resp.headers
 
 
 async def test_admin_context_refusal_matches_unknown_app(
@@ -265,7 +266,7 @@ async def test_admin_context_refused_even_if_link_origin_overridden(
     app.dependency_overrides[get_link_origin] = lambda: ADMIN_ORIGIN
     _use_test_session(app, db_session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        for route in ("forgot", "resend"):
+        for route in ("signup", "forgot"):
             path, body, raw = await _prepare(db_session, route)
             headers = auth_headers(app_key="admin", origin=ADMIN_ORIGIN, cookie=raw)
             resp = await c.post(path, json=body, headers=headers)
@@ -275,3 +276,18 @@ async def test_admin_context_refused_even_if_link_origin_overridden(
     assert fake_turnstile.calls == []
     assert fake_email.calls == 0
     assert await db_session.scalar(select(func.count()).select_from(EmailToken)) == 0
+
+
+def test_mail_link_routes_dependency_pin() -> None:
+    """Only resend may accept admin (USR-12); signup and forgot stay on the refusing dependency."""
+    routes = {
+        ctx.path: set(dependant_calls(ctx.dependant))
+        for ctx in iter_route_contexts(create_app().routes)
+        if ctx.path in (SIGNUP, FORGOT, RESEND)
+    }
+    assert get_mail_link_app_context in routes[SIGNUP]
+    assert get_mail_link_app_context in routes[FORGOT]
+    assert get_resend_link_origin not in routes[SIGNUP]
+    assert get_resend_link_origin not in routes[FORGOT]
+    assert get_mail_link_app_context not in routes[RESEND]
+    assert {get_app_context, get_resend_link_origin} <= routes[RESEND]

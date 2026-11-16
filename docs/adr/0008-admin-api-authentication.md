@@ -120,9 +120,10 @@ longer decides privileged writes:
   drifted admin row: the break-glass must work exactly when something is wrong. It still locks
   the app, refuses a missing row, writes only `origins` and writes the audit row. Non-empty
   origins on a drifted row are still refused.
-- **No admin context on mail-link routes.** Signup, password forgot and verify-email resend
+- **No admin context on mail-link routes.** Signup and password forgot
   refuse `X-MM-App: admin` with the same 403 `origin_not_allowed` as an unregistered app, before
-  Turnstile, any write or any email. Login, token, logout, verify-email and reset are unchanged.
+  Turnstile, any write or any email. Login, token, logout, verify-email and reset are unchanged. Verify-email resend
+  was narrowed by the USR-12 amendment (accepted for staff only).
 - **Admin `org_mode` pinned.** PATCH `org_mode` other than `none` on the admin app → 409, like
   status, join policy and default role.
 
@@ -148,3 +149,36 @@ for one response (advisory data, the next call corrects it); a token holder lear
 (already learnable from 403 `details.required`); no rate limit (same as every Bearer route).
 Rejected alternative: a seeded `admin:self:read` permission (needs a migration and every admin role
 must hold it, else the UI breaks).
+
+## Amendment — Admin verification resend (USR-12, 2026-11-16)
+
+Supersedes the resend part of the ADM-002d bullet "No admin context on mail-link routes".
+`POST /api/v1/auth/verify-email/resend` accepts `X-MM-App: admin` from a registered admin origin,
+but only for a user with at least one effective (unexpired, app-scope) `admin` role: the same
+predicate `/auth/token` uses for `aud=admin`. Any other user gets 403 `origin_not_allowed`, the
+same body as an unregistered origin, checked before the already-verified 409. Signup and password
+forgot keep refusing `admin`. Staff then verify through the link and call `/auth/token`.
+
+**Reason ADM-002d gave (inferred; the ADR recorded only the rule).** The ADM-002d consults
+proposed refusing signup and forgot, and added resend by analogy ("all three mail a link to the
+admin origin"). The real threat is the unauthenticated routes: anyone can name any address, so
+forgot would make the admin origin collect password-reset tokens for every user, and signup would
+allow open account creation and admin-branded mail.
+
+**Why it does not hold for resend.** Resend is cookie class: it needs a `__Host-mm_device` with an
+active account, so the caller proved the password. It mails only that account's own address, runs
+no Turnstile path and creates no account. The token only marks the email verified; admin access
+still needs an admin-app role. Limits (1/min, 5/day per email HMAC shared across apps, per-IP, global
+cap) are unchanged, so admin context adds no sending capacity and no new oracle.
+
+**Staff-only rule.** Without it, an attacker could pre-register a future staff member's email,
+sign in at admin-portal and send the victim a genuine admin-branded verification mail (security
+consult F6). An attacker's account holds no admin role, so it is refused. Planner default; the
+owner may revert it at PR review.
+
+**Residual risks.** Verification links to admin-portal now exist (the admin origin must serve
+`/verify-email`). Pre-hijack through other apps' origins is unchanged (follow-up: confirm with the
+person before granting an admin role to an existing account).
+
+Rejected alternative: allow any signed-in account (simpler, same outcome for staff, but re-opens
+F6 for no staff benefit).

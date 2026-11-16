@@ -82,7 +82,7 @@ mmlabs site already sends from, which changes D3's "dedicated account".
    refuse to start without them.
 
 ## Consequences
-- Every app that triggers sign-up or resend with `X-MM-App` must serve `/verify-email`.
+- Every app that triggers sign-up or resend with `X-MM-App` must serve `/verify-email` (includes admin-portal since USR-12).
 - Quota and sender reputation are shared with the mmlabs site (accepted risk, deviation from D3).
 - Mail queued at a restart is lost; resend limits allow a retry after a minute.
 - Changing provider is a new `EmailSender` plus env keys; no API or schema change.

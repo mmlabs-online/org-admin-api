@@ -88,8 +88,17 @@ the `admin` app's origins (set with `set-admin-origins`).
   after any 403, not on every navigation.
 - 401/403/404/409/422 envelopes are readable; `Retry-After`, `ETag` and `X-Request-ID` are
   exposed. A 500 is not readable cross-origin. Responses carry `Cache-Control: no-store`.
-- `admin-portal` cannot host the sign-up, forgot-password or resend-verification screens
-  (ADM-002d).
+- `admin-portal` cannot host the sign-up or forgot-password screens (ADM-002d); it is exempt from
+  `/reset-password`, but must serve `/verify-email`.
+- **Unverified staff email (USR-12).** `/auth/token` answers 403 `email_unverified`. The UI may
+  call `POST /api/v1/auth/verify-email/resend` `{account_id}` with `credentials: "include"`,
+  `X-MM-App: admin` (cookie class, like `/auth/token`; the only admin-context call that sends mail). 202: tell the user to
+  open the link; 429: back off for `Retry-After` (1/min, 5/day per email); 409: already verified,
+  call `/auth/token`; 403 `origin_not_allowed`: the account has no admin role. The link is
+  `https://admin-portal.mmlabs.online/verify-email#token=...`; the page is public (outside the auth
+  guard), reads `location.hash` then `history.replaceState(null, "", "/verify-email")`, sends
+  `Referrer-Policy: no-referrer`, posts `POST /api/v1/auth/verify-email` with
+  `credentials: "omit"` and no `X-MM-App`, and on 204 re-calls `/auth/token`.
 
 ## Getting a token (SPA)
 
@@ -136,7 +145,7 @@ points at the page origin that made the request; there is no API-wide fallback o
 > because no consumer used sign-up yet.
 
 **Link format (fixed for every app):** `{origin}/verify-email#token=<43 chars>`. **Every registered
-origin of an app must serve `/verify-email` and `/reset-password`** (see "Password reset"). The
+origin of an app must serve `/verify-email` and `/reset-password`** (see "Password reset"; admin-portal: `/verify-email` only, see the admin UI section). The
 token is in the fragment, so it never reaches a server log. The page:
 
 1. reads `location.hash`, then removes it at once (`history.replaceState(null, "", "/verify-email")`);
@@ -164,7 +173,7 @@ token is in the fragment, so it never reaches a server log. The page:
 
 **Resend** (cookie class, like `/token`): `POST /api/v1/auth/verify-email/resend` with
 `{account_id}`, `credentials: "include"` and `X-MM-App`. The new link points at the calling page's
-origin and invalidates earlier links.
+origin and invalidates earlier links. `admin` is accepted for staff only (USR-12).
 
 | Status / code | What to do |
 |---|---|

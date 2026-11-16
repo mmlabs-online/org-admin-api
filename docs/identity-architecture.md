@@ -140,7 +140,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT (also `aud=admin` since ADM-002), or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03c, ADM-002 |
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + Origin + `X-MM-App` (= `{key}`) | apply join policy, assign default role, audit; `approval` in USR-03g | USR-03b |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
-| `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification | USR-04 |
+| `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification; resend accepts `X-MM-App: admin` for staff only (USR-12); signup and forgot refuse admin (ADM-002d) | USR-04 |
 | `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04b) | send reset link (silent per-email limit) | USR-04b |
 | `POST /api/v1/auth/password/reset` `{token, new_password}` | public, per-IP limit | set password, revoke all account sessions of the user (every device) | USR-04b |
 | `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03c |
@@ -277,6 +277,7 @@ Decisions from the USR-03b plan (2026-11-13):
 | D21 | **Client libraries (owner, 2026-11-13):** `@mmlabs/auth-client` and `mmlabs-auth` move to USR-08 and live in a separate repo for the `@mmlabs` libraries. |
 | D22 | **Proposed, pending owner:** R9 exception — `GET /api/v1/auth/accounts` returns a single document `{"items": [...]}`, not `Page[T]` (bounded per device). |
 | D23 | **Proposed, pending owner (USR-11):** self-scoped admin read `GET /api/v1/me/permissions` — R3 class 1 without `require_permission`, and R9 exception (singular `me`, single document). |
+| D24 | **Decided (USR-12, 2026-11-16):** verification resend accepts `X-MM-App: admin` for users with an effective admin role only (403 `origin_not_allowed` otherwise); signup and forgot keep refusing admin. See ADR-0008 amendment. |
 
 ## 9. Open questions
 

@@ -4,7 +4,7 @@ import re
 import secrets
 import uuid
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -16,7 +16,11 @@ from app.db.session import get_session
 from app.main import create_app
 from app.modules.auth import email_verification as verification_module
 from app.modules.auth import hooks as hooks_module
-from app.modules.auth.deps import get_email_dispatcher, get_link_origin, get_turnstile_verifier
+from app.modules.auth.deps import (
+    get_email_dispatcher,
+    get_resend_link_origin,
+    get_turnstile_verifier,
+)
 from app.modules.auth.models import EmailSendLog, EmailToken
 from app.modules.auth.repository import EmailTokenRepository
 from app.modules.auth.throttle import EmailHasher
@@ -41,7 +45,7 @@ from tests.auth_factories import (
 )
 from tests.conftest import MakeClient
 from tests.fakes import FakeEmailSender, FakeTurnstileVerifier
-from tests.rbac_factories import assign, make_role
+from tests.rbac_factories import assign, make_role, super_admin_role
 
 SIGNUP = "/api/v1/auth/signup"
 VERIFY = "/api/v1/auth/verify-email"
@@ -701,7 +705,7 @@ async def test_resend_app_context_checked_before_device(
     stoktok: App,
 ) -> None:
     """The route-level `AppContextDep` answers 403 before `DeviceDep` can rotate the cookie,
-    even when `get_link_origin` (which also depends on it) is overridden."""
+    even when `get_resend_link_origin` (which also depends on it) is overridden."""
     user = await make_login_user(db_session, verified=False)
     raw, device, (account,) = await make_device(db_session, user)
     await shift(db_session, "device_sessions", "rotated_at", device.id, "-25 hours")
@@ -714,7 +718,7 @@ async def test_resend_app_context_checked_before_device(
     app.dependency_overrides[get_session] = _session
     app.dependency_overrides[get_turnstile_verifier] = lambda: fake_turnstile
     app.dependency_overrides[get_email_dispatcher] = lambda: email_dispatcher
-    app.dependency_overrides[get_link_origin] = lambda: ORIGIN
+    app.dependency_overrides[get_resend_link_origin] = lambda: ORIGIN
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         resp = await _resend(c, email_dispatcher, account.id, raw, app_key=None)
     assert resp.status_code == 403
@@ -731,3 +735,316 @@ async def _rotated_at(db_session: AsyncSession, device_id: uuid.UUID) -> Any:
         .where(DeviceSession.id == device_id)
         .execution_options(populate_existing=True)
     )
+
+
+# --- admin context (USR-12) ---------------------------------------------------------------
+
+ADMIN_PORTAL = "https://admin-portal.mmlabs.online"
+
+
+async def _admin_portal_origins(db_session: AsyncSession) -> None:
+    admin = await db_session.scalar(select(App).where(App.key == "admin"))
+    assert admin is not None
+    admin.origins = [ADMIN_PORTAL]
+    await db_session.flush()
+
+
+async def _staff(
+    db_session: AsyncSession, role: Any = None, **kw: Any
+) -> tuple[User, str, uuid.UUID]:
+    user, raw, account_id = await _signed_in(db_session, **kw)
+    await assign(db_session, user, role or await super_admin_role(db_session))
+    return user, raw, account_id
+
+
+async def _admin_resend(
+    client: AsyncClient, dispatcher: EmailDispatcher, account_id: uuid.UUID, raw: str
+) -> Response:
+    return await _resend(client, dispatcher, account_id, raw, app_key="admin", origin=ADMIN_PORTAL)
+
+
+async def test_admin_resend_staff_202_link_to_admin_origin(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    user, raw, account_id = await _staff(db_session)
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 202, resp.text
+    assert resp.content == b""
+    assert resp.headers["cache-control"] == "no-store"
+    (email,) = fake_email.sent
+    assert email.to == user.email
+    assert _link(email)[0] == ADMIN_PORTAL
+    assert await db_session.scalar(select(func.count()).select_from(EmailToken)) == 1
+    assert await _send_log_count(db_session) == 1
+
+
+async def test_admin_resend_non_admin_role_staff_202(
+    client: AsyncClient, db_session: AsyncSession, email_dispatcher: EmailDispatcher
+) -> None:
+    await _admin_portal_origins(db_session)
+    admin = await db_session.scalar(select(App).where(App.key == "admin"))
+    assert admin is not None
+    _, raw, account_id = await _staff(
+        db_session, await make_role(db_session, admin, "admin:support")
+    )
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 202, resp.text
+
+
+async def test_admin_resend_forwards_rotated_cookie(
+    client: AsyncClient, db_session: AsyncSession, email_dispatcher: EmailDispatcher
+) -> None:
+    await _admin_portal_origins(db_session)
+    user = await make_login_user(db_session, verified=False)
+    raw, device, (account,) = await make_device(db_session, user)
+    await assign(db_session, user, await super_admin_role(db_session))
+    await shift(db_session, "device_sessions", "rotated_at", device.id, "-25 hours")
+    resp = await _admin_resend(client, email_dispatcher, account.id, raw)
+    assert resp.status_code == 202
+    cookie = parse_set_cookie(resp)
+    assert cookie is not None
+    assert cookie.value != raw
+
+
+async def test_admin_resend_verify_then_admin_token(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    _, raw, account_id = await _staff(db_session)
+    headers = auth_headers(app_key="admin", origin=ADMIN_PORTAL, cookie=raw)
+    body = {"audience": "admin", "account_id": str(account_id)}
+    before = await client.post(TOKEN, json=body, headers=headers)
+    assert before.status_code == 403
+    assert before.json()["error"]["code"] == "email_unverified"
+    assert (await _admin_resend(client, email_dispatcher, account_id, raw)).status_code == 202
+    _, token = _link(fake_email.sent[0])
+    assert (await client.post(VERIFY, json={"token": token})).status_code == 204
+    after = await client.post(TOKEN, json=body, headers=headers)
+    assert after.status_code == 200, after.text
+
+
+@pytest.mark.parametrize("case", ["no_origins", "other_app_origin", "evil_origin"])
+async def test_admin_resend_unregistered_origin_403(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+    case: str,
+) -> None:
+    origin = {"no_origins": ADMIN_PORTAL, "other_app_origin": ORIGIN}.get(
+        case, "https://evil.mmlabs.online"
+    )
+    if case != "no_origins":
+        await _admin_portal_origins(db_session)
+    user = await make_login_user(db_session, verified=False)
+    raw, device, (account,) = await make_device(db_session, user)
+    await assign(db_session, user, await super_admin_role(db_session))
+    await shift(db_session, "device_sessions", "rotated_at", device.id, "-25 hours")
+    rotated_at = await _rotated_at(db_session, device.id)
+    resp = await _resend(client, email_dispatcher, account.id, raw, app_key="admin", origin=origin)
+    unknown = await _resend(
+        client, email_dispatcher, account.id, raw, app_key="nosuchapp", origin=origin
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "origin_not_allowed"
+    assert resp.json() == unknown.json()
+    assert "set-cookie" not in resp.headers
+    assert await _rotated_at(db_session, device.id) == rotated_at
+    assert fake_email.calls == 0
+    assert await _send_log_count(db_session) == 0
+
+
+async def test_admin_resend_non_staff_403(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    user = await make_login_user(db_session, verified=False)
+    raw, device, (account,) = await make_device(db_session, user)
+    await shift(db_session, "device_sessions", "rotated_at", device.id, "-25 hours")
+    resp = await _admin_resend(client, email_dispatcher, account.id, raw)
+    unregistered = await _resend(
+        client,
+        email_dispatcher,
+        account.id,
+        raw,
+        app_key="admin",
+        origin="https://evil.mmlabs.online",
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "origin_not_allowed"
+    assert resp.json() == unregistered.json()
+    assert "set-cookie" not in resp.headers
+    assert fake_email.calls == 0
+    assert await _send_log_count(db_session) == 0
+    assert await db_session.scalar(select(func.count()).select_from(EmailToken)) == 0
+
+
+async def test_admin_resend_non_staff_verified_403(
+    client: AsyncClient, db_session: AsyncSession, email_dispatcher: EmailDispatcher
+) -> None:
+    await _admin_portal_origins(db_session)
+    user = await make_login_user(db_session, verified=True)
+    raw, _, (account,) = await make_device(db_session, user)
+    resp = await _admin_resend(client, email_dispatcher, account.id, raw)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "origin_not_allowed"
+
+
+async def test_admin_resend_expired_admin_role_403(
+    client: AsyncClient, db_session: AsyncSession, email_dispatcher: EmailDispatcher
+) -> None:
+    await _admin_portal_origins(db_session)
+    user, raw, account_id = await _signed_in(db_session)
+    await assign(
+        db_session,
+        user,
+        await super_admin_role(db_session),
+        expires_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "origin_not_allowed"
+
+
+async def test_admin_resend_other_app_role_only_403(
+    client: AsyncClient, db_session: AsyncSession, email_dispatcher: EmailDispatcher, stoktok: App
+) -> None:
+    await _admin_portal_origins(db_session)
+    user, raw, account_id = await _signed_in(db_session)
+    await assign(db_session, user, await make_role(db_session, stoktok, "stoktok:viewer"))
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 403
+
+
+async def test_admin_resend_requires_cookie(client: AsyncClient, db_session: AsyncSession) -> None:
+    await _admin_portal_origins(db_session)
+    resp = await client.post(
+        RESEND,
+        json={"account_id": str(uuid.uuid4())},
+        headers=auth_headers(app_key="admin", origin=ADMIN_PORTAL),
+    )
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "session_invalid"
+
+
+async def test_admin_resend_foreign_account_401(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    _, raw, _ = await _staff(db_session)
+    _, _, other_account = await _staff(db_session)
+    resp = await _admin_resend(client, email_dispatcher, other_account, raw)
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "session_invalid"
+    assert fake_email.calls == 0
+
+
+async def test_admin_resend_disabled_user_401(
+    client: AsyncClient, db_session: AsyncSession, email_dispatcher: EmailDispatcher
+) -> None:
+    await _admin_portal_origins(db_session)
+    _, raw, account_id = await _staff(db_session, status="disabled")
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 401
+
+
+async def test_admin_resend_already_verified_staff_409(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    user, raw, account_id = await _staff(db_session)
+    user.email_verified_at = datetime.now(UTC)
+    await db_session.flush()
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "email_already_verified"
+    assert fake_email.calls == 0
+    assert await _send_log_count(db_session) == 0
+
+
+async def test_admin_resend_429_within_a_minute(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    _, raw, account_id = await _staff(db_session)
+    assert (await _admin_resend(client, email_dispatcher, account_id, raw)).status_code == 202
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 429
+    assert resp.json()["error"]["code"] == "rate_limited"
+    assert 1 <= int(resp.headers["Retry-After"]) <= 60
+    assert len(fake_email.sent) == 1
+
+
+async def test_admin_resend_429_after_five_a_day(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    user, raw, account_id = await _staff(db_session)
+    email_hmac = EmailHasher(HMAC_KEY).hmac(user.email)
+    for hours in range(1, 6):
+        await db_session.execute(
+            text(
+                "INSERT INTO email_send_log (id, email_hmac, purpose, sent_at) VALUES "
+                "(gen_random_uuid(), :h, 'verify', now() - make_interval(hours => :n))"
+            ),
+            {"h": email_hmac, "n": hours},
+        )
+    resp = await _admin_resend(client, email_dispatcher, account_id, raw)
+    assert resp.status_code == 429
+    assert int(resp.headers["Retry-After"]) == 19 * 3600
+    assert fake_email.calls == 0
+
+
+async def test_admin_resend_shares_limit_with_other_apps(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    user = await _user(db_session, await _signup(client, email_dispatcher))
+    await assign(db_session, user, await super_admin_role(db_session))
+    raw, _, (account,) = await make_device(db_session, user)
+    resp = await _admin_resend(client, email_dispatcher, account.id, raw)
+    assert resp.status_code == 429
+    assert len(fake_email.sent) == 1  # only the sign-up email
+
+
+async def test_admin_resend_per_ip_429(
+    make_client: MakeClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    fake_email: FakeEmailSender,
+) -> None:
+    await _admin_portal_origins(db_session)
+    _, raw, account_id = await _staff(db_session)
+    _, other_raw, other_account = await _staff(db_session)
+    async with make_client(verify_email_resend_rate_limit=1) as c:
+        first = await _admin_resend(c, email_dispatcher, account_id, raw)
+        second = await _admin_resend(c, email_dispatcher, other_account, other_raw)
+    assert first.status_code == 202
+    assert second.status_code == 429
+    assert second.json()["error"]["code"] == "rate_limited"
+    assert len(fake_email.sent) == 1

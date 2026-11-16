@@ -17,11 +17,17 @@ from app.modules.auth.email_throttle import (
     cap_refusal,
     resend_retry_after,
 )
-from app.modules.auth.errors import EmailAlreadyVerifiedError, TokenInvalidError
+from app.modules.auth.errors import (
+    EmailAlreadyVerifiedError,
+    OriginNotAllowedError,
+    TokenInvalidError,
+)
 from app.modules.auth.repository import EmailSendLogRepository, EmailTokenRepository
 from app.modules.auth.throttle import EmailHasher
 from app.modules.email.messages import verification_message
 from app.modules.email.sender import OutgoingEmail
+from app.modules.rbac.authz import AuthzService
+from app.modules.rbac.models import ADMIN_APP_KEY, App
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.repository import SessionRepository
 from app.modules.sessions.service import ResolvedDevice
@@ -70,6 +76,7 @@ class EmailVerificationService:
         self.users = UserRepository(session)
         self.accounts = SessionRepository(session)
         self.audit = AuditLogger(session)
+        self.authz = AuthzService(session)
         self.email_hasher = email_hasher
         self.daily_cap = daily_cap
 
@@ -122,7 +129,7 @@ class EmailVerificationService:
         logger.info("email_verified user_id=%s", user.id)
 
     async def resend(
-        self, device: ResolvedDevice, account_id: uuid.UUID, link_origin: str
+        self, app: App, device: ResolvedDevice, account_id: uuid.UUID, link_origin: str
     ) -> OutgoingEmail:
         account = await self.accounts.get_active_account(
             device.device_id, account_id, created_before=device.accounts_created_before
@@ -132,6 +139,11 @@ class EmailVerificationService:
         user = await self.users.get_for_share(account.user_id)
         if user is None or user.status != UserStatus.ACTIVE.value:
             raise SessionInvalidError("Session is invalid")
+        # Admin context is for staff only (USR-12): the predicate `/auth/token` uses for aud=admin.
+        if app.key == ADMIN_APP_KEY and not await self.authz.effective_roles(
+            user.id, ADMIN_APP_KEY
+        ):
+            raise OriginNotAllowedError("Origin is not allowed")
         if user.email_verified_at is not None:
             raise EmailAlreadyVerifiedError("Email address is already verified")
         try:
