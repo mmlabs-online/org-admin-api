@@ -82,8 +82,8 @@ AppContextDep = Annotated[App, Depends(get_app_context)]
 
 
 async def get_mail_link_app_context(app: AppContextDep) -> App:
-    """App context for routes that mail a link to the request's Origin (signup, forgot,
-    resend): the `admin` app is refused with the same 403 as an unregistered app (no oracle)."""
+    """App context for routes that mail a link to the request's Origin (signup, forgot):
+    the `admin` app is refused with the same 403 as an unregistered app (no oracle)."""
     if app.key == ADMIN_APP_KEY:
         raise OriginNotAllowedError("Origin is not allowed")
     return app
@@ -100,13 +100,23 @@ def get_email_dispatcher(request: Request) -> EmailDispatcher:
 EmailDispatcherDep = Annotated[EmailDispatcher, Depends(get_email_dispatcher)]
 
 
-def get_link_origin(request: Request, _app: MailLinkAppContextDep) -> str:
-    """`MailLinkAppContextDep` already proved `Origin` is registered for the `X-MM-App` app
-    (never `admin`)."""
+def _validated_link_origin(request: Request) -> str:
     origin = request.headers.get("origin")
     if origin is None:  # unreachable after the app context; fail closed
         raise OriginNotAllowedError("Origin is not allowed")
     return normalize_origin(origin)
+
+
+def get_link_origin(request: Request, _app: MailLinkAppContextDep) -> str:
+    """`MailLinkAppContextDep` already proved `Origin` is registered for the `X-MM-App` app
+    (never `admin`)."""
+    return _validated_link_origin(request)
+
+
+def get_resend_link_origin(request: Request, _app: AppContextDep) -> str:
+    """Like `get_link_origin`, but `admin` is accepted: only verification resend (USR-12; the
+    service restricts it to staff). Signup and forgot must stay on `MailLinkAppContextDep`."""
+    return _validated_link_origin(request)
 
 
 def get_signup_hook(
