@@ -170,3 +170,65 @@ None.
 
 ### Scope self-check
 - Could the diff be smaller? Only cosmetically. Every file is on the plan's stage B list, and the size comes from formatting and validation, not from extra features.
+
+## Stage B hardening — Attempt 1 — 2026-11-16
+
+Scope: only the items from `security-review.md` "Stages A+B — Attempt 1" (🟡1–3, 💭4–9) and the matching `review.md` nits. Repo `/home/user/mmlabs-auth`, branch `claude/blissful-wozniak-fx4lm9`, on top of `9b723d9`. Not committed or pushed, as instructed.
+
+### Changes per item
+- **🟡1 stale token.** `TokenCache.#fetch` now rejects with a new local `AuthError("account_changed", 0)` when the account's stamp changed in flight. The token is neither cached nor returned. I chose `account_changed` over `session_invalid` so that `getToken`'s `SessionInvalidError` handling (clearAccount) and the "sign in again" meaning stay untouched. `createFetchWithToken` reads `getAccountId()` once and passes that account to both `getToken` calls. Before the retry, and again after the forced refresh, it returns the first response if the selection changed. An `account_changed` rejection during the refresh also returns the first response. The old test that expected `"before"` now expects the rejection.
+- **🟡2 Bearer destination guard.** A new option `apiOrigins?: string[]`. Entries are normalised to origins, and an invalid entry throws `TypeError` at construction. The default is `[location.origin]` when `location` exists; otherwise nothing is allowed. The target is resolved with `new URL(input, location?.href)`. It must be `https:`, or loopback `http:` with `allowInsecureLocalhost`, and its origin must be in the list. On the identity `baseUrl` origin, any path that, once percent-decoded and slash-collapsed, contains `/api/v1/auth` (case-insensitive) is refused. Otherwise it throws `ConfigurationError("bearer_origin_not_allowed", 0)` before `getToken`/`fetch`. The check is lazy (at call time), so SSR or Node clients that never call `fetchWithToken` need no `apiOrigins`.
+- **🟡3** CI: `uvx pip-audit==2.10.1` (latest, released 2026-06-10). I ran it locally: "No known vulnerabilities found".
+- **💭4** `[build-system] requires = ["hatchling>=1.27,<2"]`. `uv build --wheel` succeeds.
+- **💭5** `parseRetryAfter` clamps every path to [0, 900] s (`MAX_RETRY_AFTER`). Non-finite values (a 400-digit header) become 900. `TokenCache` clamps again before setting the block.
+- **💭6** `mapError` accepts a server `code` only if it matches `/^[a-z][a-z0-9_]{0,63}$/`; anything else becomes `unexpected_response`, keeping the HTTP status.
+- **💭7** `getToken({accountId})` and `resendVerification(accountId)` run `requireAccountId()`, which throws `TypeError` with no request.
+- **💭8** `authFetch` refuses a path containing `..` or `%2e` (any case). It also requires `new URL(baseUrl + path).pathname` to start with the resolved `baseUrl + /api/v1/auth/` pathname, which works with a `baseUrl` path prefix.
+- **💭9** The `storage` fallback handler now calls `#tokens.clearAll()` before emitting. The `storage` listener is installed only when no `BroadcastChannel` was created, so one change in another tab emits `account-changed` once.
+- `contract/error-codes.json` `library_codes.ts` adds `account_changed` (AuthError) and `bearer_origin_not_allowed` (ConfigurationError).
+
+### Files touched (mmlabs-auth)
+- `ts/src/token-cache.ts`: in-flight stale rejection; clamp on block.
+- `ts/src/bearer.ts`: destination guard, `normaliseOrigins`, fixed account, retry rules.
+- `ts/src/client.ts`: wires `apiOrigins`, `baseUrl`, `allowInsecureLocalhost`, `getAccountId` and per-account `getToken` into the bearer; UUID checks (💭7); storage fallback clears tokens (💭9).
+- `ts/src/types.ts`: `AuthClientOptions.apiOrigins`.
+- `ts/src/transport.ts`: exports `LOOPBACK`; traversal-safe `authFetch` prefix check.
+- `ts/src/retry-after.ts`: `MAX_RETRY_AFTER`, clamp.
+- `ts/src/errors.ts`: `CODE_RE` check in `mapError`.
+- `ts/src/broadcast.ts`: the `storage` listener is a fallback only.
+- `contract/error-codes.json`: two library codes.
+- `.github/workflows/python.yml`: pinned `pip-audit`.
+- `python/pyproject.toml`: bounded hatchling.
+- Tests:
+  - `ts/test/token-cache.test.ts`: the rejection replaces `"before"`; all waiting callers are rejected after logout; non-UUID `accountId` gives `TypeError`.
+  - `ts/test/bearer.test.ts`: `apiOrigins` in setup; the retry keeps its account and is skipped when the selection changes before or during the refresh. Destination guard tests: cross-origin (string, `URL`, `Request`, suffix host), `http:`, identity `/api/v1/auth/token` (incl. `..`, `//`, upper-case, `%61`), relative URL without `location`, no list and no `location`, allowed origin, loopback with and without the opt-in, an invalid entry.
+  - `ts/test/broadcast.test.ts`: the fallback (no `BroadcastChannel`) clears tokens and emits once; with a channel, one event only.
+  - `ts/test/rate-limit.test.ts`: clamp for 901, 400 digits, a far-future date, a past date, and `details` 1e9.
+  - `ts/test/errors.test.ts`: invalid server codes give `unexpected_response`; 64 chars is accepted.
+  - `ts/test/endpoints.test.ts`: `resendVerification("not-a-uuid")` gives `TypeError`.
+  - `ts/test/transport.test.ts`: traversal paths are refused (`..`, `%2e`, `%2E`, `.%2e`) with and without a `baseUrl` path; a path-prefixed `baseUrl` is accepted.
+  - `ts/test/storage-hygiene.test.ts`: the full-flow client passes `apiOrigins`.
+
+### Stage gate (run from a modified tree)
+- `pnpm -C ts install --frozen-lockfile`: "Done"
+- `pnpm -C ts lint`: "Checked 26 files … No fixes applied."
+- `pnpm -C ts typecheck`: exit 0
+- `pnpm -C ts test`: "Test Files 10 passed (10); Tests 128 passed (128)", up from 109.
+- `pnpm -C ts build`: exit 0
+- `uv sync --locked --directory python`: OK
+- `ruff check .`: "All checks passed!"
+- `ruff format --check .`: "2 files already formatted"
+- `mypy`: "Success: no issues found in 2 source files"
+- `pytest`: "2 passed"
+- Extra checks: `uvx pip-audit==2.10.1 -r <exported runtime reqs>` reported "No known vulnerabilities found". `uv build --wheel` built the wheel into the scratchpad.
+
+### Deviations
+- With no `apiOrigins` and no `location`, `fetchWithToken` throws `bearer_origin_not_allowed` at call time, not at construction. Otherwise every Node or SSR client would have to configure an option it never uses.
+- The identity-path check also catches percent-encoded (`%61uth`), double-slash and upper-case variants, because a server router may decode or normalise them. A test found the `%61` case.
+
+### Out-of-plan files
+None. Every file was named by the review items or already belongs to stage B.
+
+### Follow-ups (noticed, not done)
+- `ts/README.md` / integration guide (stage E): document `apiOrigins` and the `account_changed` / `bearer_origin_not_allowed` codes.
+- Review nits that were not in this pass: serve a fresh cache during a 429 block for other keys; non-forced retry for concurrent 401s; `redirect: "error"`; check `token_type`/`audience` in `/token`.
