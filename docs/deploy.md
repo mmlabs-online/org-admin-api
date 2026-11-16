@@ -557,11 +557,14 @@ change: whoever serves pages on an admin origin can drive the admin login and to
 takeover = admin compromise).
 
 `admin.mmlabs.online` is **not used** (owner, 2026-11-16). It must have no DNS record (also not
-through a wildcard `*.mmlabs.online`) and no tunnel ingress or catch-all route. It must not appear
-in any app's `origins` or in `TURNSTILE_ALLOWED_HOSTNAMES`. Reusing it needs an owner decision.
-One-off: if `admin.mmlabs.online` was ever set in production, run
-`set-admin-origins --origin https://admin-portal.mmlabs.online` (replace semantics). Confirm the
-`- origin https://admin.mmlabs.online` line in the dry run, then run it for real.
+through a wildcard `*.mmlabs.online`; check with `dig +short admin.mmlabs.online`, which must print
+nothing) and no tunnel ingress rule (the final catch-all rule must be `service: http_status:404`).
+It must not appear in any app's `origins` or in `TURNSTILE_ALLOWED_HOSTNAMES`. Reusing it needs an
+owner decision.
+One-off clean-up: run
+`set-admin-origins --origin https://admin-portal.mmlabs.online` (replace semantics) as a dry run
+first, always. If it shows the `- origin https://admin.mmlabs.online` line, run it for real, then
+wait 60 s. Admin tokens already issued stay valid up to 15 min (see `--clear` above).
 
 ## Register an app (USR-07)
 

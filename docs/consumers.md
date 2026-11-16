@@ -39,7 +39,8 @@ CORS for `/api/v1/auth/*` echoes only the origins of active apps (ADR-0006).
 - `credentials: "include"` for **login** (it reads the existing device cookie to add the account,
   and sets or rotates the cookie) and for every cookie-class call: `/token`, `/accounts`,
   `/apps/{key}/join`, `/logout`, `/verify-email/resend`. With `omit` there the browser drops
-  `Set-Cookie` and sign-in or multi-account silently breaks. Only login sets the cookie.
+  `Set-Cookie` and sign-in or multi-account silently breaks. Only login creates the cookie; every cookie-class call may rotate it (R11),
+  and logout or a 401 clears it.
 - `credentials: "omit"` for **signup, forgot, verify-email and reset**: they neither read nor set
   the cookie.
 - Example: `fetch(url, {credentials: "include", headers: {"Content-Type": "application/json",
@@ -115,8 +116,8 @@ user opens the link from the verification email (D2, ADR-0007).
 **Sign-up.** `POST /api/v1/auth/signup` **requires** `X-MM-App` and a browser `Origin` registered
 for that app. Without them it answers 403 `app_header_required` (missing or malformed key) or
 `origin_not_allowed` (unknown or disabled app, missing or unregistered origin) before any account
-is created or any email is queued. Call it from the browser with `credentials: "omit"`: sign-up sets no
-cookie; only login does. The link
+is created or any email is queued. Call it from the browser with `credentials: "omit"`: sign-up neither
+reads nor sets the cookie; only login creates it. The link
 points at the page origin that made the request; there is no API-wide fallback origin.
 
 > **v1 contract change (USR-04c, 2026-11-13).** Sign-up without `X-MM-App` used to succeed (the
