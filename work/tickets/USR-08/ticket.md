@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BLOCKED |
+| State | DONE |
 | Priority | P1 |
 | Areas | architecture, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-13 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/mmlabs-auth/pull/1 · https://github.com/mmlabs-online/org-admin-api/pull/37 |
 
 ## Goal
 Shared client libraries so each mmlabs app does not re-implement login, account choice, token caching and token verification.
@@ -37,3 +37,5 @@ USR-03b (join API). Owner must create the new repo and add it to the session.
 - Carried from USR-03b: USR-03c security review S1/S2 (flushable JWKS cache, `cooldown_duration=60`, emergency-rotation cache flush).
 - 2026-11-16 (orchestrator): **BLOCKED**, because the library repo does not exist yet. No `mmlabs-online/mmlabs-auth` (or similar) appears in the account's repositories. The owner needs to create it and add it to the session. Priority raised to P1: it blocks real login in `admin-pan` (PAN-010).
 - 2026-11-16 (owner, optional): consider having the client also cover forgot / reset / verify-email later. `admin-pan` calls those three public endpoints directly with `credentials:'omit'` today.
+- 2026-11-16 (owner): repo created: `mmlabs-online/mmlabs-auth` (private). Initial commit on `main` (README, .gitignore); work goes on branch `claude/blissful-wozniak-fx4lm9` with a PR into `main` (owner merges). **Scope: both libraries in this ticket** (`ts/` `@mmlabs/auth-client` + React, and `python/` `mmlabs-auth`).
+- 2026-11-16 (owner): `mmlabs-online/mmlabs-auth` is now **public**. Consumers need no GitHub token to install from tags/Releases. `"private": true` in `ts/package.json` stays (it only blocks accidental `npm publish`). LICENSE pending owner choice (default proposal: MIT).
