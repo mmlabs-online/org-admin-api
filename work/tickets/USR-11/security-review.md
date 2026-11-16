@@ -95,3 +95,12 @@ Files reviewed:
 - /home/user/org-admin-api/tests/test_me_permissions.py
 - /home/user/org-admin-api/docs/adr/0008-admin-api-authentication.md
 - /home/user/org-admin-api/docs/identity-architecture.md
+
+## Should-fix re-check (7d182bb)
+
+**Verdict: fixed.** The 🟡 is resolved and no new findings block the merge. `uv run pytest tests/test_route_auth_classes.py -q`: 63 passed.
+
+- `_input_params(dependant)` collects `path_params`, `query_params` and `body_params` and recurses into `dependant.dependencies`, so it reaches router-level and nested dependencies. A `?user_id=` on `get_my_permissions` or on any dependency, a body model or a `{param}` would fail `test_self_scoped_routes_have_no_permission`. No false positive today (`Request`, `Response`, `SessionDep` are special parameters; Bearer comes via `Security(HTTPBearer)`).
+- Docs: the `/me/permissions` row now sits among the Admin rows as "Admin (self-scoped)"; earlier 💭 resolved.
+
+**Remaining 💭 (not blocking):** `_input_params` does not look at `header_params` or `cookie_params`, so a self-scoped route could take its subject from a custom header (e.g. `X-User-Id: Header()`) and still pass. Adding `*dependant.header_params, *dependant.cookie_params` closes it; it should still return `[]` for `/me/permissions`.
