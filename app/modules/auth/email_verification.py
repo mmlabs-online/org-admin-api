@@ -129,7 +129,7 @@ class EmailVerificationService:
         )
         if account is None:
             raise SessionInvalidError("Session is invalid")
-        user = await self.users.get(account.user_id)
+        user = await self.users.get_for_share(account.user_id)
         if user is None or user.status != UserStatus.ACTIVE.value:
             raise SessionInvalidError("Session is invalid")
         if user.email_verified_at is not None:

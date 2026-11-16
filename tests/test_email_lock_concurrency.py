@@ -193,7 +193,8 @@ async def test_control_plain_for_update_deadlocks(
     email_race: EmailRace, monkeypatch: pytest.MonkeyPatch, other: str
 ) -> None:
     """The same interleave with the old `FOR UPDATE` reaches the S1 cycle: Postgres aborts one
-    transaction (`deadlock_timeout`, 1 s), which answers 500."""
+    transaction (`deadlock_timeout`, 1 s), which answers 500. Resend's user share lock
+    (ADM-002e) is undone too: it alone already prevents the cycle."""
 
     async def plain_for_update(self: UserRepository, user_id: uuid.UUID) -> User | None:
         return await self.session.scalar(
@@ -204,6 +205,7 @@ async def test_control_plain_for_update_deadlocks(
         )
 
     monkeypatch.setattr(UserRepository, "get_for_update", plain_for_update)
+    monkeypatch.setattr(UserRepository, "get_for_share", UserRepository.get)
     statuses = await _race(email_race, monkeypatch, other)
     assert 500 in statuses
 

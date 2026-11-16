@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -284,3 +286,88 @@ def test_app_env_error_does_not_echo_dsn(monkeypatch: pytest.MonkeyPatch) -> Non
         Settings(_env_file=None)  # type: ignore[call-arg]
     assert "DsnSecretMarker42" not in str(exc.value)
     assert "dbhost.internal" not in str(exc.value)
+
+
+# --- query strings and fragments refuse the default (ADM-002e) -------------------------------
+
+_LOOPBACK = "postgresql+asyncpg://u:p@localhost:5432/org_admin"
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "?host=prod-db.internal",
+        "?host=/var/run/postgresql",
+        "?host=%2Ftmp",
+        "?ho%73t=evil",
+        "?HOST=evil",
+        "?hostaddr=10.0.0.5",
+        "?dsn=postgresql://evil/db",
+        "?service=prod",
+        "?sslmode=disable",
+        "?",
+        "#?host=evil",
+        "#frag",
+    ],
+)
+def test_app_env_required_for_loopback_with_query(
+    monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    monkeypatch.delenv("APP_ENV")
+    with pytest.raises(ValidationError, match="APP_ENV must be set"):
+        Settings(_env_file=None, database_url=_LOOPBACK + suffix)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("app_env", ["local", "test"])
+@pytest.mark.parametrize("suffix", ["?host=prod-db.internal", "?sslmode=disable"])
+def test_app_env_explicit_ok_with_query(
+    monkeypatch: pytest.MonkeyPatch, app_env: str, suffix: str
+) -> None:
+    monkeypatch.delenv("APP_ENV")
+    settings = Settings(_env_file=None, app_env=app_env, database_url=_LOOPBACK + suffix)  # type: ignore[call-arg, arg-type]
+    assert settings.app_env == app_env
+
+
+def test_app_env_query_error_does_not_echo_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APP_ENV")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://u:DsnSecretMarker42@localhost:5432/x?host=dbhost.internal",
+    )
+    with pytest.raises(ValidationError, match="APP_ENV must be set") as exc:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "DsnSecretMarker42" not in str(exc.value)
+    assert "dbhost.internal" not in str(exc.value)
+    assert "host=" not in str(exc.value)
+
+
+def test_app_env_pghost_env_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APP_ENV")
+    monkeypatch.setenv("PGHOST", "evil")
+    monkeypatch.setenv("PGSERVICE", "prod")
+    settings = Settings(_env_file=None, database_url=_LOOPBACK)  # type: ignore[call-arg]
+    assert settings.app_env == "local"
+    assert [h.get("host") for h in settings.database_url.hosts()] == ["localhost"]
+
+
+# --- .env.example lists keys only (R5, ADM-002e) ----------------------------------------------
+
+
+def test_env_example_keys_only() -> None:
+    with open(".env.example", encoding="utf-8") as f:
+        lines = [line.rstrip("\n") for line in f]
+    keys = [line for line in lines if line.strip() and not line.startswith("#")]
+    assert keys
+    for line in keys:
+        assert re.fullmatch(r"[A-Z0-9_]+=", line), line
+
+
+def test_env_example_copy_gives_local_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    with open(".env.example", encoding="utf-8") as f:
+        for line in f:
+            if line.strip() and not line.startswith("#"):
+                monkeypatch.delenv(line.split("=", 1)[0], raising=False)
+    settings = Settings(_env_file=".env.example")  # type: ignore[call-arg]
+    assert settings.app_env == "local"
+    assert "app_env" not in settings.model_fields_set
+    assert [h.get("host") for h in settings.database_url.hosts()] == ["localhost"]

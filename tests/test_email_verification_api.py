@@ -3,12 +3,13 @@ import logging
 import re
 import secrets
 import uuid
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
@@ -533,6 +534,37 @@ async def test_resend_disabled_user_401(
     _, raw, account_id = await _signed_in(db_session, status="disabled")
     resp = await _resend(client, email_dispatcher, account_id, raw)
     assert resp.status_code == 401
+
+
+async def test_resend_locks_user_for_share_before_token_insert(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    email_dispatcher: EmailDispatcher,
+    stoktok: App,
+) -> None:
+    """ADM-002e: a concurrent disable (`FOR NO KEY UPDATE` + `invalidate_all`) waits for the
+    resend's share lock, or the resend re-reads the disabled row and refuses."""
+    _, raw, account_id = await _signed_in(db_session)
+    statements: list[str] = []
+    conn = db_session.bind.sync_connection  # type: ignore[union-attr]
+    assert conn is not None
+
+    def _record(*args: Any) -> None:
+        statements.append(args[2])
+
+    event.listen(conn, "before_cursor_execute", _record)
+    try:
+        resp = await _resend(client, email_dispatcher, account_id, raw)
+    finally:
+        event.remove(conn, "before_cursor_execute", _record)
+    assert resp.status_code == 202, resp.text
+
+    def _index(pred: Callable[[str], bool]) -> int:
+        return next(i for i, s in enumerate(statements) if pred(s))
+
+    user_lock = _index(lambda s: "FROM users" in s and "FOR SHARE" in s)
+    insert = _index(lambda s: s.startswith("INSERT INTO email_tokens"))
+    assert user_lock < insert
 
 
 @pytest.mark.parametrize(

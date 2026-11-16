@@ -2,6 +2,7 @@
 permissions.
 
 Command tests are plain `def`: `migrations/env.py` calls `asyncio.run`. They always end at head.
+Plus one async head-state check on `db_session`.
 """
 
 import asyncio
@@ -11,7 +12,7 @@ from typing import Any
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from tests.conftest import TEST_DATABASE_URL
 
@@ -88,3 +89,10 @@ def test_admin_permissions_backfill() -> None:
     finally:
         _cleanup()
         command.upgrade(cfg, "head")
+
+
+async def test_admin_app_permissions_all_is_admin_at_head(db_session: AsyncSession) -> None:
+    """ADM-002e: guards future data migrations that add admin-app permissions."""
+    base = "SELECT count(*) FROM permissions p JOIN apps a ON a.id = p.app_id WHERE a.key = 'admin'"
+    assert (await db_session.scalar(text(base)) or 0) > 0
+    assert await db_session.scalar(text(base + " AND NOT p.is_admin")) == 0

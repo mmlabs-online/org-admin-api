@@ -42,6 +42,18 @@ class UserRepository:
         user.password_hash = password_hash
         await self.session.flush()
 
+    async def get_for_share(self, user_id: uuid.UUID) -> User | None:
+        """Lock the user row `FOR SHARE` until commit (ADM-002e, verification resend).
+
+        Blocks a concurrent status change or delete; FK checks (`KEY SHARE`) are not blocked.
+        """
+        return await self.session.scalar(
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+
     async def get_by_email_for_share(self, email: str) -> User | None:
         """Exact (CITEXT) lookup of a normalized email, locked `FOR SHARE` until commit.
 
