@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
@@ -103,6 +104,30 @@ class RateLimitedError(AppError):
             details={"retry_after": retry_after},
             headers={"Retry-After": str(retry_after)},
         )
+
+
+class ErrorBody(BaseModel):
+    """The error object of every non-2xx JSON response."""
+
+    code: str = Field(
+        description=(
+            "Machine-readable code, e.g. validation_error, unprocessable, not_found, conflict,"
+            " unauthorized, permission_denied, rate_limited."
+        )
+    )
+    message: str
+    details: Any = Field(
+        description=(
+            "Always present. A list for validation_error and unprocessable, an object for"
+            " rate_limited and permission_denied, otherwise null."
+        )
+    )
+
+
+class ErrorEnvelope(BaseModel):
+    """R6: `{"error": {"code", "message", "details"}}`."""
+
+    error: ErrorBody
 
 
 def _envelope(code: str, message: str, details: Any = None) -> dict[str, Any]:

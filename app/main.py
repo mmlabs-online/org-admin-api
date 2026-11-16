@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.cors import ADMIN_POLICY, DynamicCORSMiddleware
 from app.core.errors import register_error_handlers
 from app.core.jwt_keys import build_key_set
+from app.core.openapi import install_openapi
 from app.core.rate_limit import InMemoryRateLimiter
 from app.core.request_id import RequestIdMiddleware
 from app.db.session import SessionLocal
@@ -105,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(rbac_router, prefix=settings.api_prefix)
     app.include_router(assignments_router, prefix=settings.api_prefix)
     app.include_router(audit_router, prefix=settings.api_prefix)
+    install_openapi(app)
     return app
 
 
