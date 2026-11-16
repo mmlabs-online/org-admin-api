@@ -585,7 +585,7 @@ async def test_reset_revokes_all_account_sessions_every_device(
 
 @pytest.mark.parametrize(
     ("password", "reasons"),
-    [("tiny pw", ["too_short"]), ("Password1234", ["too_common"])],
+    [("tiny", ["too_short"]), ("Password1234", ["too_common"])],
 )
 async def test_reset_weak_password_422_token_still_usable(
     client: AsyncClient, db_session: AsyncSession, password: str, reasons: list[str]

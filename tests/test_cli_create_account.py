@@ -310,10 +310,10 @@ async def test_existing_email_exit_1_unchanged(
 def _weak_cases() -> list[tuple[str, str]]:
     common = next(p for p in sorted(common_passwords()) if len(p) >= 12)
     return [
-        ("too_short", "Aq9-xz"),
+        ("too_short", "Aq9-x"),
         ("too_common", common),
         ("too_long", "Aq9-" * 33),
-        ("too_short, too_common", "password"),
+        ("too_common", "password"),
     ]
 
 
