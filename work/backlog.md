@@ -31,7 +31,10 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-002c | Set admin app origins from the CLI | DONE | P1 | auth, security | 1 | 2026-11-15 |
 | ADM-002b | Enforce admin RBAC guards and mount the users/RBAC APIs | DONE | P1 | auth, security, api | 1 | 2026-11-15 |
 | ADM-002d | Admin auth hardening and runbook fixes | DONE | P2 | auth, security | 1 | 2026-11-15 |
-| ADM-002e | Close the APP_ENV ?host= bypass and fix the admin runbook trap | PLANNING | P1 | auth, security | 0 | 2026-11-15 |
+| ADM-002e | Close the APP_ENV ?host= bypass and fix the admin runbook trap | IN_PROGRESS | P1 | auth, security | 0 | 2026-11-15 |
+| ADM-012 | Non-credentialed CORS for the Bearer admin endpoints | PLANNING | P1 | api, security, auth | 0 | 2026-11-16 |
+| ADM-013 | OpenAPI contract that clients can generate types from | BACKLOG | P2 | api | 0 | 2026-11-16 |
+| ADM-014 | Docs — admin UI hostname and forgot-password credentials | BACKLOG | P2 | security | 0 | 2026-11-16 |
 | ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | DONE | P1 | db, api, security | 1 | 2026-11-15 |
 | ADM-004b | Audit identity events, denied privileged attempts and retention | DONE | P1 | db, api, security, auth | 1 | 2026-11-15 |
 | ADM-004c | Audit retention purge | DONE | P1 | db, security | 1 | 2026-11-15 |
@@ -39,13 +42,13 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-06 | Organizations and org-aware tokens (first consumer: calechip) | BACKLOG | P2 | architecture, db, api, auth, security | 0 | 2026-11-11 |
 | USR-04d | Email hardening: dispatcher shutdown, retention cleanup, daily-cap alert | DONE | P1 | auth, db | 1 | 2026-11-13 |
 | USR-03g | Join approval flow (join_requests + staff approve/reject) | BACKLOG | P2 | api, auth, security, db | 0 | 2026-11-13 |
-| USR-08 | Client libraries @mmlabs/auth-client (TS) and mmlabs-auth (Python) — separate repo | BACKLOG | P2 | architecture, auth, security | 0 | 2026-11-13 |
+| USR-08 | Client libraries @mmlabs/auth-client (TS) and mmlabs-auth (Python) — separate repo | BLOCKED | P1 | architecture, auth, security | 0 | 2026-11-16 |
 | USR-09 | Create a staff-vouched account from the CLI (bootstrap for a new app's first user) | DONE | P1 | auth, security, db | 3 | 2026-11-15 |
 | USR-05 | Apps self-register their permission manifest | BACKLOG | P2 | api, auth, security | 0 | 2026-11-11 |
 | ADM-006 | Org product entitlements | BACKLOG | P2 | architecture, db, api | 0 | 2026-11-10 |
 
-Order of work (dependencies; reprioritised 2026-11-12 by the owner for the ricotdin integration path): USR-01 → USR-01b → USR-02 → USR-02b → USR-02d → USR-02e → ADM-011 → USR-02c → USR-02f → USR-03 → USR-03f → USR-03c → USR-03e → USR-04 → USR-04c → USR-07 → USR-04b → USR-03b → ADM-002 → ADM-002c → ADM-002b → ADM-004 → ADM-004b → ADM-004c → USR-06 → USR-05.
-Hard dependencies: USR-01b ← USR-01 · USR-02 ← USR-01 · USR-02b ← USR-02 · USR-02d ← USR-02b · USR-02e ← USR-02d · USR-02c ← USR-02, USR-02b, USR-02d · USR-02f ← USR-02c · USR-03 ← USR-01, USR-02 · USR-03f ← USR-03 · USR-03c ← USR-03, USR-03f, USR-02 · USR-03e ← USR-03, USR-02 · USR-03b ← USR-03, USR-03c, USR-03e · ADM-002 ← USR-02, USR-02b, USR-02c, USR-02d, USR-02f, USR-02e, USR-03, USR-03c, USR-03e · ADM-002b ← ADM-002 · ADM-002c ← ADM-002 · ADM-002d ← ADM-002b · ADM-002e ← ADM-002d · ADM-004 ← ADM-002 · ADM-004b ← ADM-004 · ADM-004c ← ADM-004b · ADM-004d ← ADM-004c · USR-04 ← USR-01, USR-03, USR-03c · USR-07 ← USR-02, USR-02f · USR-04c ← USR-04 · USR-04b ← USR-04, USR-04c · USR-04d ← USR-04b · USR-06 ← USR-03b, USR-03c, ADM-004, USR-04 · USR-03g ← USR-03b · USR-08 ← USR-03b · USR-05 ← USR-02e, USR-03b · ADM-006 ← USR-02 · USR-09 ← USR-01, USR-02f, USR-07.
+Order of work (dependencies; reprioritised 2026-11-12 by the owner for the ricotdin integration path): USR-01 → USR-01b → USR-02 → USR-02b → USR-02d → USR-02e → ADM-011 → USR-02c → USR-02f → USR-03 → USR-03f → USR-03c → USR-03e → USR-04 → USR-04c → USR-07 → USR-04b → USR-03b → ADM-002 → ADM-002c → ADM-002b → ADM-004 → ADM-004b → ADM-004c → ADM-002e → ADM-012 → USR-08 → ADM-013 → ADM-014 → USR-06 → USR-05.
+Hard dependencies: USR-01b ← USR-01 · USR-02 ← USR-01 · USR-02b ← USR-02 · USR-02d ← USR-02b · USR-02e ← USR-02d · USR-02c ← USR-02, USR-02b, USR-02d · USR-02f ← USR-02c · USR-03 ← USR-01, USR-02 · USR-03f ← USR-03 · USR-03c ← USR-03, USR-03f, USR-02 · USR-03e ← USR-03, USR-02 · USR-03b ← USR-03, USR-03c, USR-03e · ADM-002 ← USR-02, USR-02b, USR-02c, USR-02d, USR-02f, USR-02e, USR-03, USR-03c, USR-03e · ADM-002b ← ADM-002 · ADM-002c ← ADM-002 · ADM-002d ← ADM-002b · ADM-002e ← ADM-002d · ADM-012 ← ADM-002, ADM-002c, USR-03e · ADM-013 ← ADM-002, USR-03b · ADM-014 ← ADM-002e · ADM-004 ← ADM-002 · ADM-004b ← ADM-004 · ADM-004c ← ADM-004b · ADM-004d ← ADM-004c · USR-04 ← USR-01, USR-03, USR-03c · USR-07 ← USR-02, USR-02f · USR-04c ← USR-04 · USR-04b ← USR-04, USR-04c · USR-04d ← USR-04b · USR-06 ← USR-03b, USR-03c, ADM-004, USR-04 · USR-03g ← USR-03b · USR-08 ← USR-03b · USR-05 ← USR-02e, USR-03b · ADM-006 ← USR-02 · USR-09 ← USR-01, USR-02f, USR-07.
 Note (D16): joining an app or getting any token needs a verified email, which only works after USR-04. Release ADM-002 together with or after USR-04.
 Plan and decisions: `docs/identity-architecture.md` (decision log D1–D12, 2026-11-11).
 
