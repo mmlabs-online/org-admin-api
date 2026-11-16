@@ -7,12 +7,13 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
-from app.core.cors import DynamicCORSMiddleware
+from app.core.cors import ADMIN_POLICY, DynamicCORSMiddleware
 from app.core.errors import register_error_handlers
 from app.core.jwt_keys import build_key_set
 from app.core.rate_limit import InMemoryRateLimiter
 from app.core.request_id import RequestIdMiddleware
 from app.db.session import SessionLocal
+from app.modules.admin_auth.route_classes import BearerRouteMatcher
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.auth.throttle import EmailHasher
@@ -21,6 +22,7 @@ from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.email.sender import GmailSmtpSender, build_email_sender
 from app.modules.health.router import router as health_router
 from app.modules.rbac.assignments_router import router as assignments_router
+from app.modules.rbac.models import ADMIN_APP_KEY
 from app.modules.rbac.origin_registry import AppOriginRegistry
 from app.modules.rbac.router import router as rbac_router
 from app.modules.tokens.jwks_router import router as jwks_router
@@ -48,13 +50,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         lifespan=_lifespan,
     )
-    # Credentialed CORS for `/api/v1/auth/*` from active apps' origins (ADR-0006).
+    # Credentialed CORS for `/api/v1/auth/*` from active apps' origins (ADR-0006), and
+    # non-credentialed CORS for the Bearer admin routes from `apps[admin].origins` only
+    # (ADR-0011). The two scopes are disjoint (no Bearer route under `/api/v1/auth/`).
     origin_registry = AppOriginRegistry(session_factory=SessionLocal, app_env=settings.app_env)
     app.state.origin_registry = origin_registry
     app.add_middleware(
         DynamicCORSMiddleware,
         registry=origin_registry,
         path_prefix=f"{settings.api_prefix}/auth/",
+    )
+    app.add_middleware(
+        DynamicCORSMiddleware,
+        registry=origin_registry.for_app(ADMIN_APP_KEY),
+        policy=ADMIN_POLICY,
+        matcher=BearerRouteMatcher(app),
     )
     # Added last = outermost: every response, CORS preflights included, carries the id.
     app.add_middleware(RequestIdMiddleware)

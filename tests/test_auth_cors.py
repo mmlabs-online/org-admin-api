@@ -166,16 +166,22 @@ async def test_loopback_origin_not_echoed_in_production(
         assert _echoed(await _probe(client, ORIGIN))  # the https origin still works
 
 
-async def test_role_catalog_and_admin_paths_have_no_cors(
+async def test_role_catalog_no_cors_admin_path_refuses_app_origin(
     make_client: MakeClient, db_session: AsyncSession
 ) -> None:
     await make_login_app(db_session)
     async with make_client(admin_permissions=["admin:*"]) as client:
-        for path in ("/api/v1/apps/stoktok/roles", "/api/v1/apps"):
-            resp = await client.get(path, headers={"Origin": ORIGIN})
-            assert resp.status_code == 200, path
-            assert "access-control-allow-origin" not in resp.headers
-            assert "origin" not in resp.headers.get("vary", "").lower()
+        catalog = await client.get("/api/v1/apps/stoktok/roles", headers={"Origin": ORIGIN})
+        assert catalog.status_code == 200
+        assert "access-control-allow-origin" not in catalog.headers
+        assert "origin" not in catalog.headers.get("vary", "").lower()
+        # Admin routes now get admin CORS (ADM-012): an app's origin is never echoed there.
+        admin = await client.get("/api/v1/apps", headers={"Origin": ORIGIN})
+        assert admin.status_code == 200
+        assert "access-control-allow-origin" not in admin.headers
+        assert "access-control-allow-credentials" not in admin.headers
+        assert "Origin" in admin.headers["vary"]
+        assert admin.headers["cache-control"] == "no-store"
 
 
 # --- registry --------------------------------------------------------------------
@@ -199,13 +205,24 @@ def _patch_loader(
 ) -> list[int]:
     calls: list[int] = []
 
-    async def loader(self: RbacRepository) -> list[list[str]]:
+    async def loader(self: RbacRepository) -> dict[str, list[str]]:
         calls.append(1)
         if gate is not None:
             await gate.wait()
-        return origins
+        return {f"app{i}": o for i, o in enumerate(origins)}
 
-    monkeypatch.setattr(RbacRepository, "active_app_origins", loader)
+    monkeypatch.setattr(RbacRepository, "active_app_origins_by_key", loader)
+    return calls
+
+
+def _patch_by_key(monkeypatch: pytest.MonkeyPatch, by_key: dict[str, list[str]]) -> list[int]:
+    calls: list[int] = []
+
+    async def loader(self: RbacRepository) -> dict[str, list[str]]:
+        calls.append(1)
+        return by_key
+
+    monkeypatch.setattr(RbacRepository, "active_app_origins_by_key", loader)
     return calls
 
 
@@ -234,11 +251,11 @@ async def test_registry_fails_closed(
     assert await registry.is_allowed(ORIGIN)
     secret = "postgresql://user:hunter2@db/org_admin"
 
-    async def broken(self: RbacRepository) -> list[list[str]]:
+    async def broken(self: RbacRepository) -> dict[str, list[str]]:
         calls.append(1)
         raise RuntimeError(secret)
 
-    monkeypatch.setattr(RbacRepository, "active_app_origins", broken)
+    monkeypatch.setattr(RbacRepository, "active_app_origins_by_key", broken)
     # Alembic's `fileConfig` (session fixture) disables loggers created before it ran.
     monkeypatch.setattr(origin_registry.logger, "disabled", False)
     clock.now += 60
@@ -302,3 +319,42 @@ async def test_app_patch_takes_effect_before_ttl(
         resp = await client.patch("/api/v1/apps/stoktok", json={"status": "disabled"})
         assert resp.status_code == 200, resp.text
         assert "access-control-allow-origin" not in (await _probe(client, OTHER)).headers
+
+
+ADMIN_ORIGIN = "https://admin-portal.mmlabs.online"
+
+
+async def test_registry_per_app_view(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_by_key(monkeypatch, {"admin": [ADMIN_ORIGIN], "stoktok": [ORIGIN]})
+    registry = AppOriginRegistry(_no_session, "test", clock=_Clock())
+    admin = registry.for_app("admin")
+    assert await admin.is_allowed(ADMIN_ORIGIN)
+    assert not await admin.is_allowed(ORIGIN)
+    assert await registry.is_allowed(ADMIN_ORIGIN)
+    assert await registry.is_allowed(ORIGIN)
+    assert not await registry.for_app("unknown").is_allowed(ORIGIN)
+    assert len(calls) == 1  # one load serves both views
+
+
+async def test_registry_per_app_view_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_by_key(monkeypatch, {"admin": [ADMIN_ORIGIN]})
+    clock = _Clock()
+    registry = AppOriginRegistry(_no_session, "test", clock=clock)
+    admin = registry.for_app("admin")
+    assert await admin.is_allowed(ADMIN_ORIGIN)
+    _patch_by_key(monkeypatch, {"admin": []})  # cleared by another process (the CLI)
+    clock.now += 59
+    assert await admin.is_allowed(ADMIN_ORIGIN)
+    clock.now += 1
+    assert not await admin.is_allowed(ADMIN_ORIGIN)
+
+    async def broken(self: RbacRepository) -> dict[str, list[str]]:
+        raise RuntimeError("db down")
+
+    _patch_by_key(monkeypatch, {"admin": [ADMIN_ORIGIN]})
+    registry = AppOriginRegistry(_no_session, "test", clock=clock)
+    admin = registry.for_app("admin")
+    assert await admin.is_allowed(ADMIN_ORIGIN)
+    monkeypatch.setattr(RbacRepository, "active_app_origins_by_key", broken)
+    clock.now += 60
+    assert not await admin.is_allowed(ADMIN_ORIGIN)  # fails closed

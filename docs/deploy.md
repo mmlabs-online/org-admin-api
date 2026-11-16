@@ -197,7 +197,25 @@ USR-07 CLI, see "Register an app" below (or the admin API later). Changes made t
 from the CLI or manual SQL apply within 60 s. Loopback origins are ignored in staging/production.
 The `admin` app's origins are set only with `set-admin-origins` (see "Set admin origins (ADM-002c)").
 A stale `CORS_ORIGINS` in the deployment env file is ignored and can be deleted from
-`mmlabs-online/deployment`.
+`mmlabs-online/deployment`. The Bearer admin routes get non-credentialed CORS from
+`apps[admin].origins` only (ADM-012, ADR-0011).
+
+### Admin UI CORS (ADM-012)
+
+After the release containing ADM-012 is deployed:
+
+1. Run `set-admin-origins --origin https://admin-portal.mmlabs.online` through `ops-org-admin-api`
+   (see "Set admin origins (ADM-002c)"): `dry_run` first, then for real. During a host move keep
+   the old origin as the second allowed one.
+2. Wait 60 s (the CLI is another process; the API's origin cache has a 60 s TTL).
+3. If `TURNSTILE_ALLOWED_HOSTNAMES` is non-empty in the deployment compose, add
+   `admin-portal.mmlabs.online` to it. This is a `mmlabs-online/deployment` change for the
+   owner, not in this repo.
+4. Verify: `curl -si -X OPTIONS -H 'Origin: https://admin-portal.mmlabs.online' -H
+   'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: authorization'
+   https://api.mmlabs.online/api/v1/apps` shows `access-control-allow-origin` and no
+   `access-control-allow-credentials`; the same request from another origin shows no
+   `access-control-allow-origin`.
 
 ## Signing key rotation
 

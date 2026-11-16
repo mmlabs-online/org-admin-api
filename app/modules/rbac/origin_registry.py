@@ -1,5 +1,8 @@
 """Per-process cache of the browser origins of active apps (`OriginRegistry`, ADR-0006).
 
+Two views of one load: the union of all apps' origins (`is_allowed`, identity CORS) and one
+app's own origins (`for_app(key)`, admin CORS, ADR-0011).
+
 TTL 60 s, single-flight refresh, fail closed (a load error serves an empty set for 5 s).
 App writes set `session.info[APPS_CHANGED_KEY]` (repository); the `after_commit` listener below
 then invalidates every registry in this process. A rollback drops the flag. Other processes
@@ -45,6 +48,7 @@ class AppOriginRegistry:
         self.load_timeout_seconds = load_timeout_seconds
         self.clock = clock
         self._origins: frozenset[str] = frozenset()
+        self._by_key: dict[str, frozenset[str]] = {}
         self._expires_at = 0.0
         self._generation = 0
         self._lock = asyncio.Lock()
@@ -54,6 +58,14 @@ class AppOriginRegistry:
         if self.clock() >= self._expires_at:
             await self._refresh()
         return origin in self._origins
+
+    async def is_allowed_for(self, key: str, origin: str) -> bool:
+        if self.clock() >= self._expires_at:
+            await self._refresh()
+        return origin in self._by_key.get(key, frozenset())
+
+    def for_app(self, key: str) -> "AppOriginView":
+        return AppOriginView(self, key)
 
     def invalidate(self) -> None:
         self._generation += 1
@@ -67,16 +79,32 @@ class AppOriginRegistry:
             try:
                 async with asyncio.timeout(self.load_timeout_seconds):
                     async with self.session_factory() as session:
-                        rows = await RbacRepository(session).active_app_origins()
+                        rows = await RbacRepository(session).active_app_origins_by_key()
             except Exception as exc:  # fail closed; class name only (R5/R11)
                 self._origins = frozenset()
+                self._by_key = {}
                 self._expires_at = self.clock() + self.failure_backoff_seconds
                 logger.warning("cors_origins_refresh_failed error=%s", type(exc).__name__)
                 return
-            self._origins = frozenset(o for row in rows for o in allowed_origins(row, self.app_env))
+            self._by_key = {
+                key: frozenset(allowed_origins(origins, self.app_env))
+                for key, origins in rows.items()
+            }
+            self._origins = frozenset(o for view in self._by_key.values() for o in view)
             # Invalidated during the load: serve the result once, reload on the next call.
             fresh = generation == self._generation
             self._expires_at = self.clock() + self.ttl_seconds if fresh else 0.0
+
+
+class AppOriginView:
+    """One app's origins (`OriginRegistry`); stateless, so invalidation applies to it."""
+
+    def __init__(self, registry: AppOriginRegistry, key: str) -> None:
+        self.registry = registry
+        self.key = key
+
+    async def is_allowed(self, origin: str) -> bool:
+        return await self.registry.is_allowed_for(self.key, origin)
 
 
 def invalidate_all() -> None:
