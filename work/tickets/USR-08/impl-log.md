@@ -379,3 +379,31 @@ PyJWT 2.12 `get_unverified_header` already rejects a non-string `kid` (`InvalidT
 
 ### Scope self-check
 - src ≈ 795 lines incl. docstrings (plan ~500), tests ≈ 1,380 (plan ~550), README ≈ 190. The extra is the drift test, the security-consult test cases and docstrings; no features beyond the plan's surface except `allow_insecure_loopback` on `MmlabsAuth`.
+
+## Stage E — Attempt 1
+
+### Touched files
+**mmlabs-auth** (branch `claude/blissful-wozniak-fx4lm9`, uncommitted)
+- `.github/workflows/release.yml` (new): `on.push.tags: ts-v*, py-v*`; top-level `permissions: contents: read`; jobs `ts` / `py` gated by `startsWith(github.ref_name, …)`, each with job-level `contents: write` (commented). Steps: checkout (`persist-credentials: false`), tag-vs-manifest version check (`node -p` on `ts/package.json`; `tomllib` on `python/pyproject.toml`), full suite (frozen/locked install, lint, typecheck/mypy, test, build), `pnpm -C ts pack` / `uv build` into `$RUNNER_TEMP/dist`, `gh release create "$TAG" … --notes-file notes.md --verify-tag` with `sha256sum` in the notes. Only `github.token` (`GH_TOKEN`); all `${{ }}` values pass through `env:` (no template injection). Same action SHAs as `ts.yml`/`python.yml`; no new actions. Caches disabled (`package-manager-cache: false`, `enable-cache: false`) to avoid cache poisoning in a release workflow. No `pull_request_target`.
+- `docs/adr/0001-packaging-and-release.md` (new): independent 0.x semver + tag scheme; release workflow; TS Release tarball vendored as `file:vendor/…tgz`; Python git-tag subdirectory install or Release wheel/sdist; no registry (GitHub Packages rejected: forced `@mmlabs-online` scope, token for reads); `"private": true` only blocks accidental `npm publish`; repo PUBLIC since 2026-11-16 so no token; provenance deferred; LICENSE pending owner decision.
+- `README.md`: new "Install" section (no token, links to `ts/README.md#1-install` / `python/README.md#1-install`); "Releases" section rewritten (bump → merge → tag; workflow behaviour; ADR link; LICENSE pending).
+
+**org-admin-api** (branch `claude/blissful-wozniak-fx4lm9`, uncommitted)
+- `docs/consumers.md`: `## Client libraries` section after the intro/prerequisites (links to `ts/README.md` and `python/README.md` on GitHub, tag-pinned install lines for `ts-v0.1.0` / `py-v0.1.0`, "this page wins" line); one pointer line above `## PyJWT sketch`.
+
+### Deviation from plan
+- Plan E2 text "Private repo: installs need GitHub read access" replaced by "the repository is public; no token needed" (orchestrator instruction: repo public since 2026-11-16). ADR records the same.
+
+### Checks
+- `uvx zizmor@1.16.3 --offline .github/workflows`: "No findings to report. Good job! (4 suppressed)" — suppressed are `anonymous-definition` (auditor persona, unnamed `run` steps), same pattern as ts.yml/python.yml.
+- YAML parse (`pyyaml==6.0.2`): all three workflows load; `release.yml` jobs `['py', 'ts']`.
+- Version-check dry run: `ts-v0.1.0` matches, `ts-v0.2.0` rejected; `py-v0.1.0` matches, `py-v9.9.9` rejected.
+- `pnpm pack` → `mmlabs-auth-client-0.1.0.tgz`; `uv build` → `mmlabs_auth-0.1.0.tar.gz` + `mmlabs_auth-0.1.0-py3-none-any.whl` (scratchpad); names match the README download URLs.
+- mmlabs-auth stage gate: install "Already up to date"; lint "Checked 30 files … No fixes applied"; typecheck exit 0; test "12 passed (12) / 146 passed (146)"; build exit 0; `uv sync --locked` "Checked 33 packages"; ruff "All checks passed!"; format "22 files already formatted"; mypy "Success: no issues found in 21 source files"; pytest "148 passed".
+- org-admin-api `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check` (local Postgres started with `service postgresql start`): ruff "All checks passed!"; "222 files already formatted"; mypy "Success: no issues found in 101 source files"; pytest "1716 passed, 1 warning".
+
+### Follow-ups (noticed, not done)
+- The `ts-v0.1.0` / `py-v0.1.0` tags and Releases do not exist yet; the install lines in both repos go live once the owner pushes them after the mmlabs-auth PR merges.
+- `contract/SOURCE` not bumped in E1 (no contract change needed for release).
+- Optional: build provenance (`actions/attest-build-provenance`) once the owner wants it (ADR "Deferred").
+- LICENSE for mmlabs-auth (owner decision).

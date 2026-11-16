@@ -6,6 +6,32 @@ How an mmlabs app gets and verifies its per-app access token (D7, ADR-0005). The
 Prerequisites for ricotdin, in order: USR-03c (this endpoint and JWKS), USR-03e (dynamic CORS,
 done), USR-04 (verified email), USR-07 (ricotdin integration, registers its origins).
 
+## Client libraries
+
+[`mmlabs-online/mmlabs-auth`](https://github.com/mmlabs-online/mmlabs-auth) implements this page:
+
+- [`@mmlabs/auth-client`](https://github.com/mmlabs-online/mmlabs-auth/blob/main/ts/README.md)
+  (TypeScript): browser client and React wrapper (sign-in, account choice, per-app tokens in
+  memory, join, logout, email verification, password reset).
+- [`mmlabs-auth`](https://github.com/mmlabs-online/mmlabs-auth/blob/main/python/README.md)
+  (Python): backend verification (JWKS, ES256 checks, role catalog cache, FastAPI
+  `require_permission()`).
+
+Install pinned to a release tag (the repository is public; no token needed):
+
+```bash
+# TypeScript: vendor the Release tarball (check its SHA-256 against the release notes)
+curl -fsSLo vendor/mmlabs-auth-client-0.1.0.tgz \
+  https://github.com/mmlabs-online/mmlabs-auth/releases/download/ts-v0.1.0/mmlabs-auth-client-0.1.0.tgz
+pnpm add ./vendor/mmlabs-auth-client-0.1.0.tgz
+
+# Python
+uv add "mmlabs-auth[fastapi] @ git+https://github.com/mmlabs-online/mmlabs-auth@py-v0.1.0#subdirectory=python"
+```
+
+The libraries follow the contract on this page; if they disagree, this page wins and the library
+gets a fix.
+
 ## Calling the identity API from the browser
 
 CORS for `/api/v1/auth/*` echoes only the origins of active apps (ADR-0006).
@@ -255,6 +281,9 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `iat`, `exp`, `jti` (`org` arrives with USR-06).
+
+Python backends: prefer `mmlabs-auth`, which implements this checklist; the sketch stays for
+other stacks.
 
 ## PyJWT sketch
 
