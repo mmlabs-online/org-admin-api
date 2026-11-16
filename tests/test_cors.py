@@ -1,12 +1,13 @@
 """DynamicCORSMiddleware with a fake registry and a tiny inner ASGI app (USR-03e, ADR-0006)."""
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient, Headers
 from starlette.types import Message, Receive, Scope, Send
 
-from app.core.cors import DynamicCORSMiddleware
+from app.core.cors import ADMIN_POLICY, DynamicCORSMiddleware
 
 ORIGIN = "https://ricotdin.mmlabs.online"
 EVIL = "https://evil.mmlabs.online"
@@ -264,3 +265,116 @@ async def test_non_http_scope_passthrough(
     await app(scope, receive, send)
     assert inner.calls == [scope]
     assert registry.asked == []
+
+
+# --- admin policy (ADM-012, ADR-0011) -------------------------------------------------
+
+ADMIN_PATH = "/api/v1/apps"
+
+
+class FakeMatcher:
+    """In scope iff the path is `ADMIN_PATH`; records the method it was asked about."""
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    def __call__(self, scope: Scope, method: str) -> bool:
+        self.asked.append(method)
+        return bool(scope["path"] == ADMIN_PATH)
+
+
+def _admin_app(registry: FakeRegistry, inner: Inner, matcher: FakeMatcher | None = None) -> Any:
+    return DynamicCORSMiddleware(
+        inner, registry=registry, policy=ADMIN_POLICY, matcher=matcher or FakeMatcher()
+    )
+
+
+@pytest.fixture
+async def admin_client(registry: FakeRegistry, inner: Inner) -> AsyncIterator[AsyncClient]:
+    app = _admin_app(registry, inner)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+async def test_admin_policy_preflight_allowed(admin_client: AsyncClient, inner: Inner) -> None:
+    resp = await admin_client.options(
+        ADMIN_PATH,
+        headers=_preflight(
+            method="PATCH", **{"Access-Control-Request-Headers": "authorization,content-type"}
+        ),
+    )
+    assert resp.status_code == 204
+    h = resp.headers
+    assert h["access-control-allow-origin"] == ORIGIN
+    assert "access-control-allow-credentials" not in h
+    assert h["access-control-allow-methods"] == "DELETE, GET, PATCH, POST, PUT"
+    assert h["access-control-allow-headers"] == "Authorization, Content-Type"
+    assert h["access-control-max-age"] == "600"
+    assert h["vary"] == PREFLIGHT_VARY
+    assert inner.calls == []
+
+
+@pytest.mark.parametrize(
+    ("req_headers", "allowed"),
+    [
+        ("AUTHORIZATION", True),
+        ("Content-Type", True),
+        ("authorization, content-type", True),
+        ("authorization, x-mm-app", False),
+    ],
+)
+async def test_admin_policy_header_case_insensitive(
+    admin_client: AsyncClient, req_headers: str, allowed: bool
+) -> None:
+    resp = await admin_client.options(
+        ADMIN_PATH,
+        headers=_preflight(method="GET", **{"Access-Control-Request-Headers": req_headers}),
+    )
+    assert resp.status_code == 204
+    if allowed:
+        assert resp.headers["access-control-allow-origin"] == ORIGIN
+    else:
+        assert _no_allow_headers(resp.headers)
+
+
+async def test_admin_policy_actual_request(registry: FakeRegistry) -> None:
+    app = _admin_app(registry, Inner([(b"vary", b"Accept-Encoding")]))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get(ADMIN_PATH, headers={"Origin": ORIGIN, "Authorization": "Bearer x"})
+    h = resp.headers
+    assert h["access-control-allow-origin"] == ORIGIN
+    assert h["access-control-expose-headers"] == "Retry-After, ETag, X-Request-ID"
+    assert "access-control-allow-credentials" not in h
+    assert h["cache-control"] == "no-store"
+    assert h["vary"] == "Accept-Encoding, Origin"
+
+
+async def test_admin_policy_existing_cache_control_kept(registry: FakeRegistry) -> None:
+    app = _admin_app(registry, Inner([(b"cache-control", b"private, max-age=5")]))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get(ADMIN_PATH, headers={"Origin": ORIGIN})
+    assert resp.headers.get_list("cache-control") == ["private, max-age=5"]
+
+
+async def test_matcher_out_of_scope_untouched(admin_client: AsyncClient, inner: Inner) -> None:
+    await _untouched(admin_client, inner, "/api/v1/apps/x/roles")
+
+
+async def test_matcher_receives_request_method_for_preflight(
+    registry: FakeRegistry, inner: Inner
+) -> None:
+    matcher = FakeMatcher()
+    app = _admin_app(registry, inner, matcher)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        await c.options(ADMIN_PATH, headers=_preflight(method="DELETE"))
+        await c.post(ADMIN_PATH, headers={"Origin": ORIGIN})
+        await c.options(ADMIN_PATH, headers={"Origin": ORIGIN})  # not a preflight
+    assert matcher.asked == ["DELETE", "POST", "OPTIONS"]
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"path_prefix": PREFIX, "matcher": FakeMatcher()}])
+def test_policy_requires_one_scope(
+    registry: FakeRegistry, inner: Inner, kwargs: dict[str, Any]
+) -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        DynamicCORSMiddleware(inner, registry=registry, **kwargs)

@@ -1,0 +1,35 @@
+# USR-10: Staff session management for a user (list, revoke one, revoke all)
+
+| Field | Value |
+|---|---|
+| State | BACKLOG |
+| Priority | P3 |
+| Areas | api, auth, security, db |
+| Attempts | 0 |
+| Created | 2026-11-16 |
+| PR | — |
+
+## Goal
+Support staff can sign a user out on one device or everywhere without disabling the account.
+
+## Spec reference
+§5.10 Staff session management (2026-11-16); §5.8 Admin bullet.
+
+## Acceptance criteria
+- [ ] A Bearer admin endpoint lists a user's active account sessions. Each entry has the session id, the device's last-seen time, IP and user agent. The response is `Page[T]`.
+- [ ] Two revoke actions: revoke one account session, and revoke all of the user's account sessions on every device. Device sessions that also carry other users' accounts are left alone.
+- [ ] Both revoke actions require permission `admin:*` (owner, 2026-11-16).
+- [ ] Each revoke writes an audit row in the same transaction, holding session ids and counts only (no IP, user agent or token). Denied attempts follow the ADM-004b pattern.
+- [ ] Tests:
+  - list, revoke one and revoke all;
+  - another user's session gives 404;
+  - 401/403;
+  - the audit rows;
+  - after a revoke, the user's `/auth/token` returns 401 `session_invalid`.
+- [ ] Docs state that access tokens already issued stay valid until their TTL (~15 min), per OQ8.
+
+## Dependencies
+USR-03 (sessions), ADM-002b, ADM-004b, ADM-012.
+
+## Notes / answers from owner
+- Needs answers before PLAN: **OQ7** (can staff use this on their own sessions? any extra guard for users holding admin roles?), **OQ8** (is the ~15-minute token tail acceptable?). See `docs/spec-v1.md` §8.

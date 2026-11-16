@@ -5,7 +5,6 @@ A new route fails `test_every_route_is_classified` until it is either guarded wi
 """
 
 import uuid
-from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -17,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.main import create_app
-from app.modules.admin_auth.deps import RequirePermission, current_admin
+from app.modules.admin_auth.deps import RequirePermission
+from app.modules.admin_auth.route_classes import (
+    BearerRouteMatcher,
+    dependant_calls,
+    is_bearer_dependant,
+)
 from tests.admin_auth_factories import bearer, make_staff, mint
 from tests.auth_factories import auth_headers, make_device, make_login_app
 from tests.conftest import MakeClient
@@ -82,13 +86,6 @@ def _app() -> FastAPI:
     return create_app()  # test settings: every router mounted, docs on
 
 
-def _calls(dependant: Dependant) -> Iterator[Callable[..., Any]]:
-    for sub in dependant.dependencies:
-        if sub.call is not None:
-            yield sub.call
-        yield from _calls(sub)
-
-
 def _api_routes(app: FastAPI) -> dict[tuple[str, str], Dependant]:
     """(method, path) -> dependant of every APIRoute."""
     routes: dict[tuple[str, str], Dependant] = {}
@@ -110,9 +107,8 @@ def _other_paths(app: FastAPI) -> set[str]:
 
 
 def _guard(dependant: Dependant) -> tuple[bool, list[str]]:
-    calls = list(_calls(dependant))
-    keys = [c.key for c in calls if isinstance(c, RequirePermission)]
-    return current_admin in calls, keys
+    keys = [c.key for c in dependant_calls(dependant) if isinstance(c, RequirePermission)]
+    return is_bearer_dependant(dependant), keys
 
 
 def test_every_route_is_classified() -> None:
@@ -169,6 +165,22 @@ def test_openapi_bearer_scheme() -> None:
             else:
                 assert "bearerAuth" not in str(operation.get("security", [])), route
                 assert "x-permission" not in operation, route
+
+
+def _scope(path: str) -> Any:
+    return {"type": "http", "path": path, "root_path": "", "headers": [], "query_string": b""}
+
+
+def test_cors_matcher_agrees_with_bearer_map() -> None:
+    matcher = BearerRouteMatcher(_app())
+    for method, path in BEARER:
+        assert not path.startswith(f"{V1}/auth/"), path  # the two CORS scopes are disjoint
+        assert matcher(_scope(_fill(path)), method), (method, path)
+    for method, path in PUBLIC | COOKIE:
+        assert not matcher(_scope(path.replace("{key}", "stoktok")), method), (method, path)
+    assert not matcher(_scope("/healthz"), "HEAD")
+    assert not matcher(_scope(f"{V1}/nope"), "GET")
+    assert not matcher(_scope(f"{V1}/apps"), "PUT")  # method not served: 405, not admin
 
 
 async def test_docs_off_in_production(make_client: MakeClient) -> None:

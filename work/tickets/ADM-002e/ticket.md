@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | auth, security |
 | Attempts | 0 |
@@ -31,3 +31,4 @@ From `work/tickets/ADM-002d/security-review.md` and `review.md`.
 ADM-002d.
 
 ## Notes / answers from owner
+- 2026-11-16 (orchestrator): plan READY; implementation paused so ADM-012 (admin CORS, owner priority) runs first; resume after ADM-012.

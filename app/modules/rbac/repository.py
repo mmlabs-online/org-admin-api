@@ -32,11 +32,11 @@ class RbacRepository:
     async def get_app_by_key(self, key: str) -> App | None:
         return await self.session.scalar(select(App).where(App.key == key))
 
-    async def active_app_origins(self) -> list[list[str]]:
-        result = await self.session.scalars(
-            select(App.origins).where(App.status == AppStatus.ACTIVE.value)
+    async def active_app_origins_by_key(self) -> dict[str, list[str]]:
+        result = await self.session.execute(
+            select(App.key, App.origins).where(App.status == AppStatus.ACTIVE.value)
         )
-        return [list(origins) for origins in result]
+        return {key: list(origins) for key, origins in result}
 
     async def app_keys_holding_origins(self, origins: list[str], exclude_key: str) -> list[str]:
         """Keys of other apps (any status, `admin` included) holding any of `origins`."""

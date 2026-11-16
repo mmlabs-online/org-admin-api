@@ -42,3 +42,9 @@ keeps the identity endpoints under `/api/v1/auth/*`. Until USR-03e a static `COR
   TTL unless a shared cache or pub/sub invalidation is added.
 - Open owner confirmations: no `CORS_ORIGINS` for a future admin UI (its Bearer CORS would come
   from `apps[admin].origins`); whether ricotdin staging is a second origin or a separate app key.
+
+## Amendment — admin CORS (ADM-012, 2026-11-16)
+Decision §1 no longer holds for admin routes: the Bearer admin routes get a second,
+non-credentialed instance of the same middleware with origins from `apps[admin].origins` only
+(ADR-0011). The registry gains a per-app view (`for_app(key)`) of the same cached load. The
+identity scope, policy and the role catalog / JWKS behaviour are unchanged.

@@ -27,6 +27,26 @@ CORS for `/api/v1/auth/*` echoes only the origins of active apps (ADR-0006).
   cross-site). Safari may refuse `Secure`/`__Host-` cookies on `http://localhost`: use
   Chrome/Firefox or local https.
 
+## Calling the admin API from the admin UI
+
+For the admin UI (`admin-pan`, `https://admin-portal.mmlabs.online`) only. Admin endpoints take
+**Bearer only; no cookies** (ADR-0008, ADR-0011). CORS on them is non-credentialed and echoes only
+the `admin` app's origins (set with `set-admin-origins`).
+
+- Get the token from `POST /api/v1/auth/token` like any SPA (see "Getting a token (SPA)"):
+  `credentials: "include"`, `X-MM-App: admin`, `audience: "admin"`.
+- Call admin endpoints with `fetch(url, {credentials: "omit", headers: {Authorization: "Bearer "
+  + token, "Content-Type": "application/json"}})`. Never `credentials: "include"`, never send the
+  cookie, never send `X-MM-App` (the admin preflight refuses it).
+- Keep the token in memory only (not `localStorage`). Call `/auth/token` again about 60 s before
+  `expires_in` runs out, and after a role change.
+- On a 401 from an admin endpoint, call `/auth/token` once; if that fails too, send the user to
+  login (401 `session_invalid` from `/token` = sign in again).
+- 401/403/404/409/422 envelopes are readable; `Retry-After`, `ETag` and `X-Request-ID` are
+  exposed. A 500 is not readable cross-origin. Responses carry `Cache-Control: no-store`.
+- `admin-portal` cannot host the sign-up, forgot-password or resend-verification screens
+  (ADM-002d).
+
 ## Getting a token (SPA)
 
 ```js
