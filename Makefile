@@ -26,7 +26,7 @@ register-app:  ## Register/update an app: make register-app ARGS='--key x --name
 	@test -n "$(ARGS)" || { echo "usage: make register-app ARGS='--key <key> --name <name> --origin <origin> ...'"; exit 64; }
 	@uv run python -m app.cli register-app $(ARGS)
 
-set-admin-origins:  ## Set the admin app origins: make set-admin-origins ARGS='--origin https://admin.mmlabs.online'
+set-admin-origins:  ## Set the admin app origins: make set-admin-origins ARGS='--origin https://admin-portal.mmlabs.online'
 	@test -n "$(ARGS)" || { echo "usage: make set-admin-origins ARGS='(--origin <origin> ... | --clear) [--dry-run]'"; exit 64; }
 	@uv run python -m app.cli set-admin-origins $(ARGS)
 

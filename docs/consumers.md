@@ -36,9 +36,15 @@ gets a fix.
 
 CORS for `/api/v1/auth/*` echoes only the origins of active apps (ADR-0006).
 
-- Every call: `fetch(url, {credentials: "include", headers: {"Content-Type":
-  "application/json", "X-MM-App": "ricotdin"}})`. The custom header forces a preflight; that is
-  expected.
+- `credentials: "include"` for **login** (it reads the existing device cookie to add the account,
+  and sets or rotates the cookie) and for every cookie-class call: `/token`, `/accounts`,
+  `/apps/{key}/join`, `/logout`, `/verify-email/resend`. With `omit` there the browser drops
+  `Set-Cookie` and sign-in or multi-account silently breaks. Only login sets the cookie.
+- `credentials: "omit"` for **signup, forgot, verify-email and reset**: they neither read nor set
+  the cookie.
+- Example: `fetch(url, {credentials: "include", headers: {"Content-Type": "application/json",
+  "X-MM-App": "ricotdin"}})`. The custom header forces a preflight; that is expected, and the
+  credentials mode does not change whether CORS answers it.
 - The page must run on a registered origin: exact scheme + host, no port, no path
   (`https://ricotdin.mmlabs.online`; a staging origin once USR-07 registers it).
 - A CORS failure shows up as `TypeError: Failed to fetch`, not as a 403: check the page origin and
@@ -109,8 +115,8 @@ user opens the link from the verification email (D2, ADR-0007).
 **Sign-up.** `POST /api/v1/auth/signup` **requires** `X-MM-App` and a browser `Origin` registered
 for that app. Without them it answers 403 `app_header_required` (missing or malformed key) or
 `origin_not_allowed` (unknown or disabled app, missing or unregistered origin) before any account
-is created or any email is queued. Call it from the browser with `credentials: "include"`, like the
-other `/auth/*` calls, so CORS answers the preflight that the custom header triggers. The link
+is created or any email is queued. Call it from the browser with `credentials: "omit"`: sign-up sets no
+cookie; only login does. The link
 points at the page origin that made the request; there is no API-wide fallback origin.
 
 > **v1 contract change (USR-04c, 2026-11-13).** Sign-up without `X-MM-App` used to succeed (the
@@ -128,6 +134,7 @@ token is in the fragment, so it never reaches a server log. The page:
    ```js
    await fetch("https://api.mmlabs.online/api/v1/auth/verify-email", {
      method: "POST",
+     credentials: "omit",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify({ token }),
    });
@@ -158,8 +165,8 @@ origin and invalidates earlier links.
 
 **Forgot.** `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` **requires** `X-MM-App`
 and a browser `Origin` registered for that app, like sign-up (403 otherwise, before anything is
-sent). Call it from the browser with `credentials: "include"` so CORS answers the preflight. A
-Turnstile token is always required. The answer is **202 for every email**, registered or not:
+sent). Call it from the browser with `credentials: "omit"` (with `X-MM-App`, from a
+registered origin). A Turnstile token is always required. The answer is **202 for every email**, registered or not:
 per-email limits (1 per minute, 5 per day) and the daily send cap apply silently, so the page must
 always say "if an account exists for this address, we sent a link".
 
@@ -182,6 +189,7 @@ link replaces older ones. The `/reset-password` page:
    ```js
    await fetch("https://api.mmlabs.online/api/v1/auth/password/reset", {
      method: "POST",
+     credentials: "omit",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify({ token, new_password }),
    });

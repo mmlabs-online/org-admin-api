@@ -206,7 +206,8 @@ After the release containing ADM-012 is deployed:
 
 1. Run `set-admin-origins --origin https://admin-portal.mmlabs.online` through `ops-org-admin-api`
    (see "Set admin origins (ADM-002c)"): `dry_run` first, then for real. During a host move keep
-   the old origin as the second allowed one.
+   the old origin as the second allowed one (this does not apply to `admin.mmlabs.online`, which was
+   never a live admin UI host; do not keep it).
 2. Wait 60 s (the CLI is another process; the API's origin cache has a 60 s TTL).
 3. If `TURNSTILE_ALLOWED_HOSTNAMES` is non-empty in the deployment compose, add
    `admin-portal.mmlabs.online` to it. This is a `mmlabs-online/deployment` change for the
@@ -430,7 +431,7 @@ Runbook:
 1. Deploy (migrations seed the admin leaf permissions).
 2. Sign up and verify your email through a registered app.
 3. Grant yourself `admin:super-admin` ("Bootstrap the first super-admin").
-4. Set the admin origin: `set-admin-origins --origin https://admin.mmlabs.online`, first with
+4. Set the admin origin: `set-admin-origins --origin https://admin-portal.mmlabs.online`, first with
    `dry_run` on, then off ("Set admin origins (ADM-002c)").
 5. Wait 60 s (the API reloads app origins within 60 s).
 6. Log in, get a token and call the admin API in one POSIX `sh` subshell (needs `python3` and
@@ -443,7 +444,7 @@ Runbook:
      umask 077
      api=https://api.mmlabs.online/api/v1
      jar= body= hdr=
-     trap 'rc=$?; set +e; trap "" HUP INT TERM; stty echo 2>/dev/null || true; for f in "$hdr" "$body"; do if [ -n "$f" ]; then rm -f -- "$f"; fi; done; if [ -n "$jar" ] && [ -s "$jar" ]; then curl -sS --max-time 10 -o /dev/null -b "$jar" -X POST "$api/auth/logout" -H "Origin: https://admin.mmlabs.online" -H "X-MM-App: admin" -H "Content-Type: application/json" -d "{\"all\":true}"; fi; if [ -n "$jar" ]; then rm -f -- "$jar"; fi; exit $rc' EXIT
+     trap 'rc=$?; set +e; trap "" HUP INT TERM; stty echo 2>/dev/null || true; for f in "$hdr" "$body"; do if [ -n "$f" ]; then rm -f -- "$f"; fi; done; if [ -n "$jar" ] && [ -s "$jar" ]; then curl -sS --max-time 10 -o /dev/null -b "$jar" -X POST "$api/auth/logout" -H "Origin: https://admin-portal.mmlabs.online" -H "X-MM-App: admin" -H "Content-Type: application/json" -d "{\"all\":true}"; fi; if [ -n "$jar" ]; then rm -f -- "$jar"; fi; exit $rc' EXIT
      trap 'exit 130' HUP INT TERM
      jar=$(mktemp)
      body=$(mktemp)
@@ -452,9 +453,9 @@ Runbook:
      printf 'password: '; stty -echo 2>/dev/null || true; IFS= read -r pw; stty echo 2>/dev/null || true; printf '\n'
      printf '%s\n%s\n' "$email" "$pw" | python3 -c 'import json,sys;e,p=sys.stdin.read().split("\n")[:2];print(json.dumps({"email":e,"password":p}))' > "$body"
      pw=
-     acct=$(curl -fsS -c "$jar" -X POST "$api/auth/login" -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' -H 'Content-Type: application/json' -d @"$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["account_id"])')
+     acct=$(curl -fsS -c "$jar" -X POST "$api/auth/login" -H 'Origin: https://admin-portal.mmlabs.online' -H 'X-MM-App: admin' -H 'Content-Type: application/json' -d @"$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["account_id"])')
      : > "$body"
-     curl -fsS -b "$jar" -c "$jar" -X POST "$api/auth/token" -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' -H 'Content-Type: application/json' -d "{\"audience\":\"admin\",\"account_id\":\"$acct\"}" | python3 -c 'import json,sys;print("Authorization: Bearer "+json.load(sys.stdin)["access_token"])' > "$hdr"
+     curl -fsS -b "$jar" -c "$jar" -X POST "$api/auth/token" -H 'Origin: https://admin-portal.mmlabs.online' -H 'X-MM-App: admin' -H 'Content-Type: application/json' -d "{\"audience\":\"admin\",\"account_id\":\"$acct\"}" | python3 -c 'import json,sys;print("Authorization: Bearer "+json.load(sys.stdin)["access_token"])' > "$hdr"
      # --- admin calls (the token only via -H @"$hdr") ---
      curl -fsS -H @"$hdr" "$api/users?limit=5"
      # ---
@@ -479,8 +480,9 @@ Runbook:
    request.
 
 The `Origin` check is CSRF protection, not authentication: the password, the verified email and the
-`admin:*` permission are what protect the admin API. The browser console is not a supported path
-until an admin UI exists.
+`admin:*` permission are what protect the admin API. The admin UI (`admin-pan`,
+`https://admin-portal.mmlabs.online`) is the browser path; operators without it use this curl
+runbook. The browser console is not a supported path.
 
 ## Set admin origins (ADM-002c)
 
@@ -502,10 +504,10 @@ exists (One-time setup, step 6).
 ```bash
 docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
   run --rm --no-deps migrate /app/.venv/bin/python -m app.cli set-admin-origins \
-  --origin https://admin.mmlabs.online --dry-run
+  --origin https://admin-portal.mmlabs.online --dry-run
 ```
 
-Locally: `make set-admin-origins ARGS='--origin https://admin.mmlabs.online'`.
+Locally: `make set-admin-origins ARGS='--origin https://admin-portal.mmlabs.online'`.
 
 Expected output (first real run; a dry run adds the `dry-run: …` line, a re-run prints
 `unchanged app admin` and no change lines):
@@ -514,8 +516,8 @@ Expected output (first real run; a dry run adds the `dry-run: …` line, a re-ru
 updated app admin
 join_policy: closed
 status: active
-origins: https://admin.mmlabs.online
-+ origin https://admin.mmlabs.online
+origins: https://admin-portal.mmlabs.online
++ origin https://admin-portal.mmlabs.online
 note: the API applies origin changes within 60 s
 dry-run: rolled back, nothing was saved      (only with dry_run)
 ```
@@ -548,10 +550,18 @@ row is refused). No new admin token can be obtained after at
 most 60 s; tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (15 min). To cut them
 sooner, revoke the role or disable the user (reloaded on every request, ADR-0008 §3).
 
-**Host policy:** `https://admin.mmlabs.online` is reserved for the future admin UI. Create no DNS
-record or tunnel route for it until an admin UI exists, never route it to another service, and
-check it whenever DNS or tunnel routes change: whoever serves pages on an admin origin can drive
-the admin login flow (subdomain takeover = an admin origin).
+**Host policy:** `https://admin-portal.mmlabs.online` is the admin UI host (`admin-pan`, ADR-0011)
+and the only production entry in `apps[admin].origins`. Its DNS record and tunnel route point only
+at `admin-pan`, never at another service or user content. Check them whenever DNS or tunnel routes
+change: whoever serves pages on an admin origin can drive the admin login and token flow (subdomain
+takeover = admin compromise).
+
+`admin.mmlabs.online` is **not used** (owner, 2026-11-16). It must have no DNS record (also not
+through a wildcard `*.mmlabs.online`) and no tunnel ingress or catch-all route. It must not appear
+in any app's `origins` or in `TURNSTILE_ALLOWED_HOSTNAMES`. Reusing it needs an owner decision.
+One-off: if `admin.mmlabs.online` was ever set in production, run
+`set-admin-origins --origin https://admin-portal.mmlabs.online` (replace semantics). Confirm the
+`- origin https://admin.mmlabs.online` line in the dry run, then run it for real.
 
 ## Register an app (USR-07)
 
