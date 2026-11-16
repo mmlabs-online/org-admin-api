@@ -7,7 +7,7 @@
 | Areas | api, security, auth |
 | Attempts | 1 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/35 |
 
 ## Goal
 The admin UI (`admin-pan`, a browser SPA at `https://admin-portal.mmlabs.online`) can call the Bearer admin endpoints under `/api/v1/*` cross-origin. CORS on those paths is non-credentialed and echoes only the registered origins of the `admin` app.
