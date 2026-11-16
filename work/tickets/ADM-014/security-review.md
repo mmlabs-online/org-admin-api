@@ -49,3 +49,30 @@ Scope: `git diff origin/main...HEAD` on branch `claude/blissful-wozniak-fx4lm9`.
 4. **Deployment repo:** add `admin-portal.mmlabs.online` to `TURNSTILE_ALLOWED_HOSTNAMES` if that list is non-empty, and confirm production `apps[admin].origins` and wildcard DNS state (plan F-1, F-2, F-5).
 
 **Verdict:** PASS from security. No blockers; fix the 🟡 in `consumers.md:42` before merge if a rework round is open.
+
+## Attempt 2
+
+## ADM-014 attempt 2 (9e825dd): security re-check
+
+Commit 9e825dd fixes the 🟡 and three of my four 💭 notes correctly and introduces nothing new. The fourth 💭 is only half done. I checked it read-only with `git show` and `grep`. I did not run `make check` or `pytest`. The commit touches `docs/consumers.md`, `docs/deploy.md` and `impl-log.md` only, with no code, runbook shell block or Makefile changes.
+
+**Fixed**
+- 🟡 `docs/consumers.md:42-43`: now reads "Only login creates the cookie; every cookie-class call may rotate it (R11), and logout or a 401 clears it." This matches `router.py:168,170,199,229,267,325` and `deps.py:133-141`, and no longer contradicts lines 40-41.
+- `docs/consumers.md:119-120`: sign-up "neither reads nor sets the cookie; only login creates it." This is correct; signup has no `DeviceDep` and no cookie read.
+- 💭 catch-all (`deploy.md:561`): "the final catch-all rule must be `service: http_status:404`". Correct, and operators can now follow it.
+- 💭 one-off clean-up (`deploy.md:564-567`): the dry run is now unconditional ("always"), the real run happens only if the `- origin https://admin.mmlabs.online` line appears, it waits 60 s afterwards, and it notes that issued tokens stay valid up to 15 min. The "see `--clear` above" reference resolves (`deploy.md:548`).
+- 💭 concrete check, first half (`deploy.md:560`): `dig +short admin.mmlabs.online` must print nothing. This also catches a wildcard record, proxied or not.
+
+**Remaining (💭, non-blocking)**
+- The other half of that note is still open: there is no concrete check that `admin-portal.mmlabs.online` routes only to `admin-pan`. The Host policy only says to check it whenever DNS or tunnel routes change. This can be a follow-up.
+- Cosmetic: `consumers.md:42` now runs past the usual wrap width. No security impact.
+
+**New issues:** none.
+
+My earlier follow-ups still stand, all out of scope:
+- CLAUDE.md R11 still describes the cookie as `mm_device` with `Path=/api/v1/auth`.
+- Test constants still use the old admin host.
+- Optionally, the CLI could refuse `admin.mmlabs.online`.
+- The deployment repo's `TURNSTILE_ALLOWED_HOSTNAMES` and the production origins/DNS state still need confirming.
+
+**Verdict: PASS from security, no blockers.**
