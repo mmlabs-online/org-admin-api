@@ -14,6 +14,8 @@
 - `python -m app.cli audit-purge --older-than-days <90-3650> [--dry-run]` (ADM-004c): deletes
   audit rows older than N days (the trigger refuses 90 days or newer), in batches, each with its
   `audit_log.purged` summary row; prints counts and the cutoff only. Never an HTTP route.
+- `python -m app.cli openapi [--output <path>]` (ADM-013): writes the OpenAPI document from code
+  defaults only; no database, no secrets, deterministic bytes.
 
 Output never contains the full email, a submitted value, a traceback or the DSN (R11): every
 failure prints one fixed line, and the CLI uses its own engine with `hide_parameters=True`.
@@ -120,6 +122,9 @@ MSG_JOIN_APPROVAL = "error: the app requires approval to join; nothing was creat
 MSG_JOIN_UNAVAILABLE = "error: the app has no usable default role; nothing was created"
 MSG_CREATE_UNEXPECTED = "error: unexpected failure; the account was not confirmed"
 
+OPENAPI_USAGE = "usage: python -m app.cli openapi [--output <path>]"
+MSG_OPENAPI_FAILED = "error: could not write the OpenAPI document"
+
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_UNKNOWN_EMAIL = 2
@@ -221,6 +226,8 @@ async def amain(
     session_scope: "SessionScope | None" = None,
     tty: "_Tty | None" = None,
 ) -> int:
+    if argv[:1] == ["openapi"]:
+        return _openapi(argv[1:])
     if argv[:1] == ["create-account"]:
         return await _create_account(
             argv[1:], settings=settings, session_scope=session_scope, tty=tty or _SystemTty()
@@ -722,6 +729,34 @@ async def _audit_purge(
     except Exception:
         # Never str(exc): DB errors carry the DSN and DETAIL lines.
         print(MSG_AUDIT_PURGE_FAILED, file=sys.stderr)
+        return EXIT_FAILURE
+
+
+def _openapi(argv: Sequence[str]) -> int:
+    try:
+        parser = _Parser(prog="python -m app.cli openapi", allow_abbrev=False, add_help=False)
+        parser.add_argument("--output")
+        output = parser.parse_args(argv).output
+
+        from pathlib import Path
+
+        from app.core.config import Settings
+        from app.core.openapi import render_openapi
+        from app.main import create_app
+
+        # Code defaults only: neither `.env` nor the process env may change the document.
+        document = render_openapi(create_app(Settings.model_construct(app_env="local")))
+        if output is None:
+            sys.stdout.buffer.write(document)
+            sys.stdout.buffer.flush()
+        else:
+            Path(output).write_bytes(document)
+        return EXIT_OK
+    except _UsageError:
+        print(OPENAPI_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except Exception:
+        print(MSG_OPENAPI_FAILED, file=sys.stderr)
         return EXIT_FAILURE
 
 

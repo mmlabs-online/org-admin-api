@@ -68,11 +68,14 @@ async def get_app_context(
     request: Request,
     session: SessionDep,
     x_mm_app: Annotated[str | None, Header(alias="X-MM-App")] = None,
-    origin: Annotated[str | None, Header()] = None,
 ) -> App:
     """`X-MM-App` of an active app and an `Origin` registered for it (D12), else 403."""
     settings: Settings = request.app.state.settings
-    return await AppContextService(session, app_env=settings.app_env).check(x_mm_app, origin)
+    return await AppContextService(session, app_env=settings.app_env).check(
+        x_mm_app,
+        # Read from the request, not declared: browsers set `Origin`, clients must not model it.
+        request.headers.get("origin"),
+    )
 
 
 AppContextDep = Annotated[App, Depends(get_app_context)]
@@ -97,9 +100,12 @@ def get_email_dispatcher(request: Request) -> EmailDispatcher:
 EmailDispatcherDep = Annotated[EmailDispatcher, Depends(get_email_dispatcher)]
 
 
-def get_link_origin(_app: MailLinkAppContextDep, origin: Annotated[str, Header()]) -> str:
+def get_link_origin(request: Request, _app: MailLinkAppContextDep) -> str:
     """`MailLinkAppContextDep` already proved `Origin` is registered for the `X-MM-App` app
     (never `admin`)."""
+    origin = request.headers.get("origin")
+    if origin is None:  # unreachable after the app context; fail closed
+        raise OriginNotAllowedError("Origin is not allowed")
     return normalize_origin(origin)
 
 
