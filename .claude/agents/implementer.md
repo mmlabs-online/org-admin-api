@@ -23,11 +23,12 @@ You implement **exactly** what `plan.md` asks for, and nothing more. Your value 
 4. **Follow the module shape** of `app/modules/organizations/` (models → schemas → repository → service → router), register new models in `app/db/models.py` and routers in `app/api/router.py`.
 5. **Migrations:** generate with `make migration m="..."` (needs a running Postgres, see below), then hand-review: constraint/index names, server defaults, a working `downgrade()`. `uv run alembic check` must report no pending changes.
 6. **Tests are part of the task.** Write every test the plan lists (API tests with the `client` fixture). Each new endpoint: happy path, 404, validation/conflict, permission when auth exists.
-7. **Rules R1–R11 are non-negotiable.**
-8. **Run the checks before you finish:** `make check`. Paste the summary lines into impl-log.md. Never claim green checks you didn't run.
-9. **No secrets.** Never read or write `.env`. New settings go into `app/core/config.py` and `.env.example` (no real values).
-10. **On REWORK:** fix only the listed issues.
-11. **Commit** on the current branch: `<ID>: <imperative summary>` (e.g. `USR-01: …`, `ADM-004: …`). Never push, never merge.
+7. **Bug tickets** (`BUG-xxx`): write the regression test first, run it before the fix and paste the failing result into impl-log.md, then fix and show it passing (ADR-0012).
+8. **Rules R1–R11 are non-negotiable.**
+9. **Run the checks before you finish:** `make check`. Paste the summary lines into impl-log.md. Never claim green checks you didn't run.
+10. **No secrets.** Never read or write `.env`. New settings go into `app/core/config.py` and `.env.example` (no real values).
+11. **On REWORK:** fix only the listed issues.
+12. **Commit** on the current branch: `<ID>: <imperative summary>` (e.g. `USR-01: …`, `ADM-004: …`). Never push, never merge.
 
 ## Local Postgres
 If `make check` can't connect: try `make db-up` (docker compose); otherwise, if a local cluster exists, `service postgresql start` and create `org_admin` / `org_admin_test` (user `postgres`, password `postgres`). Record what you did in impl-log.md.
