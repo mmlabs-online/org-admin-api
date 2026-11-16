@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P1 |
 | Areas | auth, security |
-| Attempts | 1 |
+| Attempts | 2 |
 | Created | 2026-11-15 |
 | PR | — |
 
