@@ -1,9 +1,13 @@
 """USR-04d S1: reset/verify vs a concurrent resend on real Postgres (committed data, cleanup).
 
-Interleave: resend locks the old verify token X (`invalidate`), pauses before its INSERT; the
-other request locks the user (`get_for_update`), then waits on X. Releasing resend makes its
-INSERT take the FK `KEY SHARE` on the user row: with `FOR UPDATE` that closes a deadlock cycle,
-with `FOR NO KEY UPDATE` it does not. Every wait is bounded by `TIMEOUT`.
+Interleave (unlocked resend, as before ADM-002e): resend locks the old verify token X
+(`invalidate`), pauses before its INSERT; the other request locks the user (`get_for_update`),
+then waits on X. Releasing resend makes its INSERT take the FK `KEY SHARE` on the user row: with
+`FOR UPDATE` that closes a deadlock cycle, with `FOR NO KEY UPDATE` it does not. The `unlocked`
+variants simulate that resend (`get_for_share` patched to `get`) and keep the real
+`get_for_update`, so they fail if it regresses to `FOR UPDATE`; the control proves the cycle.
+Since ADM-002e the real resend share-locks the user first, so in the `share-lock` variants the
+other request waits on the user row instead of X. Every wait is bounded by `TIMEOUT`.
 """
 
 import asyncio
@@ -149,9 +153,20 @@ async def _user_row(user_id: uuid.UUID) -> User:
     return user
 
 
+SHARE_LOCK = pytest.mark.parametrize("share_lock", [True, False], ids=["share-lock", "unlocked"])
+
+
+def _maybe_unlock_resend(monkeypatch: pytest.MonkeyPatch, share_lock: bool) -> None:
+    """`unlocked`: resend reads the user without a lock (pre-ADM-002e), as in the docstring."""
+    if not share_lock:
+        monkeypatch.setattr(UserRepository, "get_for_share", UserRepository.get)
+
+
+@SHARE_LOCK
 async def test_resend_vs_reset_no_deadlock(
-    email_race: EmailRace, monkeypatch: pytest.MonkeyPatch
+    email_race: EmailRace, monkeypatch: pytest.MonkeyPatch, share_lock: bool
 ) -> None:
+    _maybe_unlock_resend(monkeypatch, share_lock)
     old_hash = email_race.user.password_hash
     assert await _race(email_race, monkeypatch, "reset") == [202, 204]
     user = await _user_row(email_race.user.id)
@@ -166,9 +181,11 @@ async def test_resend_vs_reset_no_deadlock(
     assert old_used is not None
 
 
+@SHARE_LOCK
 async def test_resend_vs_verify_no_deadlock(
-    email_race: EmailRace, monkeypatch: pytest.MonkeyPatch
+    email_race: EmailRace, monkeypatch: pytest.MonkeyPatch, share_lock: bool
 ) -> None:
+    _maybe_unlock_resend(monkeypatch, share_lock)
     statuses = await _race(email_race, monkeypatch, "verify")
     assert statuses == [202, 422]
     user = await _user_row(email_race.user.id)
@@ -192,9 +209,9 @@ async def test_resend_vs_verify_no_deadlock(
 async def test_control_plain_for_update_deadlocks(
     email_race: EmailRace, monkeypatch: pytest.MonkeyPatch, other: str
 ) -> None:
-    """The same interleave with the old `FOR UPDATE` reaches the S1 cycle: Postgres aborts one
-    transaction (`deadlock_timeout`, 1 s), which answers 500. Resend's user share lock
-    (ADM-002e) is undone too: it alone already prevents the cycle."""
+    """The `unlocked` interleave with the old `FOR UPDATE` reaches the S1 cycle: Postgres aborts
+    one transaction (`deadlock_timeout`, 1 s), which answers 500. Pairs with the `unlocked`
+    no-deadlock variants, which differ only in the `get_for_update` lock mode."""
 
     async def plain_for_update(self: UserRepository, user_id: uuid.UUID) -> User | None:
         return await self.session.scalar(
@@ -205,7 +222,7 @@ async def test_control_plain_for_update_deadlocks(
         )
 
     monkeypatch.setattr(UserRepository, "get_for_update", plain_for_update)
-    monkeypatch.setattr(UserRepository, "get_for_share", UserRepository.get)
+    _maybe_unlock_resend(monkeypatch, share_lock=False)
     statuses = await _race(email_race, monkeypatch, other)
     assert 500 in statuses
 

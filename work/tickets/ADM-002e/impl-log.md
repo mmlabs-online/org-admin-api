@@ -50,3 +50,40 @@
 ### Scope self-check
 - Could the diff be smaller? No.
 - Diff size: production + docs +59 / −17 (config 24/6, repository 12/0, email_verification 1/1, deploy.md 10/5, .env.example 9/5, README 3/0); tests +132 / −3.
+
+## Attempt 2 — 2026-11-16 (REWORK)
+
+Fixes only review.md Attempt 1 Issue 1 and security-review.md 🟡1, 💭2, 💭4.
+
+### Files touched
+| File | Required because |
+|---|---|
+| `tests/test_email_lock_concurrency.py` | Review Issue 1 / security 💭3: `test_resend_vs_reset_no_deadlock` and `test_resend_vs_verify_no_deadlock` are parametrized `share_lock` = `share-lock` (real resend) / `unlocked` (`get_for_share` patched to `UserRepository.get`, real `get_for_update`); both variants expect `[202, 204]` / `[202, 422]`. Helper `_maybe_unlock_resend`; the control uses it, so the `unlocked` positive tests and the control differ only in the `get_for_update` lock mode. Module and control docstrings reworded. |
+| `tests/conftest.py` | Security 🟡1: `TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or "<org_admin_test default>"`, so an empty value never falls back to the dev DB. |
+| `tests/test_config.py` | Security 🟡1: `test_conftest_empty_test_database_url_uses_test_db` (subprocess imports `tests.conftest` with `TEST_DATABASE_URL=""`, asserts the URL ends in `/org_admin_test`). Imports `os`, `subprocess`, `sys`, `Path`. Verified it fails against the attempt-1 conftest. |
+| `app/modules/users/repository.py` | Security 💭2: `get_for_share` docstring states the lock-order constraint (resend: device row → user `FOR SHARE`; login: user `FOR SHARE` → device row; keep it `FOR SHARE`). Docstring only. |
+| `docs/deploy.md` | Security 💭4: the EXIT trap deletes `$hdr` and `$body` before the logout curl and only `$jar` after it; the EXIT-trap bullet is updated to match. |
+
+### Correction to Attempt 1 "Out-of-plan files"
+The attempt-1 claim, "The control still proves that `get_for_update` must stay `FOR NO KEY UPDATE`", was inaccurate. The control changed two things (plain `FOR UPDATE` and no share lock), and the positive tests ran with the share lock, so a regression to `FOR UPDATE` failed no non-control test. Now the `unlocked` positive variants plus the control form a pair that differs only in the lock mode. The `share-lock` variants cover the real ADM-002e resend, where the other request waits on the user row. The attempt-1 follow-up on the docstring/variant is done.
+
+### Checks (actual output summary)
+- `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: exit 0. ruff `All checks passed!`; format `222 files already formatted`; mypy `Success: no issues found in 101 source files`; pytest `1716 passed, 1 warning in 99.06s` (+2 `unlocked` variants, +1 conftest test; warning is the pre-existing `forkpty` DeprecationWarning).
+- Regression probe: `get_for_update` temporarily changed to `.with_for_update()` (plain `FOR UPDATE`) → `tests/test_email_lock_concurrency.py`: `2 failed, 5 passed` (`test_resend_vs_reset_no_deadlock[unlocked]`, `test_resend_vs_verify_no_deadlock[unlocked]`). Restored `key_share=True` → `7 passed`.
+- alembic check: n/a (no migrations).
+- Runbook (step 6 block extracted, 3-space indent removed, 21 lines): `sh -n` ok, `dash -n` ok, `bash --posix -n` ok.
+- Dry-run with a `curl` stub (logs args, writes a cookie line to the `-c` file, returns `{"account_id":"x","access_token":"t"}` for login/token, `sleep 5` on `/users`, records the number of temp files present at logout) and a `mktemp` wrapper; stdin never a tty:
+
+  | Shell | `kill -HUP` subshell during admin call | `</dev/null` | normal exit |
+  |---|---|---|---|
+  | `dash` | exit 130; 1 logout (`--max-time 10`); 1 file (jar) present at logout; 3 created, 0 left | exit 1; 0 logout calls; 0 left | exit 0; 1 logout; 1 file at logout; 0 left |
+  | `bash --posix` | exit 130; 1 logout (`--max-time 10`); 1 file (jar) present at logout; 3 created, 0 left | exit 1; 0 logout calls; 0 left | exit 0; 1 logout; 1 file at logout; 0 left |
+
+### Out-of-plan files
+- None beyond attempt 1 (`tests/conftest.py` and `tests/test_config.py` changes are the security-review fix).
+
+### Follow-ups (noticed, not done)
+- Unchanged from attempt 1 (remove unused `APP_DEBUG`); security 💭5 (per-signal exit codes) and the relative `.env.example` path in tests were not in this rework's list.
+
+### Scope self-check
+- Diff for this attempt: +57 / −16 across 5 files (production: docstring only, +2).

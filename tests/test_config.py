@@ -1,4 +1,8 @@
+import os
 import re
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -371,3 +375,18 @@ def test_env_example_copy_gives_local_defaults(monkeypatch: pytest.MonkeyPatch) 
     assert settings.app_env == "local"
     assert "app_env" not in settings.model_fields_set
     assert [h.get("host") for h in settings.database_url.hosts()] == ["localhost"]
+
+
+def test_conftest_empty_test_database_url_uses_test_db() -> None:
+    """ADM-002e: an empty `TEST_DATABASE_URL=` never falls back to the dev database."""
+    env = {**os.environ, "TEST_DATABASE_URL": ""}
+    out = subprocess.run(
+        [sys.executable, "-c", "import tests.conftest as c; print(c.TEST_DATABASE_URL)"],
+        cwd=Path(__file__).parent.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    assert out.stdout.strip().endswith("/org_admin_test")

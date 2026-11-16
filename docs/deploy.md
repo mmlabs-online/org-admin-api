@@ -443,7 +443,7 @@ Runbook:
      umask 077
      api=https://api.mmlabs.online/api/v1
      jar= body= hdr=
-     trap 'rc=$?; set +e; trap "" HUP INT TERM; stty echo 2>/dev/null || true; if [ -n "$hdr" ]; then rm -f -- "$hdr"; fi; if [ -n "$jar" ] && [ -s "$jar" ]; then curl -sS --max-time 10 -o /dev/null -b "$jar" -X POST "$api/auth/logout" -H "Origin: https://admin.mmlabs.online" -H "X-MM-App: admin" -H "Content-Type: application/json" -d "{\"all\":true}"; fi; for f in "$jar" "$body"; do if [ -n "$f" ]; then rm -f -- "$f"; fi; done; exit $rc' EXIT
+     trap 'rc=$?; set +e; trap "" HUP INT TERM; stty echo 2>/dev/null || true; for f in "$hdr" "$body"; do if [ -n "$f" ]; then rm -f -- "$f"; fi; done; if [ -n "$jar" ] && [ -s "$jar" ]; then curl -sS --max-time 10 -o /dev/null -b "$jar" -X POST "$api/auth/logout" -H "Origin: https://admin.mmlabs.online" -H "X-MM-App: admin" -H "Content-Type: application/json" -d "{\"all\":true}"; fi; if [ -n "$jar" ]; then rm -f -- "$jar"; fi; exit $rc' EXIT
      trap 'exit 130' HUP INT TERM
      jar=$(mktemp)
      body=$(mktemp)
@@ -467,9 +467,9 @@ Runbook:
    - The access token goes from the token response straight into the 0600 header file. It never
      enters argv, a shell variable, shell history or stdout.
    - The `EXIT` trap runs on any exit, Ctrl-C or SSH drop included (it ignores further signals
-     while it runs): it restores echo if there is a tty, deletes the header file, logs out
-     (`{"all": true}`, revoking the device session, at most 10 s) if a session cookie exists,
-     deletes the jar and body files, and keeps the exit status.
+     while it runs): it restores echo if there is a tty, deletes the header and body files, logs
+     out (`{"all": true}`, revoking the device session, at most 10 s) if a session cookie
+     exists, deletes the jar file, and keeps the exit status.
    - Logout does not end the access token: one already issued stays valid until
      `ACCESS_TOKEN_TTL_SECONDS` (15 min).
    - After 3 failed logins for the email, Turnstile is required (`turnstile_token`) and curl

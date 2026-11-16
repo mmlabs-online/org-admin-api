@@ -46,6 +46,8 @@ class UserRepository:
         """Lock the user row `FOR SHARE` until commit (ADM-002e, verification resend).
 
         Blocks a concurrent status change or delete; FK checks (`KEY SHARE`) are not blocked.
+        Keep it `FOR SHARE`: resend takes it after the device row lock, login takes its user
+        share lock before the device row, so a stronger mode here can deadlock the two.
         """
         return await self.session.scalar(
             select(User)

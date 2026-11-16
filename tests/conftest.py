@@ -6,8 +6,11 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 # Point the app at the test database before anything imports app settings.
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/org_admin_test"
+# `or`, not a default: an empty `TEST_DATABASE_URL=` (copied `.env.example`) must never fall
+# back to the dev database.
+TEST_DATABASE_URL = (
+    os.environ.get("TEST_DATABASE_URL")
+    or "postgresql+asyncpg://postgres:postgres@localhost:5432/org_admin_test"
 )
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["APP_ENV"] = "test"
