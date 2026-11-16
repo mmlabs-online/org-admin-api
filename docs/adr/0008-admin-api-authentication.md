@@ -52,9 +52,12 @@ Completes §7. The `admin` app's origins follow this policy, enforced in
 
 - **CLI-only write path:** `python -m app.cli set-admin-origins` (ops workflow). `register-app`
   keeps refusing `admin`; the admin API gets an `admin:*` guard on admin origin changes in ADM-002b.
-- **Dedicated host:** D19 origins only, the apex `https://mmlabs.online` refused; production uses
-  `https://admin.mmlabs.online`, reserved for the future admin UI (no DNS or tunnel route until it
-  exists, never routed to another service). Loopback is refused in staging/production.
+- **Dedicated host:** D19 origins only, the apex `https://mmlabs.online` refused; production originally
+  reserved `admin.mmlabs.online` for the future admin UI (superseded, see the note below; never
+  routed to another service). Loopback is refused in staging/production.
+  Owner, 2026-11-16 (ADM-014): production uses `https://admin-portal.mmlabs.online` (admin UI
+  `admin-pan`, ADR-0011). `admin.mmlabs.online` is not used and must have no DNS record or tunnel
+  route (see `docs/deploy.md` Host policy).
 - **At most 2** distinct origins (rename or migration overlap), replace semantics.
 - **Never shared:** an origin held by any other app (any status) is refused.
 - **Origins only:** status, join policy, org mode, default role and the admin roles never change.

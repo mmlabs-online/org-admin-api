@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Areas | security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/39 |
 
 ## Goal
 The runbooks and the integration guide match the owner's decisions: the admin UI lives at `admin-portal.mmlabs.online`, and forgot-password needs no credentials.
