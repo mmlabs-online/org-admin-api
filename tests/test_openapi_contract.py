@@ -54,6 +54,20 @@ def test_every_error_response_references_envelope() -> None:
     assert "/api/v1/users" in checked
     assert "/api/v1/auth/password/forgot" in checked
     assert "/api/v1/apps/{key}/roles" in checked
+    assert "/api/v1/me/permissions" in checked
+
+
+def test_me_permissions_operation() -> None:
+    schema = _schema()
+    op = schema["paths"]["/api/v1/me/permissions"]["get"]
+    ok = op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert ok == {"$ref": "#/components/schemas/MePermissions"}
+    assert set(op["responses"]) == {"200", "401"}
+    assert op["responses"]["401"]["content"]["application/json"]["schema"] == {"$ref": REF}
+    assert "x-permission" not in op
+    component = schema["components"]["schemas"]["MePermissions"]
+    assert set(component["properties"]) == {"user_id", "roles", "permissions"}
+    assert set(component["required"]) == {"user_id", "roles", "permissions"}
 
 
 def test_no_5xx_documented() -> None:

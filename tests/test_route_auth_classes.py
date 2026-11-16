@@ -1,7 +1,8 @@
 """Every route belongs to exactly one auth class (R3, ADR-0008): deny by default.
 
 A new route fails `test_every_route_is_classified` until it is either guarded with
-`current_admin` + `require_permission` or added to an explicit allow-list below.
+`current_admin` + `require_permission` or added to an explicit allow-list below
+(public, cookie, or the self-scoped Bearer list of the ADR-0008 USR-11 amendment).
 """
 
 import uuid
@@ -74,6 +75,9 @@ BEARER = {
     ("PUT", f"{V1}/apps/{{key}}/roles/{{role_id}}/permissions"): "admin:roles:manage",
     ("GET", f"{V1}/audit-logs"): "admin:audit:read",
 }
+# Bearer, self-scoped, no permission (ADR-0008 USR-11 amendment). GET only, no path/query/body
+# input, caller's own data only. Adding an entry needs an ADR-0008 amendment (owner approval).
+SELF_SCOPED = {("GET", f"{V1}/me/permissions")}
 _PRODUCTION = {
     "app_env": "production",
     "trusted_proxy_cidrs": ["172.18.0.0/16"],
@@ -116,7 +120,12 @@ def test_every_route_is_classified() -> None:
     unclassified = []
     for route, dependant in _api_routes(app).items():
         has_admin, keys = _guard(dependant)
-        if route not in PUBLIC | COOKIE and not (has_admin and len(keys) == 1):
+        ok = (
+            route in PUBLIC | COOKIE
+            or (route in SELF_SCOPED and (has_admin, keys) == (True, []))
+            or (route not in SELF_SCOPED and has_admin and len(keys) == 1)
+        )
+        if not ok:
             unclassified.append(route)
     assert unclassified == []
     assert _other_paths(app) <= DOCS
@@ -126,7 +135,8 @@ def test_bearer_route_permission_map() -> None:
     app = _app()
     routes = _api_routes(app)
     guarded = {r for r in routes if r not in PUBLIC | COOKIE}
-    assert guarded == set(BEARER)
+    assert guarded == set(BEARER) | SELF_SCOPED
+    assert not set(BEARER) & SELF_SCOPED
     paths = app.openapi()["paths"]
     for route, expected in BEARER.items():
         has_admin, keys = _guard(routes[route])
@@ -136,10 +146,28 @@ def test_bearer_route_permission_map() -> None:
         assert paths[path][method.lower()]["x-permission"] == expected, route
 
 
+def test_self_scoped_routes_have_no_permission() -> None:
+    app = _app()
+    routes = _api_routes(app)
+    paths = app.openapi()["paths"]
+    for route in SELF_SCOPED:
+        assert _guard(routes[route]) == (True, []), route
+        method, path = route
+        assert "x-permission" not in paths[path][method.lower()], route
+
+
+def test_self_scoped_allow_list_is_exact() -> None:
+    assert {("GET", f"{V1}/me/permissions")} == SELF_SCOPED
+    for method, path in SELF_SCOPED:
+        assert method == "GET"
+        assert "{" not in path
+        assert not path.startswith(f"{V1}/auth/")
+
+
 def test_allow_lists_have_no_stale_entries() -> None:
     app = _app()
     routes = _api_routes(app)
-    assert set(routes) >= PUBLIC | COOKIE
+    assert set(routes) >= PUBLIC | COOKIE | SELF_SCOPED
     assert _other_paths(app) == DOCS
 
 
@@ -162,6 +190,11 @@ def test_openapi_bearer_scheme() -> None:
             if route in BEARER:
                 assert operation["security"] == [{"bearerAuth": []}], route
                 assert {"401", "403"} <= set(operation["responses"]), route
+            elif route in SELF_SCOPED:
+                assert operation["security"] == [{"bearerAuth": []}], route
+                assert "401" in operation["responses"], route
+                assert "403" not in operation["responses"], route
+                assert "x-permission" not in operation, route
             else:
                 assert "bearerAuth" not in str(operation.get("security", [])), route
                 assert "x-permission" not in operation, route
@@ -173,7 +206,7 @@ def _scope(path: str) -> Any:
 
 def test_cors_matcher_agrees_with_bearer_map() -> None:
     matcher = BearerRouteMatcher(_app())
-    for method, path in BEARER:
+    for method, path in list(BEARER) + list(SELF_SCOPED):
         assert not path.startswith(f"{V1}/auth/"), path  # the two CORS scopes are disjoint
         assert matcher(_scope(_fill(path)), method), (method, path)
     for method, path in PUBLIC | COOKIE:
@@ -213,7 +246,7 @@ async def _call(
     return await client.request(method, _fill(path), json=body, headers=headers)
 
 
-@pytest.mark.parametrize(("method", "path"), list(BEARER))
+@pytest.mark.parametrize(("method", "path"), list(BEARER) + sorted(SELF_SCOPED))
 async def test_every_bearer_route_401_without_token(
     client: AsyncClient, method: str, path: str
 ) -> None:
@@ -223,7 +256,7 @@ async def test_every_bearer_route_401_without_token(
     assert resp.headers["www-authenticate"].startswith("Bearer ")
 
 
-@pytest.mark.parametrize(("method", "path"), list(BEARER))
+@pytest.mark.parametrize(("method", "path"), list(BEARER) + sorted(SELF_SCOPED))
 async def test_every_bearer_route_401_with_cookie_only(
     client: AsyncClient, db_session: AsyncSession, method: str, path: str
 ) -> None:

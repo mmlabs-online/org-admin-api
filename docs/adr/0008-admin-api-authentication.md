@@ -35,7 +35,7 @@ device cookie `__Host-mm_device` reaches every path, so admin auth must not read
    grants every admin permission (`permits()`, ADR-0003); no other app's wildcard does.
 6. **Deny by default.** `tests/test_route_auth_classes.py` enumerates every route (all routers are
    mounted since ADM-002b) and fails on any route that is neither guarded by exactly one `require_permission` nor in an
-   explicit (method, path) public/cookie allow-list.
+   explicit (method, path) public/cookie allow-list, or the self-scoped allow-list (USR-11 amendment).
 7. **Admin token TTL** = `ACCESS_TOKEN_TTL_SECONDS` (default 900 s). No separate ceiling: the
    per-request reload already revokes. Admin tokens need a registered admin origin (ADM-002c).
 
@@ -125,3 +125,26 @@ longer decides privileged writes:
   Turnstile, any write or any email. Login, token, logout, verify-email and reset are unchanged.
 - **Admin `org_mode` pinned.** PATCH `org_mode` other than `none` on the admin app → 409, like
   status, join policy and default role.
+
+## Amendment — Self-scoped admin reads (USR-11, 2026-11-16) — pending owner confirmation
+
+One explicit exception to §5 and §6. `GET /api/v1/me/permissions` is Bearer `aud=admin` through
+`current_admin` (§1–§4 all apply: per-request reload, 401 for disabled or unverified users) and
+declares no `admin:*` permission. A route qualifies only if all of these hold:
+
+- GET; no path, query or body input; the subject is always the principal.
+- It returns only the caller's own authorization state (`user_id`, app-scope admin role keys,
+  `sorted(principal.permissions)` with `admin:*` unexpanded), no PII.
+- No side effects (no audit row; R4 covers mutations only).
+- `Cache-Control: no-store`.
+- Listed by exact (method, path) in `SELF_SCOPED` in `tests/test_route_auth_classes.py`.
+
+Adding a route needs a new amendment. Self-scoped mutations are out of scope. Tokens still carry
+no permissions claim. After a full revoke the response is 200 with empty lists (the token stays
+valid up to its TTL).
+
+Accepted risks: roles and permissions are two reads, so a concurrent grant can make them disagree
+for one response (advisory data, the next call corrects it); a token holder learns its own keys
+(already learnable from 403 `details.required`); no rate limit (same as every Bearer route).
+Rejected alternative: a seeded `admin:self:read` permission (needs a migration and every admin role
+must hold it, else the UI breaks).
