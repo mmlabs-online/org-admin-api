@@ -5,6 +5,7 @@ from typing import Literal, Self
 
 from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 from app.core.jwt_keys import build_key_set
 
@@ -121,14 +122,31 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _app_env_explicit_gate(self) -> Self:
-        """The `local` default applies only to a loopback DB: any other host (or a socket DSN)
-        needs an explicit `APP_ENV`, so a deployment never falls back to local behaviour. The
-        error never formats the URL (R5)."""
+        """Allow-list: the `local` default applies only to a DSN with exactly one loopback host
+        and no query string or fragment; anything else needs an explicit `APP_ENV`, so a
+        deployment never falls back to local behaviour. A query (`?host=`, `?hostaddr=`,
+        `?dsn=`, `?service=`, ...) can redirect the driver, so any `?` refuses. pydantic puts
+        `#?host=x` in the fragment but SQLAlchemy's `make_url` (what the engine receives)
+        parses it as a query, hence the fragment and engine-view checks. The error never
+        formats the URL (R5)."""
         if "app_env" in self.model_fields_set:
             return self
-        hosts = [h.get("host") for h in self.database_url.hosts()]
-        if not hosts or any(h not in _LOOPBACK_HOSTS for h in hosts):
-            raise ValueError("APP_ENV must be set explicitly when DATABASE_URL is not localhost")
+        message = "APP_ENV must be set explicitly when DATABASE_URL is not localhost"
+        url = self.database_url
+        hosts = [h.get("host") for h in url.hosts()]
+        try:
+            engine_url = make_url(str(url))
+        except Exception:
+            raise ValueError(message) from None
+        if (
+            len(hosts) != 1
+            or hosts[0] not in _LOOPBACK_HOSTS
+            or url.query is not None
+            or url.fragment is not None
+            or engine_url.query
+            or engine_url.host not in _LOOPBACK_HOSTS
+        ):
+            raise ValueError(message)
         return self
 
     @model_validator(mode="after")

@@ -442,11 +442,14 @@ Runbook:
      set -eu
      umask 077
      api=https://api.mmlabs.online/api/v1
-     jar=$(mktemp) body=$(mktemp) hdr=$(mktemp)
-     trap 'stty echo 2>/dev/null; if [ -s "$jar" ]; then curl -sS -o /dev/null -b "$jar" -X POST "$api/auth/logout" -H "Origin: https://admin.mmlabs.online" -H "X-MM-App: admin" -H "Content-Type: application/json" -d "{\"all\":true}" || true; fi; rm -f "$jar" "$body" "$hdr"' EXIT
+     jar= body= hdr=
+     trap 'rc=$?; set +e; trap "" HUP INT TERM; stty echo 2>/dev/null || true; for f in "$hdr" "$body"; do if [ -n "$f" ]; then rm -f -- "$f"; fi; done; if [ -n "$jar" ] && [ -s "$jar" ]; then curl -sS --max-time 10 -o /dev/null -b "$jar" -X POST "$api/auth/logout" -H "Origin: https://admin.mmlabs.online" -H "X-MM-App: admin" -H "Content-Type: application/json" -d "{\"all\":true}"; fi; if [ -n "$jar" ]; then rm -f -- "$jar"; fi; exit $rc' EXIT
      trap 'exit 130' HUP INT TERM
+     jar=$(mktemp)
+     body=$(mktemp)
+     hdr=$(mktemp)
      printf 'email: '; IFS= read -r email
-     printf 'password: '; stty -echo; IFS= read -r pw; stty echo; printf '\n'
+     printf 'password: '; stty -echo 2>/dev/null || true; IFS= read -r pw; stty echo 2>/dev/null || true; printf '\n'
      printf '%s\n%s\n' "$email" "$pw" | python3 -c 'import json,sys;e,p=sys.stdin.read().split("\n")[:2];print(json.dumps({"email":e,"password":p}))' > "$body"
      pw=
      acct=$(curl -fsS -c "$jar" -X POST "$api/auth/login" -H 'Origin: https://admin.mmlabs.online' -H 'X-MM-App: admin' -H 'Content-Type: application/json' -d @"$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["account_id"])')
@@ -463,8 +466,10 @@ Runbook:
      character is safe.
    - The access token goes from the token response straight into the 0600 header file. It never
      enters argv, a shell variable, shell history or stdout.
-   - The `EXIT` trap runs on any exit, Ctrl-C included: it restores echo, logs out
-     (`{"all": true}`, revoking the device session) and deletes the jar, body and header files.
+   - The `EXIT` trap runs on any exit, Ctrl-C or SSH drop included (it ignores further signals
+     while it runs): it restores echo if there is a tty, deletes the header and body files, logs
+     out (`{"all": true}`, revoking the device session, at most 10 s) if a session cookie
+     exists, deletes the jar file, and keeps the exit status.
    - Logout does not end the access token: one already issued stays valid until
      `ACCESS_TOKEN_TTL_SECONDS` (15 min).
    - After 3 failed logins for the email, Turnstile is required (`turnstile_token`) and curl
