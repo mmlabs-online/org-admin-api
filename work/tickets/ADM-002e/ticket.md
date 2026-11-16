@@ -7,7 +7,7 @@
 | Areas | auth, security |
 | Attempts | 2 |
 | Created | 2026-11-15 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/36 |
 
 ## Goal
 Fix the two should-fix items from the ADM-002d security review, plus small follow-ups.
