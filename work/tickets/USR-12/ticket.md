@@ -7,7 +7,7 @@
 | Areas | api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/42 |
 
 ## Goal
 Decide, and record in ADR-0008 / the decision log, whether `POST /api/v1/auth/verify-email/resend` may accept `X-MM-App: admin`, so a signed-in staff member with an unverified email can get a new verification link from the admin UI. If allowed, implement it for resend only; signup and forgot-password stay refused for `admin`.
