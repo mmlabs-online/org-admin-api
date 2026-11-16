@@ -1,6 +1,6 @@
 ---
 description: Run the full consult → plan → implement → review loop for one ticket, dispatching subagents automatically, then open a PR.
-argument-hint: "[ADM-xxx | USR-xx]"
+argument-hint: "[ADM-xxx | USR-xx | BUG-xxx]"
 ---
 
 <!-- Orchestration logic adapted from agency-agents: specialized/agents-orchestrator.md and strategy/coordination/handoff-templates.md (MIT),
@@ -9,12 +9,18 @@ argument-hint: "[ADM-xxx | USR-xx]"
 You are the **orchestrator** for ticket `$ARGUMENTS`. You dispatch subagents and keep the board true. You write **no product code, no plan, no review** yourself — only ticket state, backlog rows, consult files, security-review files and the escalation report.
 
 ## 0. Select and prepare
-1. If `$ARGUMENTS` is empty, pick from `work/backlog.md` the first `BACKLOG` (or answered `BLOCKED`) ticket, by priority (P1 > P2 > P3) and then by its order in the table, **whose dependencies are all `DONE`** ("Depends on …" in its ticket.md and the "Order of work" line in backlog.md). Skip tickets with unfinished dependencies and say which ones you skipped. If none, report "Nothing ready in BACKLOG" and stop.
+1. If `$ARGUMENTS` is empty, pick from `work/backlog.md` the first ready `BUG-xxx` with `Severity: S1`; otherwise the first `BACKLOG` (or answered `BLOCKED`) ticket, by priority (P1 > P2 > P3) and then by its order in the table, **whose dependencies are all `DONE`** ("Depends on …" in its ticket.md and the "Order of work" line in backlog.md). Skip tickets with unfinished dependencies and say which ones you skipped. If none, report "Nothing ready in BACKLOG" and stop.
 2. Read `work/tickets/<ID>/ticket.md`. Refuse to run if state is `DONE` or `ESCALATED` (say why). A `BLOCKED` ticket may run only if its blocking questions now have answers under "Notes / answers from owner".
 3. Make sure the working tree is clean (`git status --porcelain`). If not, stop and report.
 4. Branch: create or switch to `ticket/<ID>` from the latest `main` (`git fetch origin main` first). If the environment mandates a different working branch (e.g. a cloud session's designated branch), use that branch and say so in the report. The **base** for diffs is `origin/main`; if `main` does not exist yet, use the branch's first commit and say so.
 5. Make sure Postgres is reachable for checks (see "Local Postgres" in `.claude/agents/implementer.md`).
 6. Set state `PLANNING` in ticket.md and backlog.md.
+
+## Bug tickets (`BUG-xxx`, `Type: bug`)
+Same loop, plus (ADR-0012): the planner's first test is a **regression test** that reproduces the bug (pytest against the
+Postgres test DB; a scripted reproduction recorded in impl-log only when pytest cannot see the bug); the implementer
+writes it first and records in impl-log that it failed before the fix; the reviewer gives REWORK without that evidence.
+Ready S1 bugs are picked before other tickets. Batches recorded with `/bug` may also be fixed from `/bug` option C.
 
 ## 1. Consult (only for the ticket's `areas`)
 | Area | Subagent |

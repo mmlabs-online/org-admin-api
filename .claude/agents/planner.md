@@ -29,6 +29,7 @@ Write **only** `work/tickets/<ID>/plan.md`, using `work/templates/plan.md`. Do n
 6. **Respect R1–R11.** If the ticket cannot be done without breaking a rule, stop and ask.
 7. **Decisions that outlive the ticket** (auth approach, ID strategy, event model…) → propose an ADR file `docs/adr/NNNN-<slug>.md` in the file list; the implementer writes it.
 8. **Blocking ambiguity → stop.** If a decision only the owner can make would change the plan (e.g. which IdP, source of truth for users), write the questions under `## Blocking questions`, set `Status: BLOCKED` on the first line, and finish. Do not guess. Non-blocking assumptions go under `## Assumptions`.
+9. **Bug tickets** (`BUG-xxx`): the feature reference is the bug report in ticket.md (Report, Steps, Expected, Actual, Root cause); the spec section is the behaviour that is broken. Confirm or correct the root cause with file:line. The first row of `## Tests to write` is a **regression test** that reproduces the bug and fails before the fix: a pytest test against the Postgres test DB (name the file and test), or, only when pytest cannot see the bug (Docker image, deploy, CI, real SMTP or Cloudflare), a scripted reproduction the implementer records in impl-log (ADR-0012). Fix the cause only; similar issues elsewhere go to follow-ups.
 
 ## Done when
 `plan.md` exists with every template section filled (or explicitly "None"), and its first line is `Status: READY` or `Status: BLOCKED`.

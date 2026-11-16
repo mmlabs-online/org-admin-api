@@ -71,6 +71,7 @@ One orchestrated loop per ticket. **The main session is the orchestrator** (suba
 ```
 /idea "..."     →  spec section + proposed tickets (optional, for new scope)
 /ticket "..."   →  BACKLOG
+/bug "..."      →  BACKLOG (a BUG-XXX ticket; then: record PR, record another, or fix the batch now)
 /run [ID]       →  CONSULT (specialists by area) → PLAN (= technical design) → IMPLEMENT → REVIEW ─PASS→ DONE → PR (owner merges)
                                                                                  ^                │
                                                                                  └──── REWORK ────┘  max 2 reworks → ESCALATED (stop, ask owner)
@@ -84,7 +85,8 @@ One orchestrated loop per ticket. **The main session is the orchestrator** (suba
 |---|---|
 | `/idea <idea>` | Shape new scope into `docs/spec-v1.md` and propose tickets |
 | `/ticket <description> [P1-P3]` | Create `work/tickets/<ID>/ticket.md` and a backlog row |
-| `/run [ID]` | Run the full loop for a ticket (no ID = highest-priority BACKLOG ticket whose dependencies are done) |
+| `/bug <description> [S1-S3]` | Record a bug as `work/tickets/BUG-XXX/ticket.md` (repro, expected/actual, root cause, severity) and a backlog row on batch branch `bug/<first ID>`, then ask: A) open the record PR and stop, B) record another bug (asks again), C) fix the batch now and open one PR (ADR-0012) |
+| `/run [ID]` | Run the full loop for a ticket (no ID = a ready S1 bug first, else the highest-priority BACKLOG ticket whose dependencies are done) |
 | `/status` | Board summary from `work/backlog.md` |
 | `/solo <description>` | Small direct change outside the loop (still must pass checks; logged) |
 
@@ -111,7 +113,7 @@ Specialists (read-only; `/run` saves their output to the ticket folder):
 ```
 work/backlog.md                 board: one row per ticket
 work/solo-log.md                log of /solo changes
-work/templates/                 ticket, plan, impl-log, review, escalation
+work/templates/                 ticket, bug, plan, impl-log, review, escalation
 work/tickets/<ID>/
   ticket.md                     goal, acceptance criteria, areas, state, attempts, PR
   consult-<agent>.md            specialist notes (optional)
@@ -129,7 +131,7 @@ Ticket states: `BACKLOG` → `PLANNING` → `IN_PROGRESS` → `REVIEW` → `DONE
 ## Conventions
 
 - Language: code, comments, docs, commit messages in English. Reports to the owner in Vietnamese.
-- Ticket IDs: **`USR-XX`** for users, identity and authorization (mmlabs Identity, spec §5.3/§5.8; ADR-0001); **`ADM-XXX`** for everything else.
+- Ticket IDs: **`USR-XX`** for users, identity and authorization (mmlabs Identity, spec §5.3/§5.8; ADR-0001); **`ADM-XXX`** for everything else; **`BUG-XXX`** for bugs, created only by `/bug` (template `work/templates/bug.md`, ADR-0012). Every bug fix ships with a regression test that fails before the fix.
 - Commits: `<ID>: <imperative summary>` (e.g. `USR-01: …`, `ADM-004: …`; or `solo: <summary>`).
 - Secrets: only in `.env` (git-ignored) and the deploy environment.
 - Third-party agent definitions come from msitarzewski/agency-agents (MIT) — see `THIRD_PARTY_NOTICES.md`.

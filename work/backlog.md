@@ -3,7 +3,7 @@
 States: BACKLOG → PLANNING → IN_PROGRESS → REVIEW → DONE · plus REWORK, BLOCKED, ESCALATED.
 Priority: P1 (next) > P2 > P3. `/run` with no ID picks the top BACKLOG ticket.
 
-Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spec §5.3/§5.8); `ADM-XXX` for everything else.
+Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spec §5.3/§5.8); `ADM-XXX` for everything else; `BUG-XXX` for bugs (`/bug`, severity S1–S3; ready S1 bugs run first, ADR-0012).
 
 | ID | Title | State | Priority | Areas | Attempts | Updated |
 |---|---|---|---|---|---|---|
