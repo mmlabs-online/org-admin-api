@@ -31,7 +31,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-002c | Set admin app origins from the CLI | DONE | P1 | auth, security | 1 | 2026-11-15 |
 | ADM-002b | Enforce admin RBAC guards and mount the users/RBAC APIs | DONE | P1 | auth, security, api | 1 | 2026-11-15 |
 | ADM-002d | Admin auth hardening and runbook fixes | DONE | P2 | auth, security | 1 | 2026-11-15 |
-| ADM-002e | Close the APP_ENV ?host= bypass and fix the admin runbook trap | REVIEW | P1 | auth, security | 0 | 2026-11-15 |
+| ADM-002e | Close the APP_ENV ?host= bypass and fix the admin runbook trap | REWORK | P1 | auth, security | 1 | 2026-11-15 |
 | ADM-012 | Non-credentialed CORS for the Bearer admin endpoints | DONE | P1 | api, security, auth | 1 | 2026-11-16 |
 | ADM-013 | OpenAPI contract that clients can generate types from | BACKLOG | P2 | api | 0 | 2026-11-16 |
 | ADM-014 | Docs — admin UI hostname and forgot-password credentials | BACKLOG | P2 | security | 0 | 2026-11-16 |
