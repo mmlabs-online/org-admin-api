@@ -33,3 +33,10 @@ None.
 ### Scope self-check
 - Could the diff be smaller? No; every file is in the plan.
 - Diff size: see `git show --stat`.
+
+## Should-fix (after PASS review)
+
+- `tests/test_route_auth_classes.py`: `test_self_scoped_routes_have_no_permission` now asserts `_input_params(dependant) == []` for every SELF_SCOPED route. FastAPI in this env has no `get_flat_dependant`, so a small recursive helper collects `path_params`, `query_params` and `body_params` through sub-dependencies. Verified it detects params on other routes (`users/{user_id}` -> `['user_id']`, `GET organizations` -> `['limit', 'offset']`, `POST organizations` -> `['body']`) and returns `[]` for `/me/permissions`.
+- `docs/identity-architecture.md` §4: `/me/permissions` row moved out of the identity (`/api/v1/auth`) rows into the Admin rows, labelled "Admin (self-scoped)".
+- Checks: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check` -> `1757 passed, 1 warning`; ruff, format, mypy clean.
+- Out-of-plan files: none. Follow-ups: none.

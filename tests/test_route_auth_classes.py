@@ -146,12 +146,23 @@ def test_bearer_route_permission_map() -> None:
         assert paths[path][method.lower()]["x-permission"] == expected, route
 
 
+def _input_params(dependant: Dependant) -> list[str]:
+    """Names of path, query and body params of the dependant and all its sub-dependencies."""
+    found = [
+        f.name for f in (*dependant.path_params, *dependant.query_params, *dependant.body_params)
+    ]
+    for sub in dependant.dependencies:
+        found.extend(_input_params(sub))
+    return found
+
+
 def test_self_scoped_routes_have_no_permission() -> None:
     app = _app()
     routes = _api_routes(app)
     paths = app.openapi()["paths"]
     for route in SELF_SCOPED:
         assert _guard(routes[route]) == (True, []), route
+        assert _input_params(routes[route]) == [], route
         method, path = route
         assert "x-permission" not in paths[path][method.lower()], route
 

@@ -137,7 +137,6 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/signup` `{email, password, turnstile_token}` | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04c) | create unverified user; send verification email | USR-01 (+USR-04 email) |
 | `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `__Host-mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
 | `GET /api/v1/auth/accounts` | cookie + Origin + `X-MM-App` | accounts signed in on this device | USR-03b |
-| `GET /api/v1/me/permissions` | Bearer `aud=admin`, self-scoped, no permission (ADR-0008 USR-11 amendment) | caller's own `user_id`, admin role keys, effective admin permissions | USR-11 |
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT (also `aud=admin` since ADM-002), or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03c, ADM-002 |
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + Origin + `X-MM-App` (= `{key}`) | apply join policy, assign default role, audit; `approval` in USR-03g | USR-03b |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
@@ -152,6 +151,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06 |
 | Admin: `/api/v1/organizations` (CRUD) | Bearer `aud=admin` + `require_permission` (`admin:organizations:read\|write`) | organizations | ADM-001, ADM-002 |
 | Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`; `admin:*` for privileged users) | staff user management | USR-01, ADM-002 |
+| Admin (self-scoped): `GET /api/v1/me/permissions` | Bearer `aud=admin`, self-scoped, no permission (ADR-0008 USR-11 amendment) | caller's own `user_id`, admin role keys, effective admin permissions | USR-11 |
 | Admin: `/api/v1/apps`, `/apps/{key}/permissions`, `/apps/{key}/roles` (writes) | Bearer `aud=admin` + `require_permission` (`admin:apps:read\|write`, `admin:roles:manage`; `admin:*` for the admin app and `is_admin` changes) | apps, permissions, roles | USR-02, ADM-002 |
 | Admin: `/api/v1/users/{id}/role-assignments` | Bearer `aud=admin` + `require_permission` (`admin:users:read`, `admin:roles:assign`; `admin:*` for privileged roles) | role assignments | USR-02, ADM-002 |
 | Admin: `GET /api/v1/audit-logs` (filters `actor_user_id`, `actor_kind`, `action`, `target_type`, `target_id`, `app_key`, `from`/`to`) | Bearer `aud=admin` + `require_permission` (`admin:audit:read`, held only via `admin:*`) | read-only audit log | ADM-004 |
