@@ -7,7 +7,7 @@
 | Areas | api |
 | Attempts | 0 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/38 |
 
 ## Goal
 The generated OpenAPI document describes the real error shape and headers, so clients such as `admin-pan` can generate types without hand-written overrides. It can also be dumped offline as a stable snapshot.
