@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | REWORK |
 | Priority | P3 |
 | Areas | api, db |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-16 |
 | PR | — |
 
@@ -37,3 +37,4 @@ ADM-004b (login audit events), ADM-012 (browser access).
 - 2026-11-17 (owner) **OQ4**: new permission `admin:stats:read` for the dashboard stats document (counts only, no audit rows exposed); `member_count` uses the existing `admin:apps:read`.
 - 2026-11-17 (owner) **OQ5**: a member = distinct user with at least one non-expired role assignment on the app (app scope or any org); only users with status `active` count (unverified email still counts); the `admin` app shows its count (= staff).
 - 2026-11-17 (owner) **OQ6**: sign-ups per month: last 12 months, month boundaries in `Asia/Ho_Chi_Minh`; sign-ins last 24 h are totals (succeeded / failed), not split per app.
+- 2026-11-17 (owner, appsec finding 1): accepted — `admin:stats:read` may reveal every app's key and name (including disabled apps and `admin`) through `members_per_app`; document it in D26, identity-architecture and the endpoint description.

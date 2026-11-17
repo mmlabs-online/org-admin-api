@@ -38,7 +38,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-013 | OpenAPI contract that clients can generate types from | DONE | P2 | api | 0 | 2026-11-16 |
 | USR-12 | Allow resend-verification for the admin app | DONE | P2 | api, auth, security | 0 | 2026-11-16 |
 | ADM-014 | Docs — admin UI hostname and forgot-password credentials | DONE | P2 | security | 1 | 2026-11-16 |
-| ADM-015 | Dashboard stats endpoint for the admin UI | REVIEW | P3 | api, db | 0 | 2026-11-16 |
+| ADM-015 | Dashboard stats endpoint for the admin UI | REWORK | P3 | api, db | 1 | 2026-11-16 |
 | ADM-016 | `member_count` on the staff apps list and app detail | BACKLOG | P3 | api, db | 0 | 2026-11-16 |
 | USR-10 | Staff session management for a user (list, revoke one, revoke all) | BACKLOG | P3 | api, auth, security, db | 0 | 2026-11-16 |
 | ADM-017 | Operational reports (placeholder) | BLOCKED | P3 | architecture, db, api, security | 0 | 2026-11-16 |
