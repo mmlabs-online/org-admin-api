@@ -42,3 +42,34 @@ No violations found.
 
 ### Follow-ups (out of scope)
 - Same list as plan.md / impl-log.md: `mmlabs-auth` `push_manifest` helper, credential `expires_at`/`label`, global body-size limit, per-credential rate-limit bucket, deployment-repo workflow step, `actor_kind` filter for machine rows, 05a `assert` tidy-up and 2-active concurrency test, spec §5.3 one-line addition (owner item 3).
+
+## Attempt 2 — 2026-11-17
+Verdict: PASS
+
+Scope of this review: the attempt-2 delta only (`git diff HEAD~1 -- app tests`, commit b776b91), which addresses security-review.md Attempt 1 finding 1 (lock-order inversion and revocation race in app credential `authenticate`). Attempt 1 already PASSed.
+
+### Checks (run by reviewer)
+- `service postgresql start`; `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: ruff, format check and mypy clean; pytest **2126 passed, 1 warning** (pty DeprecationWarning) in 169.53 s. No flake on this run. This matches impl-log.md Attempt 2.
+- alembic check: not needed (no schema change in the delta).
+
+### Acceptance criteria (finding 1 fix instructions)
+- [x] `touch_last_used` only updates a non-revoked row and reports whether it did. Evidence: `app/modules/app_credentials/repository.py:73-82` adds `AppCredential.revoked_at.is_(None)` + `.returning(AppCredential.id)` and returns `updated is not None`.
+- [x] `authenticate` takes the app lock before touching the credential row, the same order as `revoke` (`_locked_app` then `repo.revoke`). Evidence: `app/modules/app_credentials/service.py:177-180`, which calls `self.rbac.lock_app(app.key)` (`RbacRepository.lock_app`, `FOR NO KEY UPDATE`) and then the touch. `sync` locks the same app row again in the same transaction, which is harmless. A concurrent revoke holds the app lock until it commits. The touch's UPDATE runs after the lock is acquired, so under READ COMMITTED its WHERE clause sees the committed `revoked_at`. This closes the race.
+- [x] A revoke that lands between the lookup and the touch gives the uniform 401. Evidence: `service.py:179-180` calls `raise _reject("revoked", key_id)`, the same path and body as the other credential failures.
+- [x] Service-level test pins it. Evidence: `tests/test_app_credential_auth.py::test_revoked_between_lookup_and_touch_401` revokes inside a wrapped `get_with_app` and expects `UnauthorizedError`. It passed in the run above. It would fail before the fix, because the old touch matched on `id` only and `authenticate` returned normally.
+
+### Issues
+None.
+
+### Scope
+Changed files: `repository.py`, `service.py`, the test, and state updates to `work/backlog.md` and `ticket.md`. All of them are in the impl-log Attempt 2 list and inside finding 1. Nothing is out of plan.
+
+### Rules R1–R11
+No violations found. R1: the SQL stays in the repository and the service raises only `AppError` subclasses. R11: the 401 is still uniform, and logs carry only the reason and `key_id`.
+
+### Nits (do not block)
+- `lock_app` returns `None` if the app row was deleted after the lookup. The code then touches anyway, which is harmless because the FK would have removed the credential, so the touch returns False and the result is a 401. No action needed.
+- The new test runs revoke and touch in one session, so it checks the re-check logic but not real lock ordering across two connections. A two-connection deadlock test would be flaky, so this is acceptable.
+
+### Follow-ups (out of scope)
+- Unchanged from Attempt 1. Security-review notes 2–9 remain as they were recorded there.
