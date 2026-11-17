@@ -35,3 +35,5 @@ USR-03 (sessions), ADM-002b, ADM-004b, ADM-012.
 - Needs answers before PLAN: **OQ7** (can staff use this on their own sessions? any extra guard for users holding admin roles?), **OQ8** (is the ~15-minute token tail acceptable?). See `docs/spec-v1.md` §8.
 - 2026-11-17 (owner) **OQ7**: staff may NOT list/revoke their own sessions through the admin API (403, like other admin self-changes); listing/revoking sessions of a user who holds any admin role requires `admin:*`.
 - 2026-11-17 (orchestrator): OQ8 was answered by USR-13 (owner, 2026-11-17: access-token TTL up to 12 h, ADR-0005 amendment; admin requests reload permissions per request).
+- 2026-11-17 (owner): list AND both revokes require `admin:*` (spec §5.10 wins over the earlier OQ7 reading). The list shows the full IP and user agent (labelled "recorded when this browser first signed in"), `Cache-Control: no-store`, never logged.
+- 2026-11-17 (orchestrator): the docs AC "~15 min" is stale; use the USR-13 TTL (up to `ACCESS_TOKEN_TTL_SECONDS`, 12 h in production, + leeway) and state that revoking sessions does not end already-issued tokens, including admin tokens.
