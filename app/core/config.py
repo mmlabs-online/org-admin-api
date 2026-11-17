@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     # JWKS: app backends may share one egress IP.
     jwks_rate_limit: int = Field(default=120, ge=1)
     jwks_rate_window_seconds: int = Field(default=60, ge=1)
+    app_manifest_rate_limit: int = Field(default=30, ge=1)
+    app_manifest_rate_window_seconds: int = Field(default=60, ge=1)
 
     # Access-token signing (ADR-0005): base64 of a PEM P-256 private key on one line. Required
     # in staging/production; local/test fall back to an ephemeral per-process key.

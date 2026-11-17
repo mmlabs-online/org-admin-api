@@ -1,6 +1,6 @@
 # ADR-0016: App credential auth class and the app manifest
 
-Status: Proposed — pending owner (approve by merging USR-05a)
+Status: Accepted — owner merged USR-05a (PR #47), 2026-11-17
 Date: 2026-11-17
 
 ## Context

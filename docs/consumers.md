@@ -149,6 +149,7 @@ caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_
   also refuses it). Mark org-level permissions `scope = org` (the default on `org_mode = required`
   apps): the default-role build (`build_default_role`, manifest sync) skips them, so `<app>:member`
   keeps app-level permissions plus `<app>:org:create` (ADR-0015).
+  How an app pushes its permissions at deploy time: [auth-integration.md](auth-integration.md).
 - Create errors: 403 `org_create_forbidden` (no `<app>:org:create`), `org_limit_reached`, 409
   `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
 - A role change in an org reaches tokens within the token TTL (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).

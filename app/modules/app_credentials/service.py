@@ -5,25 +5,54 @@ the "at most 2 active" limit. The raw credential leaves this module once, in `Is
 it is never logged, audited or stored (R11).
 """
 
+import hmac
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import DENIED_ERRORS, ConflictError, NotFoundError
+from app.core.errors import DENIED_ERRORS, ConflictError, NotFoundError, UnauthorizedError
 from app.modules.app_credentials.codec import new_credential, parse_credential, secret_hash
+from app.modules.app_credentials.errors import (
+    AppCredentialAppDisabledError,
+    AppCredentialMismatchError,
+)
 from app.modules.app_credentials.models import AppCredential
 from app.modules.app_credentials.repository import AppCredentialRepository
 from app.modules.audit import diff
-from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.actions import AuditAction, AuditOutcome, AuditTarget
 from app.modules.audit.context import AuditContext
 from app.modules.audit.service import AuditLogger
-from app.modules.rbac.actor import Actor, actor_user_id, require_super
+from app.modules.rbac.actor import Actor, SystemActor, actor_user_id, require_super
 from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus
 from app.modules.rbac.repository import RbacRepository
 
+logger = logging.getLogger(__name__)
+
 MAX_ACTIVE = 2  # rotation overlap (ADR-0016 §3)
+_CHALLENGE = {"WWW-Authenticate": 'Bearer realm="app"'}
+
+
+def _reject(reason: str, key_id: str | None = None) -> UnauthorizedError:
+    """One answer for every credential failure (ADR-0016 §4); never logs the raw value (R11)."""
+    logger.info("app_credential_denied reason=%s key_id=%s", reason, key_id or "-")
+    return UnauthorizedError("Authentication required", headers=dict(_CHALLENGE))
+
+
+@dataclass(frozen=True)
+class AuthenticatedApp:
+    """The app a valid credential belongs to; acts as a non-privileged system actor."""
+
+    credential_id: uuid.UUID
+    key_id: str
+    app_id: uuid.UUID
+    app_key: str
+
+    @property
+    def actor(self) -> SystemActor:
+        return SystemActor(f"app:{self.app_key}/{self.key_id}", privileged=False)
 
 
 @dataclass(frozen=True)
@@ -111,6 +140,42 @@ class AppCredentialService:
             changes={"key_id": diff.change(None, key_id)},
         )
         return IssuedCredential(**_view(key, row).__dict__, credential=raw)
+
+    async def authenticate(
+        self, raw: str | None, path_key: str, *, ctx: AuditContext
+    ) -> AuthenticatedApp:
+        """Checks run in a fixed order; every credential failure is one 401 (ADR-0016 §4)."""
+        if raw is None:
+            raise _reject("missing")
+        parsed = parse_credential(raw)
+        if parsed is None:
+            raise _reject("malformed")
+        key_id, secret = parsed
+        found = await self.repo.get_with_app(key_id)
+        if found is None:
+            raise _reject("unknown", key_id)
+        row, app = found
+        if not hmac.compare_digest(row.secret_hash, secret_hash(secret)):
+            raise _reject("secret", key_id)
+        if row.revoked_at is not None:
+            raise _reject("revoked", key_id)
+        if app.status != AppStatus.ACTIVE.value:
+            logger.info("app_credential_denied reason=disabled key_id=%s", key_id)
+            raise AppCredentialAppDisabledError("The app is disabled")
+        caller = AuthenticatedApp(row.id, key_id, app.id, app.key)
+        if app.key != path_key:
+            logger.info("app_credential_denied reason=mismatch key_id=%s", key_id)
+            await self.audit.record_failure(
+                AuditAction.APP_MANIFEST_SYNCED,
+                outcome=AuditOutcome.DENIED,
+                actor=caller.actor,
+                ctx=ctx,
+                app_key=app.key,
+                changes={"reason": AppCredentialMismatchError.code},
+            )
+            raise AppCredentialMismatchError("Credential belongs to another app")
+        await self.repo.touch_last_used(row.id)
+        return caller
 
     async def list(self, key: str, *, limit: int, offset: int) -> tuple[list[CredentialView], int]:
         app = await self.rbac.get_app_by_key(key)

@@ -54,7 +54,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-08 | Client libraries @mmlabs/auth-client (TS) and mmlabs-auth (Python) — separate repo | DONE | P1 | architecture, auth, security | 0 | 2026-11-16 |
 | USR-09 | Create a staff-vouched account from the CLI (bootstrap for a new app's first user) | DONE | P1 | auth, security, db | 3 | 2026-11-15 |
 | USR-05 | Apps self-register their permission manifest — slice 05a (app credentials) | DONE | P2 | api, auth, security | 0 | 2026-11-17 |
-| USR-05b | Manifest push endpoint (app credential auth) | IN_PROGRESS | P2 | api, auth, security | 0 | 2026-11-17 |
+| USR-05b | Manifest push endpoint (app credential auth) | REVIEW | P2 | api, auth, security | 0 | 2026-11-17 |
 | ADM-006 | Org product entitlements | BACKLOG | P2 | architecture, db, api | 0 | 2026-11-10 |
 
 Order of work (dependencies; reprioritised 2026-11-12 by the owner for the ricotdin integration path): USR-01 → USR-01b → USR-02 → USR-02b → USR-02d → USR-02e → ADM-011 → USR-02c → USR-02f → USR-03 → USR-03f → USR-03c → USR-03e → USR-04 → USR-04c → USR-07 → USR-04b → USR-03b → ADM-002 → ADM-002c → ADM-002b → ADM-004 → ADM-004b → ADM-004c → ADM-002e → ADM-012 → USR-08 → ADM-013 → ADM-014 → USR-11 → USR-12 → USR-06 → USR-06b → USR-06c → USR-05 → USR-05b.

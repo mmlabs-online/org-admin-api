@@ -5,6 +5,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.app_credentials.models import AppCredential
+from app.modules.rbac.models import App
 
 
 class AppCredentialRepository:
@@ -56,5 +57,23 @@ class AppCredentialRepository:
             .where(AppCredential.id == credential_id, AppCredential.revoked_at.is_(None))
             .values(revoked_at=func.now())
             .returning(AppCredential.revoked_at)
+            .execution_options(synchronize_session=False)
+        )
+
+    async def get_with_app(self, key_id: str) -> tuple[AppCredential, App] | None:
+        result = await self.session.execute(
+            select(AppCredential, App)
+            .join(App, App.id == AppCredential.app_id)
+            .where(AppCredential.key_id == key_id)
+            .execution_options(populate_existing=True)
+        )
+        row = result.one_or_none()
+        return None if row is None else (row[0], row[1])
+
+    async def touch_last_used(self, credential_id: uuid.UUID) -> None:
+        await self.session.execute(
+            update(AppCredential)
+            .where(AppCredential.id == credential_id)
+            .values(last_used_at=func.now())
             .execution_options(synchronize_session=False)
         )

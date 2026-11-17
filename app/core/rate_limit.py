@@ -80,6 +80,7 @@ Scope = Literal[
     "invitation_create",
     "invitation_accept",
     "jwks",
+    "app_manifest",
     "verify_email",
     "verify_email_resend",
     "forgot",
@@ -104,6 +105,9 @@ _LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
         s.invitation_accept_rate_limit, s.invitation_accept_rate_window_seconds
     ),
     "jwks": lambda s: RateLimit(s.jwks_rate_limit, s.jwks_rate_window_seconds),
+    "app_manifest": lambda s: RateLimit(
+        s.app_manifest_rate_limit, s.app_manifest_rate_window_seconds
+    ),
     "verify_email": lambda s: RateLimit(
         s.verify_email_rate_limit, s.verify_email_rate_window_seconds
     ),

@@ -273,6 +273,24 @@ class RbacRepository:
         )
         return {pid: key for pid, key in result.all()}
 
+    async def roles_holding(
+        self, app_id: uuid.UUID, permission_ids: Iterable[uuid.UUID]
+    ) -> dict[uuid.UUID, list[str]]:
+        """Permission id -> sorted keys of the roles of the app that hold it."""
+        ids = list(permission_ids)
+        held: dict[uuid.UUID, list[str]] = {}
+        if not ids:
+            return held
+        result = await self.session.execute(
+            select(RolePermission.permission_id, Role.key)
+            .join(Role, Role.id == RolePermission.role_id)
+            .where(Role.app_id == app_id, RolePermission.permission_id.in_(ids))
+            .order_by(Role.key)
+        )
+        for pid, role_key in result.all():
+            held.setdefault(pid, []).append(role_key)
+        return held
+
     async def add_role_permissions(
         self, role_id: uuid.UUID, app_id: uuid.UUID, permission_ids: Iterable[uuid.UUID]
     ) -> None:

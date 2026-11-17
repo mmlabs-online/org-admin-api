@@ -211,7 +211,9 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   (ADM-004). Identity events (ADM-004b):
   `auth.login_succeeded`, `auth.login_failed` (after the password check only; anonymous actor, no
   email), `auth.logged_out`, `auth.logged_out_all`, `device_session.reuse_revoked`,
-  `auth.password_reset_completed`, `auth.email_verified`. Guard refusals of a staff principal
+  `auth.password_reset_completed`, `auth.email_verified`. Manifest pushes (USR-05b): one
+  `app.manifest_synced` row per changing push (system actor `app:<key>/<key_id>`; a credential of
+  another app writes one `denied` row). Guard refusals of a staff principal
   (`admin_wildcard_required`, self-guards, `last_super_admin`) write `outcome=denied`; failed logins
   `outcome=failure`. Failure rows are committed alone and an audit error never changes the intended
   error (ADR-0009 amendment). 429s, Turnstile refusals and no-ops write nothing. `changes` holds
@@ -245,6 +247,9 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   non-admin app; tightening is a data change (D9).
 - Under `open`, a member that staff removed can join again (no ban list); staff use `closed` or tighten
   the role. Reviving an expired default-role assignment makes it permanent (`expires_at NULL`).
+- A leaked app credential can rewrite its own app's catalog (never `is_admin` or `scope` flips,
+  never other apps, never `<app>:*`): revoke it at once (ADR-0016 Consequences,
+  [auth-integration.md](auth-integration.md)).
 - `GET /api/v1/auth/accounts` shows every account signed in on the browser to any registered app
   origin (D4/D8 "Continue as"); XSS in one app exposes those emails (USR-03b plan O3).
 
@@ -286,7 +291,7 @@ Decisions from the USR-03b plan (2026-11-13):
 | D22 | **Proposed, pending owner:** R9 exception — `GET /api/v1/auth/accounts` returns a single document `{"items": [...]}`, not `Page[T]` (bounded per device). |
 | D23 | **Proposed, pending owner (USR-11):** self-scoped admin read `GET /api/v1/me/permissions` — R3 class 1 without `require_permission`, and R9 exception (singular `me`, single document). |
 | D24 | **Decided (USR-12, 2026-11-16):** verification resend accepts `X-MM-App: admin` for users with an effective admin role only (403 `origin_not_allowed` otherwise); signup and forgot keep refusing admin. See ADR-0008 amendment. |
-| D25 | **Proposed, pending owner (USR-05a, approve by merging):** new R3 auth class 4 "app credential" (opaque per-app API key `mmak_<key_id>_<secret>`, SHA-256 hash only, accepted only on `PUT /api/v1/apps/{key}/manifest` and only for its own app) and R9 exception (singular `manifest`, a single document). See ADR-0016. |
+| D25 | **Accepted (owner merged USR-05a, PR #47, 2026-11-17):** new R3 auth class 4 "app credential" (opaque per-app API key `mmak_<key_id>_<secret>`, SHA-256 hash only, accepted only on `PUT /api/v1/apps/{key}/manifest` and only for its own app) and R9 exception (singular `manifest`, a single document). See ADR-0016. |
 
 ## 9. Open questions
 
