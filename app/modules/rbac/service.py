@@ -505,6 +505,11 @@ class AppService:
             raise ConflictError("The admin app cannot be deleted")
         if await self.repo.app_has_assignments(app.id):
             raise ConflictError("App has role assignments; disable it instead")
+        if await self.repo.app_has_entitlements(app.id):
+            raise ConflictError(
+                "App has entitlements; disable it instead",
+                details=[{"field": "key", "reason": "app_has_entitlements"}],
+            )
         app_id, before = app.id, diff.snapshot(app, diff.APP)
         try:
             await self.repo.delete_app(app)

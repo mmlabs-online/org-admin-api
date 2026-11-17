@@ -66,6 +66,14 @@ BEARER = {
     ("GET", f"{V1}/organizations/{{org_id}}"): "admin:organizations:read",
     ("PATCH", f"{V1}/organizations/{{org_id}}"): "admin:organizations:write",
     ("DELETE", f"{V1}/organizations/{{org_id}}"): "admin:organizations:write",
+    ("GET", f"{V1}/organizations/{{org_id}}/entitlements"): "admin:entitlements:read",
+    ("POST", f"{V1}/organizations/{{org_id}}/entitlements"): "admin:entitlements:write",
+    ("PATCH", f"{V1}/organizations/{{org_id}}/entitlements/{{entitlement_id}}"): (
+        "admin:entitlements:write"
+    ),
+    ("DELETE", f"{V1}/organizations/{{org_id}}/entitlements/{{entitlement_id}}"): (
+        "admin:entitlements:write"
+    ),
     ("GET", f"{V1}/users"): "admin:users:read",
     ("GET", f"{V1}/users/{{user_id}}"): "admin:users:read",
     ("PATCH", f"{V1}/users/{{user_id}}"): "admin:users:write",
@@ -295,6 +303,7 @@ def _fill(path: str) -> str:
                 "role_id",
                 "credential_id",
                 "request_id",
+                "entitlement_id",
             )
         }
     )

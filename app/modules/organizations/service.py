@@ -3,7 +3,12 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError, OrgHasAssignmentsError
+from app.core.errors import (
+    ConflictError,
+    NotFoundError,
+    OrgHasAssignmentsError,
+    OrgHasEntitlementsError,
+)
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
@@ -61,6 +66,11 @@ class OrganizationService:
             raise OrgHasAssignmentsError(
                 "Organization has role assignments; revoke them first",
                 details=[{"field": "org_id", "reason": "org_has_assignments"}],
+            )
+        if await self.repo.has_entitlements(org_id):
+            raise OrgHasEntitlementsError(
+                "Organization has entitlements; revoke them first",
+                details=[{"field": "org_id", "reason": "org_has_entitlements"}],
             )
         try:
             await self.repo.delete(org)

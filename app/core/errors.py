@@ -98,6 +98,10 @@ class OrgHasAssignmentsError(ConflictError):
     code = "org_has_assignments"
 
 
+class OrgHasEntitlementsError(ConflictError):
+    code = "org_has_entitlements"
+
+
 class RateLimitedError(AppError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "rate_limited"

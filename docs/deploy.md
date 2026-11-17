@@ -433,7 +433,7 @@ WHERE a.key = 'admin' ORDER BY ra.created_at;
 SELECT p.key, p.is_admin, p.created_at FROM permissions p JOIN apps a ON a.id = p.app_id
 WHERE a.key = 'admin' AND (p.is_admin = false OR p.key NOT IN (
   'admin:*','admin:organizations:read','admin:organizations:write','admin:users:read',
-  'admin:users:write','admin:apps:read','admin:apps:write','admin:roles:manage','admin:roles:assign'));
+  'admin:users:write','admin:apps:read','admin:apps:write','admin:roles:manage','admin:roles:assign','admin:entitlements:read','admin:entitlements:write'));
 -- 2b. Admin-app roles other than super-admin, with permissions; any non-super role holding admin:*
 SELECT r.key, r.created_at, array_agg(p.key ORDER BY p.key) AS perms
 FROM roles r JOIN apps a ON a.id = r.app_id

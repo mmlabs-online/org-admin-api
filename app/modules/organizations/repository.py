@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import Role, RoleAssignment
 
@@ -43,6 +44,12 @@ class OrganizationRepository:
         """Any assignment in the org, expired included (the FK is RESTRICT)."""
         stmt = select(exists().where(RoleAssignment.org_id == org_id))
         return bool(await self.session.scalar(stmt))
+
+    async def has_entitlements(self, org_id: uuid.UUID) -> bool:
+        """Any entitlement of the org (the FK is RESTRICT)."""
+        return bool(
+            await self.session.scalar(select(exists().where(OrgEntitlement.org_id == org_id)))
+        )
 
     async def count_created_by(self, user_id: uuid.UUID) -> int:
         stmt = (
