@@ -7,7 +7,7 @@
 | Areas | architecture, db, api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/45 |
 
 ## Goal
 App-scope roles must stop acting as roles inside every org: an app with `org_mode = required` can tell, from the access token, which roles the user holds in the selected org, and the default role of such an app is never re-widened with org-level permissions. This replaces the USR-06b fail-closed guard as the real fix for USR-06a security finding S1, and must land before USR-05 (manifest push).
