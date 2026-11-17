@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P3 |
 | Areas | api, auth, security, db |
 | Attempts | 0 |
