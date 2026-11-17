@@ -56,6 +56,7 @@ ADMIN_LEAF_PERMISSIONS = {
     "admin:roles:assign",
     "admin:entitlements:read",
     "admin:entitlements:write",
+    "admin:stats:read",
 }
 
 

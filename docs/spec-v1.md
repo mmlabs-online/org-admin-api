@@ -87,14 +87,16 @@ Context (owner, 2026-11-16): the admin UI **`admin-pan`** (repo `mmlabs-online/a
 | Active / suspended orgs | `organizations.status` (`active`/`suspended`, §5.1) | yes |
 | Apps | `apps` — total, by `status` | yes |
 | Sign-ins, last 24 h (succeeded / failed) | `audit_log` rows `auth.login_succeeded` / `auth.login_failed` in a rolling 24 h window (event counts, not distinct users) | yes, with caveats below |
-| Sign-ups per month | `users.created_at` grouped by calendar month | yes (window and time zone: §8 OQ6) |
-| Members per app | same definition as the per-app member count below | yes, once OQ5 confirms the definition |
+| Sign-ups per month | `users.created_at` grouped by calendar month | yes (last 12 months, month boundaries in `Asia/Ho_Chi_Minh`: OQ6, decided 2026-11-17) |
+| Members per app | same definition as the per-app member count below | yes (OQ5 definition, decided 2026-11-17) |
 
 Caveats to keep visible in the UI and API docs: failed sign-ins include unknown emails (anonymous actor) but **not** requests refused with 429 or by Turnstile (ADM-004b writes nothing for those); sign-up counts include self sign-ups and CLI-created accounts, and do not depend on the audit log (whose retention is ≥ 90 days, ADM-004c). Reads must meet §6 (p95 < 200 ms) — the planner checks that the audit-log count is index-backed.
 
-**Per-app member count** — the "Members" column of the Apps screen: an additive `member_count` field on the existing staff apps list and app detail (no new endpoint, no breaking change in v1). Proposed definition (owner to confirm, §8 OQ5): distinct users holding at least one non-expired role assignment on that app, at app scope or in any org.
+**Per-app member count** — the "Members" column of the Apps screen: an additive `member_count` field on the existing staff apps list and app detail (no new endpoint, no breaking change in v1). Definition (owner, 2026-11-17, OQ5): a member is a distinct user with at least one non-expired role assignment on the app (app scope or any org); only users with status `active` count (unverified email still counts); the `admin` app shows its count (= staff).
 
-Permission: §8 OQ4. Read-only, so no audit entry (R4 covers mutations only).
+Permission (owner, 2026-11-17, OQ4): new permission `admin:stats:read` for the dashboard stats document (counts only, no audit rows exposed); `member_count` uses the existing `admin:apps:read`. Read-only, so no audit entry (R4 covers mutations only).
+
+> 2026-11-17 (ADM-015): `GET /api/v1/stats/dashboard` (admin:stats:read, is_admin, granted to no role; a single document, R9 exception D26). Sign-ups: last 12 months including the current partial month, boundaries in Asia/Ho_Chi_Minh. Sign-ins: 24 h totals (succeeded / failed), not split per app.
 
 ### §5.10 Staff session management (owner idea, 2026-11-16; draft)
 Staff can see a user's signed-in sessions and sign them out — completes the "revoke their sessions" line of §5.8 Admin.
@@ -152,9 +154,9 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - [ ] OQ3 (was Q10). Is 2FA mandatory for staff (admin app)?
 
 Admin UI `admin-pan` (added 2026-11-16, §5.9–§5.11):
-- [ ] OQ4. Permission for dashboard stats and `member_count`: a new admin permission (e.g. `admin:stats:read`, non-`is_admin`), an existing one (`admin:apps:read` for `member_count`, `admin:users:read` for stats), or `admin:*`? The sign-in counts come from the audit log, which today needs `admin:*`.
-- [ ] OQ5. Definition of an app "member": distinct users with any non-expired role assignment on the app (app scope or any org) — proposed. Do disabled users and unverified users count? Does the `admin` app show a member count (= staff)?
-- [ ] OQ6. Sign-ups per month: how many months back (e.g. last 12), and which time zone sets month boundaries (UTC or `Asia/Ho_Chi_Minh`)? Should "sign-ins last 24 h" be split per app (the audit row carries `app_key`)?
+- [x] OQ4. Permission for dashboard stats and `member_count`: a new admin permission (e.g. `admin:stats:read`, non-`is_admin`), an existing one (`admin:apps:read` for `member_count`, `admin:users:read` for stats), or `admin:*`? The sign-in counts come from the audit log, which today needs `admin:*`. — **answered (owner, 2026-11-17):** new permission `admin:stats:read` for the dashboard stats document (counts only, no audit rows exposed); `member_count` uses the existing `admin:apps:read`.
+- [x] OQ5. Definition of an app "member": distinct users with any non-expired role assignment on the app (app scope or any org) — proposed. Do disabled users and unverified users count? Does the `admin` app show a member count (= staff)? — **answered (owner, 2026-11-17):** a member = distinct user with at least one non-expired role assignment on the app (app scope or any org); only users with status `active` count (unverified email still counts); the `admin` app shows its count (= staff).
+- [x] OQ6. Sign-ups per month: how many months back (e.g. last 12), and which time zone sets month boundaries (UTC or `Asia/Ho_Chi_Minh`)? Should "sign-ins last 24 h" be split per app (the audit row carries `app_key`)? — **answered (owner, 2026-11-17):** sign-ups per month: last 12 months, month boundaries in `Asia/Ho_Chi_Minh`; sign-ins last 24 h are totals (succeeded / failed), not split per app.
 - [ ] OQ7. Staff session management: may a staff user list/revoke their own sessions through the admin API (other admin endpoints forbid self-changes)? Any extra guard for users holding admin roles, beyond `admin:*`?
 - [x] OQ8. Is the ~15 min tail of already-issued access tokens after a staff revoke acceptable, including `aud=admin` tokens? (Making revoke immediate would need a session check per admin request or a token deny-list — new scope.) — **answered (owner, 2026-11-17):** accepted with 12 h tokens for every audience, `admin` included (USR-13, ADR-0005 §6 amendment) (admin gap: ADR-0005 amendment risk 4).
 - [ ] OQ9. Reports — the problem: who needs these reports, for which decision or recurring task, and why the dashboard (§5.9) and the existing list/audit endpoints are not enough?

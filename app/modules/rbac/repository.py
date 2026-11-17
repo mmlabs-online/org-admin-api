@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any, cast
 
@@ -570,3 +570,33 @@ class RbacRepository:
             exists().where(self._counting_super_admin(role_id), RoleAssignment.id == assignment_id)
         )
         return bool(await self.session.scalar(stmt))
+
+    async def list_app_summaries(self) -> list[tuple[uuid.UUID, str, str, str]]:
+        """(id, key, name, status) of every app, ordered by key."""
+        result = await self.session.execute(
+            select(App.id, App.key, App.name, App.status).order_by(App.key)
+        )
+        return [(r[0], r[1], r[2], r[3]) for r in result]
+
+    async def member_counts(
+        self, app_ids: Sequence[uuid.UUID] | None = None
+    ) -> dict[uuid.UUID, int]:
+        """OQ5 member definition (owner, 2026-11-17): distinct `active` users with at least one
+        non-expired role assignment on the app (app scope or any org). ADM-015 dashboard and
+        ADM-016 `member_count` both call this; do not duplicate it. Apps without members are
+        absent from the result (callers default to 0)."""
+        if app_ids is not None and not app_ids:
+            return {}
+        stmt = (
+            select(Role.app_id, func.count(func.distinct(RoleAssignment.user_id)))
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(
+                User,
+                and_(User.id == RoleAssignment.user_id, User.status == UserStatus.ACTIVE.value),
+            )
+            .where(or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()))
+            .group_by(Role.app_id)
+        )
+        if app_ids is not None:
+            stmt = stmt.where(Role.app_id.in_(app_ids))
+        return {app_id: total for app_id, total in await self.session.execute(stmt)}
