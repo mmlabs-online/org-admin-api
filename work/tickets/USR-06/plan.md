@@ -1,8 +1,8 @@
-Status: BLOCKED
+Status: READY
 
 # Plan — USR-06: Organizations and org-aware tokens (first consumer: calechip)
 
-> **Why BLOCKED:** the ticket as written does not fit one implement/review loop (max 2 reworks). It has five areas, three schema changes (one with a data precondition), four new cookie endpoints, a new secret-bearing table with email sending, a token change, a behaviour change on an existing admin endpoint and new audit actions. All five consults agree on this (architect R-I, identity-access "Ticket size", database-optimizer splits it into three migrations). This plan proposes a split that keeps **every** AC (see `## Split proposal`). It fully plans **slice USR-06a** so the loop can resume immediately once the owner answers the three questions in `## Blocking questions`. Each question has a recommended default; if the owner answers "defaults OK", this plan becomes `READY` unchanged.
+> The owner confirmed Q1–Q3 with "defaults OK" (2026-11-17, recorded in ticket.md); this plan covers slice **USR-06a** (invitations are USR-06b).
 
 ## Spec summary
 - spec §5.1: "CRUD for organizations (slug, name, description, status `active`/`suspended`). Paginated list. > 2026-11-11 (D10, D15): this table moves to the Identity module (USR-06), gains `created_by`, keeps `description` and `status`; apps use it per `apps.org_mode`."
@@ -115,7 +115,7 @@ Scope of this plan = **USR-06a** (ticket AC1, AC2, AC3, AC5, the org-create/toke
 - A9. Doc conflict (identity F9, security F10): CLAUDE.md R11 says `mm_device`, `Path=/api/v1/auth`; spec §5.8 and D20 say `__Host-mm_device`, `Path=/`, which the code implements. Follow D20; record a follow-up for the owner to fix CLAUDE.md (planner/implementer must not edit it).
 
 ## Blocking questions
-Answer "defaults OK" to accept all three recommendations; the plan then becomes READY unchanged.
+**Answered by the owner on 2026-11-17 ("defaults OK"):** Q1 split approved; Q2 `apps.org_owner_role_id`; Q3 admin delete → 409 `org_has_assignments`. Kept below for the record.
 
 1. **Split.** May USR-06 be split into **USR-06a** (this plan: org foundation, owner role config, create/list, org tokens) and **USR-06b** (invitations), with no AC dropped (mapping in `## Split proposal`)? Member management (list/remove members, leave, revoke invitations, last-owner guard, ownership transfer) is not in the spec or ticket; it would need an `/idea` + spec line first and is only listed as a follow-up. *Recommended: yes.*
 2. **Org owner role mechanism (AC3).** Store it as data: new nullable `apps.org_owner_role_id` (same-app FK, settable by staff via `PATCH /api/v1/apps/{key}`, refused for roles holding `is_admin` permissions), instead of a fixed key convention like `<app>:org-owner`? *Recommended: `apps.org_owner_role_id`* (follows `default_role_id`; D9 "policy is data").
