@@ -7,7 +7,7 @@
 | Areas | architecture, db, api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/43 |
 
 ## Goal
 Apps with `org_mode = required` (calechip first) can work inside an organization: users create orgs (becoming owner) or are invited, and tokens carry the selected org and the roles held in it.
