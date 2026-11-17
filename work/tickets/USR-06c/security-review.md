@@ -91,3 +91,12 @@ Scope: I read `git diff origin/main...HEAD` on branch `claude/blissful-wozniak-f
 - After deploy, run the review query in deploy.md on production and tell calechip that the next build narrows `<app>:member`.
 
 **Verdict: PASS (no blockers).** S-1 is a should-fix: either apply the one-condition `require_super` in `PermissionService._create` in this ticket, or record it as an accepted residual in ADR-0015.
+
+## Should-fix re-check (325ccd0)
+
+**Verdict: PASS.** `uv run pytest tests/test_rbac_permissions_api.py tests/test_rbac_apps_api.py -q`: 128 passed.
+
+- S-1 fixed (`app/modules/rbac/service.py:848-853`): creating a non-reserved permission whose resolved scope is `app` on an `org_mode = required` app calls `require_super`; `PermissionService.create` records the denied-audit row; `SYSTEM_CLI` stays privileged; `<app>:org:create` exempt. `test_create_scope_app_on_org_app_requires_super` (leaf → 403 `admin_wildcard_required`, nothing written; default `org` create → 201). The delete-then-recreate route is closed. ADR-0015 §2 records the rule.
+- N-2 fixed (`service.py:564-571`), N-3 and N-4 wording fixed.
+- 💭 N-1 (wider): `PATCH /apps/{key}` `org_mode` needs no `admin:*`, so a holder of both `admin:apps:write` and `admin:roles:manage` can clear the owner role → set `org_mode=none` → flip K to `app` → set `required` again → restore owner → PUT K into the default role (~6 audited steps, org creation broken meanwhile). `org_roles` consumers unaffected. Follow-up: require `admin:*` for any `org_mode` change on an existing app, or refuse `required → none` while org assignments exist.
+- 💭 Test gap: the new test does not assert the denied-audit row (the code path writes it).
