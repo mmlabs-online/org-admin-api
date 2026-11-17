@@ -24,3 +24,4 @@ ADM-012, ADM-004b.
 
 ## Notes / answers from owner
 - 2026-11-16 (owner): the reports scope is not settled. The proposed shape is in admin-pan `src/features/reports/data/schema.ts`: types user_signups, active_users, app_memberships, org_overview, audit_activity; formats csv/xlsx; schedules none/daily/weekly/monthly.
+- 2026-11-17 (owner): **out of v1.** The dashboard (ADM-015) plus existing list/audit endpoints are enough; ADM-017 stays parked (not run by `/run`) until reports are re-scoped.
