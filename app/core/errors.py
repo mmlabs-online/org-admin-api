@@ -77,6 +77,10 @@ class SelfStatusChangeForbiddenError(PermissionDeniedError):
     code = "self_status_change_forbidden"
 
 
+class SelfSessionChangeForbiddenError(PermissionDeniedError):
+    code = "self_session_change_forbidden"
+
+
 class LastSuperAdminError(ConflictError):
     code = "last_super_admin"
 
@@ -86,6 +90,7 @@ DENIED_ERRORS = (
     AdminWildcardRequiredError,
     SelfAssignmentForbiddenError,
     SelfStatusChangeForbiddenError,
+    SelfSessionChangeForbiddenError,
     LastSuperAdminError,
 )
 
