@@ -23,7 +23,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 ADMIN_APP_ID = "00000000-0000-4000-8000-0000000000a1"
-PERMISSIONS = [("admin:stats:read", "Read dashboard statistics (counts only)")]
+PERMISSIONS = [
+    ("admin:stats:read", "Read dashboard statistics (counts; also lists every app key and name)")
+]
 
 
 def upgrade() -> None:

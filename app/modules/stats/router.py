@@ -23,6 +23,9 @@ router = APIRouter(prefix="/stats", tags=["stats"], dependencies=[Depends(curren
 
 DESCRIPTION = """One read-only document for the dashboard (counts only, no audit rows).
 
+`members_per_app` also reveals every app's key and name, including disabled apps and
+the `admin` app, so `admin:stats:read` exposes that app list without `admin:apps:read`.
+
 Caveats: failed sign-ins include unknown emails (anonymous actor) but not requests refused with
 429 or by Turnstile. Sign-ups include self sign-ups and CLI-created accounts and do not depend on
 the audit log or its retention. Sign-ins are event counts over a rolling 24 h window, not distinct

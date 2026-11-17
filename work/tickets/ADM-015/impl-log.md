@@ -38,3 +38,27 @@ None.
 
 ### Scope self-check
 No ADM-016 field, no apps router/schema change, no new env keys, no model change.
+
+## Attempt 2 (REWORK, docs only: security-review Attempt 1 finding 1, accepted by the owner)
+
+### Files touched
+| File | Required because |
+|---|---|
+| `app/modules/stats/router.py` | OpenAPI description states that `members_per_app` reveals every app's key and name (incl. disabled and `admin`), so `admin:stats:read` exposes that list without `admin:apps:read` |
+| `docs/identity-architecture.md` | §4 row and D26 state the same |
+| `migrations/versions/20261117_e2b7a94d1c58_adm015_stats_permission.py` | permission description said "(counts only)"; now "(counts; also lists every app key and name)". Text only; key and `is_admin` unchanged |
+
+### Tests added
+None (wording only).
+
+### Check results
+- `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: ruff and format clean, mypy clean, pytest "2269 passed, 1 failed" (known flake `test_purge_batches_share_cutoff`); rerun of that test plus the stats migration and rbac schema tests passed.
+
+### Out-of-plan files
+None. (Migration description edited in place; the migration is unmerged.)
+
+### Follow-ups
+None.
+
+### Scope self-check
+Docs and description strings only; no behaviour change.
