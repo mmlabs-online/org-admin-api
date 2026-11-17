@@ -53,7 +53,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-03g | Join approval flow (join_requests + staff approve/reject) | BACKLOG | P2 | api, auth, security, db | 0 | 2026-11-13 |
 | USR-08 | Client libraries @mmlabs/auth-client (TS) and mmlabs-auth (Python) — separate repo | DONE | P1 | architecture, auth, security | 0 | 2026-11-16 |
 | USR-09 | Create a staff-vouched account from the CLI (bootstrap for a new app's first user) | DONE | P1 | auth, security, db | 3 | 2026-11-15 |
-| USR-05 | Apps self-register their permission manifest — slice 05a (app credentials) | REVIEW | P2 | api, auth, security | 0 | 2026-11-17 |
+| USR-05 | Apps self-register their permission manifest — slice 05a (app credentials) | DONE | P2 | api, auth, security | 0 | 2026-11-17 |
 | USR-05b | Manifest push endpoint (app credential auth) | BACKLOG | P2 | api, auth, security | 0 | 2026-11-17 |
 | ADM-006 | Org product entitlements | BACKLOG | P2 | architecture, db, api | 0 | 2026-11-10 |
 
