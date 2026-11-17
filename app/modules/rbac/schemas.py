@@ -255,3 +255,74 @@ class AssignmentRead(BaseModel):
     expires_at: datetime | None
     active: bool  # computed with the database clock
     created_at: datetime
+
+
+class ManifestPermission(BaseModel):
+    """One declared permission. `scope` is required on `org_mode = required` apps unless the
+    key is reserved (ADR-0015); an omitted `description` leaves the stored one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: PermissionKey
+    description: Description | None = None
+    is_admin: bool = False
+    scope: PermissionScope | None = None
+
+
+class ManifestRole(BaseModel):
+    """An extra role; additive (permissions are only ever added to an existing role)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=ROLE_KEY_RE, max_length=160)
+    name: RoleName
+    permissions: list[PermissionKey] = Field(max_length=200)
+
+
+class ManifestMember(BaseModel):
+    """Narrows `<app>:member` to these permissions (never widens past the eligible set)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    permissions: list[PermissionKey] = Field(max_length=200)
+
+
+class ManifestPut(BaseModel):
+    """The app's permission manifest (ADR-0001 §6, ADR-0016 §6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    permissions: list[ManifestPermission] = Field(max_length=200)
+    roles: list[ManifestRole] = Field(default_factory=list, max_length=50)
+    member: ManifestMember | None = None
+
+
+class ManifestNotDeclared(BaseModel):
+    key: str
+    held_by_roles: list[str]
+
+
+class ManifestPermissionsResult(BaseModel):
+    added: list[str]
+    description_updated: list[str]
+    not_in_manifest: list[ManifestNotDeclared]
+
+
+class ManifestRolesResult(BaseModel):
+    added: list[str]
+    updated: list[str]
+
+
+class ManifestMemberResult(BaseModel):
+    role_key: str
+    rebuilt: bool
+    added: list[str]
+    removed: list[str]
+
+
+class ManifestResult(BaseModel):
+    app: str
+    changed: bool
+    permissions: ManifestPermissionsResult
+    roles: ManifestRolesResult
+    member: ManifestMemberResult

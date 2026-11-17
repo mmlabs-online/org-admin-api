@@ -276,10 +276,14 @@ class RoleCatalogService:
         """
         return await self._build_for_app(await _locked_app(self.repo, app_key))
 
-    async def _build_for_app(self, app: App, *, set_default: bool = True) -> DefaultRoleResult:
+    async def _build_for_app(
+        self, app: App, *, set_default: bool = True, only: set[str] | None = None
+    ) -> DefaultRoleResult:
         """The caller holds the app lock (`lock_app`) or owns the uncommitted new app row.
 
         With `set_default=False`, `apps.default_role_id` is left as it is, even when NULL.
+        With `only`, the target is the eligible permissions that are also in `only` (manifest
+        override: narrows, never widens).
         Internal: never audits (the public mutator that calls it records one row).
         """
         if app.key == ADMIN_APP_KEY:
@@ -308,6 +312,8 @@ class RoleCatalogService:
             p.id: p.key
             for p in await self.repo.list_permissions(app.id, is_admin=False, scope=scope)
         }
+        if only is not None:
+            target = {pid: k for pid, k in target.items() if k in only}
         added, removed = await _set_role_permissions(self.repo, role, target)
 
         if set_default:
@@ -826,7 +832,14 @@ class PermissionService:
         )
         return perm
 
-    async def _create(self, key: str, data: PermissionCreate, *, actor: Actor) -> Permission:
+    async def _create(
+        self,
+        key: str,
+        data: PermissionCreate,
+        *,
+        actor: Actor,
+        admin_create_allowed: bool = False,
+    ) -> Permission:
         app = await _locked_app(self.repo, key)
         if data.key.split(":", 1)[0] != app.key:
             raise _prefix_mismatch()
@@ -840,7 +853,9 @@ class PermissionService:
             is_admin = True
         else:
             is_admin = bool(data.is_admin)
-        if app.key == ADMIN_APP_KEY or is_admin:  # is_admin includes <app>:*
+        # is_admin includes <app>:*; the manifest may create inert is_admin permissions of
+        # other apps (ADR-0016 §6)
+        if app.key == ADMIN_APP_KEY or (is_admin and not admin_create_allowed):
             require_super(actor)
         if data.scope is not None and _violates_reserved(app.key, data.key, data.scope):
             raise _reserved_scope()

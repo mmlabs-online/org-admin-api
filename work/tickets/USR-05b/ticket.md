@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Areas | api, auth, security |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/48 |
 
 ## Goal
 Second slice of USR-05: apps push their permission manifest with their app credential (`PUT /api/v1/apps/{key}/manifest`), so adding or changing an app's permissions is a deploy of that app.
@@ -32,3 +32,4 @@ USR-05 (slice 05a: app credentials) merged.
 
 ## Notes / answers from owner
 - Created 2026-11-17 by the orchestrator from the USR-05 planner's split proposal. Owner decisions listed in USR-05 plan.md ("Needs owner's decision") apply.
+- 2026-11-17 (orchestrator): consult step reuses the USR-05 consult notes (`work/tickets/USR-05/consult-*.md`), which already cover the manifest endpoint; the design is fixed in USR-05 plan.md (split proposal, slice 2).

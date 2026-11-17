@@ -45,6 +45,7 @@ class AuditAction(StrEnum):
     APP_JOINED = "app.joined"
     APP_CREDENTIAL_ISSUED = "app_credential.issued"
     APP_CREDENTIAL_REVOKED = "app_credential.revoked"
+    APP_MANIFEST_SYNCED = "app.manifest_synced"
     PERMISSION_CREATED = "permission.created"
     PERMISSION_UPDATED = "permission.updated"
     PERMISSION_DELETED = "permission.deleted"
