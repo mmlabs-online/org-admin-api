@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P3 |
 | Areas | api, db |
 | Attempts | 0 |
@@ -34,3 +34,6 @@ ADM-004b (login audit events), ADM-012 (browser access).
 
 ## Notes / answers from owner
 - Needs answers before PLAN: **OQ4** (permission), **OQ5** (member definition), **OQ6** (number of months, time zone for month boundaries, whether sign-ins are split per app). See `docs/spec-v1.md` §8.
+- 2026-11-17 (owner) **OQ4**: new non-`is_admin`? permission `admin:stats:read` for the dashboard stats document (counts only, no audit rows exposed); `member_count` uses the existing `admin:apps:read`.
+- 2026-11-17 (owner) **OQ5**: a member = distinct user with at least one non-expired role assignment on the app (app scope or any org); only users with status `active` count (unverified email still counts); the `admin` app shows its count (= staff).
+- 2026-11-17 (owner) **OQ6**: sign-ups per month: last 12 months, month boundaries in `Asia/Ho_Chi_Minh`; sign-ins last 24 h are totals (succeeded / failed), not split per app.
