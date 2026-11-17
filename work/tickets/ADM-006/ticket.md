@@ -22,3 +22,4 @@ Admins can enable/disable a product for an org with a plan and limits; mmlabs se
 - [ ] Tests: grant/revoke, duplicate 409, unknown org/product 404, suspended org behaviour as defined in the plan
 
 ## Notes / answers from owner
+- 2026-11-17 (owner): v1 ships staff (Bearer) endpoints only. The service read path (spec §8 Q4: pull with service keys / push / both) is deferred to a follow-up ticket; the AC "read endpoint suitable for services" is met in v1 by a staff read of an org's active entitlements.
