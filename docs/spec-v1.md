@@ -56,6 +56,8 @@ The list of mmlabs products is the `apps` table of §5.3 (key, name, status).
 ### §5.6 Org product entitlements
 Which org can use which product, with plan and limits; enable/disable per org. Readable by mmlabs services (service-to-service auth, §8 Q4).
 
+> 2026-11-17 (ADM-006): staff Bearer endpoints under /api/v1/organizations/{org_id}/entitlements (admin:entitlements:read|write). Active = enabled AND org active AND app active (?active=true). Only non-admin, active, org_mode=required apps can be granted. Service-to-service read (Q4) deferred to ADM-018.
+
 ### §5.8 mmlabs Identity — ecosystem users and authentication (owner, 2026-11-11)
 One account per person across all mmlabs apps, **fully self-hosted here** (D1): email + password only, no external IdP, no social login, not an OIDC provider. Architecture, data model, API and decision log D1–D12: [`identity-architecture.md`](identity-architecture.md).
 

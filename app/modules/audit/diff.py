@@ -23,6 +23,7 @@ APP = (
 PERMISSION = ("key", "description", "is_admin", "scope")
 ROLE = ("key", "name", "is_system")
 USER = ("status",)
+ENTITLEMENT = ("app_id", "plan", "limits", "enabled")
 
 Change = Mapping[str, Any]  # {"from": ..., "to": ...}
 

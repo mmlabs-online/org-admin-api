@@ -19,6 +19,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.email_verification import VERIFY, VERIFY_TTL
 from app.modules.auth.password_reset import RESET, RESET_TTL
 from app.modules.auth.repository import EmailTokenRepository
+from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.users.models import User
@@ -181,6 +182,29 @@ async def _jr_reject(s: AsyncSession) -> Call:
     return f"{V1}/apps/{key}/join-requests/{request_id}/reject", None
 
 
+async def _ent_row(s: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
+    org, app = await _org(s), await make_app(s, _key(), org_mode="required")
+    ent = OrgEntitlement(org_id=org.id, app_id=app.id, plan="pro")
+    s.add(ent)
+    await s.flush()
+    return org.id, ent.id
+
+
+async def _ent_grant(s: AsyncSession) -> Call:
+    org, app = await _org(s), await make_app(s, _key(), org_mode="required")
+    return f"{V1}/organizations/{org.id}/entitlements", {"app_key": app.key, "plan": "pro"}
+
+
+async def _ent_update(s: AsyncSession) -> Call:
+    org_id, ent_id = await _ent_row(s)
+    return f"{V1}/organizations/{org_id}/entitlements/{ent_id}", {"plan": "max"}
+
+
+async def _ent_revoke(s: AsyncSession) -> Call:
+    org_id, ent_id = await _ent_row(s)
+    return f"{V1}/organizations/{org_id}/entitlements/{ent_id}", None
+
+
 # --- failure scenarios (404 unknown id/key, 409 duplicate) -------------------
 
 
@@ -274,6 +298,21 @@ async def _jr_unknown_reject(s: AsyncSession) -> Call:
     return f"{V1}/apps/{app.key}/join-requests/{uuid.uuid4()}/reject", None
 
 
+async def _ent_grant_unknown_org(s: AsyncSession) -> Call:
+    app = await make_app(s, _key(), org_mode="required")
+    return f"{V1}/organizations/{uuid.uuid4()}/entitlements", {"app_key": app.key, "plan": "pro"}
+
+
+async def _ent_unknown_update(s: AsyncSession) -> Call:
+    org = await _org(s)
+    return f"{V1}/organizations/{org.id}/entitlements/{uuid.uuid4()}", {"plan": "max"}
+
+
+async def _ent_unknown_revoke(s: AsyncSession) -> Call:
+    org = await _org(s)
+    return f"{V1}/organizations/{org.id}/entitlements/{uuid.uuid4()}", None
+
+
 ORG, ORG_ID = f"{V1}/organizations", f"{V1}/organizations/{{org_id}}"
 USER, ASSIGN = f"{V1}/users/{{user_id}}", f"{V1}/users/{{user_id}}/role-assignments"
 APP, PERMS, ROLES = (
@@ -283,6 +322,7 @@ APP, PERMS, ROLES = (
 )
 CREDS = f"{V1}/apps/{{key}}/credentials"
 JREQ = f"{V1}/apps/{{key}}/join-requests"
+ENT = f"{V1}/organizations/{{org_id}}/entitlements"
 
 # route -> (allowed actions, success scenario, failure scenario, failure status)
 AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
@@ -346,6 +386,19 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _jr_unknown_reject,
         404,
     ),
+    ("POST", ENT): ({"entitlement.granted"}, _ent_grant, _ent_grant_unknown_org, 404),
+    ("PATCH", f"{ENT}/{{entitlement_id}}"): (
+        {"entitlement.updated"},
+        _ent_update,
+        _ent_unknown_update,
+        404,
+    ),
+    ("DELETE", f"{ENT}/{{entitlement_id}}"): (
+        {"entitlement.revoked"},
+        _ent_revoke,
+        _ent_unknown_revoke,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
 _SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated resource
@@ -378,7 +431,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 20
+    assert len(AUDITED) == 23
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")

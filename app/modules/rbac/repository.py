@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
@@ -109,6 +110,10 @@ class RbacRepository:
         stmt = select(
             exists().where(RoleAssignment.role_id == Role.id).where(Role.app_id == app_id)
         )
+        return bool(await self.session.scalar(stmt))
+
+    async def app_has_entitlements(self, app_id: uuid.UUID) -> bool:
+        stmt = select(exists().where(OrgEntitlement.app_id == app_id))
         return bool(await self.session.scalar(stmt))
 
     async def set_default_role_if_null(self, app_id: uuid.UUID, role_id: uuid.UUID) -> bool:

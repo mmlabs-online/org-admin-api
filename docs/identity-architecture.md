@@ -117,6 +117,8 @@ join_requests      (id, app_id, user_id, status pending|approved|rejected, creat
                     decided_by NULL) — join_policy = approval (USR-03g). CHECK pending iff decided_at
                     NULL; partial unique (app_id, user_id) WHERE pending; FKs cascade app/user,
                     decided_by SET NULL
+org_entitlements   (id, org_id, app_id, plan slug, limits jsonb {key: int >= 0}, enabled, created_at,
+                    updated_at) — ADM-006. UNIQUE (org_id, app_id); FKs RESTRICT org/app
 email_tokens       (id, user_id, purpose verify|reset, token_hash, expires_at, used_at NULL,
                     created_at)  (USR-04)
 email_send_log     (id, email_hmac, purpose, sent_at)   — resend limits; HMAC-SHA256 with
@@ -152,6 +154,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + Origin + `X-MM-App` (= `{key}`) | apply join policy, assign default role, audit; `approval`: 202 pending (USR-03g) | USR-03b |
 | `GET /api/v1/apps/{key}/join-requests?status=` | Bearer `admin:users:read` | staff list (default `pending`) | USR-03g |
 | `POST /api/v1/apps/{key}/join-requests/{request_id}/approve` \| `/reject` | Bearer `admin:roles:assign` | decide a request (200; 409 reasons in the response) | USR-03g |
+| Admin: `/api/v1/organizations/{org_id}/entitlements` (GET `?active=`, POST, PATCH/DELETE `/{entitlement_id}`) | Bearer `admin:entitlements:read` (GET) / `admin:entitlements:write` | grant, update, revoke and list an org's product entitlements (409 reasons in `details[0].reason`) | ADM-006 |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
 | `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification; resend accepts `X-MM-App: admin` for staff only (USR-12); signup and forgot refuse admin (ADM-002d) | USR-04 |
 | `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04b) | send reset link (silent per-email limit) | USR-04b |
