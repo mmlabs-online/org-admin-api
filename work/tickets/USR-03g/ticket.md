@@ -7,7 +7,7 @@
 | Areas | api, auth, security, db |
 | Attempts | 1 |
 | Created | 2026-11-13 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/49 |
 
 ## Goal
 Apps with `join_policy=approval` can accept join requests that staff approve or reject.
