@@ -44,22 +44,17 @@ single use, expiring, hashed at rest, and must not become an account or membersh
    by re-inviting it (the effect stays inside the org).
 10. **Email cap.** Purpose `invite` has a 10 % share of `EMAIL_DAILY_CAP`; verify 70 %, reset 40 %
     (ADR-0007 amendment) keep the verify >= 50 % and reset >= 20 % floors.
-11. **S1 guard (data only, fail closed).** An org token carries app-scope roles plus the org
-    roles, so a default role that shares org-level permissions with the owner role would widen a
-    narrower invited role. Invitations therefore work only while `org_mode = required`,
-    `join_policy = open`, the default and owner roles are set, the default role has no admin
-    permission, and the default and owner roles share no permission except `<app>:org:create`.
-    Otherwise 403 `org_invite_unavailable` (create and accept). No new token claim.
-    Precondition: the owner role is a superset of all org-level permissions; with a sparse owner
-    role the overlap check can pass while the default role still carries an org-level
-    permission (fixed for good by USR-06c).
+11. **S1 guard (data only, fail closed; defense in depth since ADR-0015).** An org token carries
+    app-scope roles plus the org roles in `roles`, so a default role holding an org-level
+    permission would widen a narrower invited role. Invitations therefore work only while
+    `org_mode = required`, `join_policy = open`, the default and owner roles are set, the default
+    role has no admin permission, and the default role holds no `scope = 'org'` permission.
+    Otherwise 403 `org_invite_unavailable` (create and accept). The earlier owner-superset
+    precondition and the overlap check are gone. The guard can be retired once every org-mode
+    consumer authorizes org data from `org_roles` only (ADR-0015).
 
 ## Consequences
-- Residual risk: a staff-granted app-scope role carrying org-level permissions still reaches
-  every org token. Follow-up USR-06c (before USR-05, needs a spec line and an owner decision):
-  a permission scope marker or an `org_roles` claim, `build_default_role` skipping org-level
-  permissions for `org_mode = required`, and the `set_default_role_if_null`
-  `is_distinct_from(org_owner_role_id)` fix. Until then the manifest sync re-widening
-  `<app>:member` makes invitations unavailable for that app.
+- Residual risk (moved to ADR-0015): a staff-granted app-scope role carrying org-level permissions
+  still reaches every org token through `roles`; consumers must authorize from `org_roles`.
 - Gmail dots and plus tags are not folded: the invitee signs in with exactly the invited address.
 - Follow-ups: retention purge of `org_invitations`, list/revoke endpoints and member management.

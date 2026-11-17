@@ -139,10 +139,10 @@ caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_
 - Staff must configure the app first: `PATCH /api/v1/apps/{key}` with `org_owner_role_id`. Until
   it is set, create answers 403 `org_create_unavailable`. Keep the default role to app-level
   permissions plus `<app>:org:create`.
-- The org owner role must differ from the default role (422 `same_as_default_role`). Warning: the
-  manifest sync (`build_default_role`) re-widens `<app>:member` to all non-admin permissions, so for
-  `org_mode = required` apps org-level permissions must not be declared as non-admin app
-  permissions (or the default role must be maintained by hand).
+- The org owner role must differ from the default role (422 `same_as_default_role`; the database
+  also refuses it). Mark org-level permissions `scope = org` (the default on `org_mode = required`
+  apps): the default-role build (`build_default_role`, manifest sync) skips them, so `<app>:member`
+  keeps app-level permissions plus `<app>:org:create` (ADR-0015).
 - Create errors: 403 `org_create_forbidden` (no `<app>:org:create`), `org_limit_reached`, 409
   `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
 - A role change in an org reaches tokens within the token TTL (about 15 minutes).
@@ -180,15 +180,13 @@ then `/auth/token` with `org_id` works.
 | 422 `unknown_role` | not a role key of this app |
 | 422 `token_invalid` | unknown, used, expired, revoked/superseded token or another app's; the same answer for all |
 
-Staff configuration requirement (the S1 guard): the app needs `org_mode = required`,
-`join_policy = open`, a default role and an org owner role, and the default role and the owner
-role must share no permission except `<app>:org:create`. The owner role must also be a superset of all
-org-level permissions, or the guard can pass while the default role widens a narrower invited role.
-Otherwise invitations answer 403 `org_invite_unavailable` (create and accept; nothing is consumed).
-Any member holding `org:invite` can supersede another member's pending invitation to the same
-address by re-inviting it (inside the org). The manifest sync re-widening
-`<app>:member` therefore disables invitations until USR-06c. Residual risk: a staff-granted
-app-scope role that carries org-level permissions still reaches every org token.
+Staff configuration requirement (the S1 guard, defense in depth): the app needs
+`org_mode = required`, `join_policy = open`, a default role and an org owner role, and the default
+role must hold no `scope = org` permission. Otherwise invitations answer 403
+`org_invite_unavailable` (create and accept; nothing is consumed). Any member holding `org:invite`
+can supersede another member's pending invitation to the same address by re-inviting it (inside
+the org). Residual risk: a staff-granted app-scope role that carries org-level permissions still
+reaches every org token through `roles`; authorize org data from `org_roles` only (below).
 
 ## Email verification
 
@@ -372,11 +370,19 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
-as a string), `iat`, `exp`, `jti`.
+as a string), `org_roles` (only with `org`: the sorted role keys held in that org only), `iat`,
+`exp`, `jti`.
 
 For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles plus the roles
-held in the `org` org), so **scope all data by the `org` claim**, never by a role name alone. A
-token without `org_id` carries app-scope roles only: enough to create or pick an org.
+held in the `org` org). Authorize org-scoped data and actions **only** from `org_roles`, mapped
+through the role catalog, and scope all data by the `org` claim. Use `roles` of a token **without**
+`org_id` for app-level actions (create or pick an org). Never authorize org data from the `roles`
+of an org token. If `org` is present and `org_roles` is absent, reject the token. If you change
+`org_mode` from `none` to `required`, mark org-level permissions `scope = org` first (ADR-0015).
+
+Follow-up (not in this API): `mmlabs-auth` needs an `org_roles` accessor, a
+`require_org_permission(k)` that maps only `org_roles` through the catalog, rejection of a token
+with `org` and no `org_roles`, and a release before calechip relies on it.
 
 Python backends: prefer `mmlabs-auth`, which implements this checklist; the sketch stays for
 other stacks.

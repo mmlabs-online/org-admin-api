@@ -254,6 +254,23 @@ migration must keep the previous release working:
 - No long-locking operations on large tables without a plan in the ticket.
 - If a migration fails half-way, the API is not replaced; restore from the dump taken in step 4 if needed.
 
+### Permission scope (USR-06c)
+
+Migration `d6f03e8b2a15` adds `permissions.scope` (`app` | `org`) and the CHECK
+`ck_apps_default_role_not_org_owner`. It aborts with `USR-06c: N apps have default_role_id =
+org_owner_role_id` and changes nothing: fix those apps (`PATCH /api/v1/apps/{key}`) and deploy
+again. The backfill only touches `org_mode = required` apps and never writes `role_permissions`:
+`<app>:org:create` stays `app`, `<app>:org:invite` is `org`, a permission held by the default role
+and not by the owner role is `app`, all others are `org`. After the deploy, review the result:
+
+```sql
+SELECT a.key, p.key, p.scope FROM permissions p JOIN apps a ON a.id = p.app_id WHERE a.org_mode = 'required' ORDER BY 1, 2;
+```
+
+The next member-role build (`build_default_role`, `register-app` with new permissions) narrows an
+org app's `<app>:member` to `scope = app` permissions. Downgrade drops `scope`; a re-upgrade
+recomputes it from the current role contents.
+
 ## One-time setup (owner)
 
 1. **Merge the deployment-repo PR** that registers the app (adds `apps/org-admin-api/`, the
@@ -583,6 +600,15 @@ exists (One-time setup, step 6).
 2. Approve the `org-admin-api-ops` environment; read the output in the run summary.
 3. Always run with `dry_run` on first and check the `+` / `-` lines (a `- origin` line removes an
    origin), then run again with `dry_run` off.
+
+`--permission` adds `scope = app` permissions (they go into the member role). `--org-permission`
+(`org_mode = required` apps only; repeatable) adds `scope = org` permissions, which never reach
+the member role (USR-06c, ADR-0015); the output shows `+ org permission <k>`. Refusals, all before
+the first write: exit 64 `reserved_scope` (`<key>:org:create` is always `--permission`,
+`<key>:org:invite` always `--org-permission`), `scope_conflict` (a key in both flags),
+`org_mode_required`; exit 1 `scope_mismatch` (the key is stored with the other scope; change it
+through the admin API) and `member_is_org_owner`. The `ops-org-admin-api` workflow input for
+`--org-permission` lives in `mmlabs-online/deployment` (follow-up).
 
 **Worked example: ricotdin** (owner, 2026-11-12: separate app keys, so staging tokens are never
 valid on the prod backend; both `open`, `none`; no permissions yet):

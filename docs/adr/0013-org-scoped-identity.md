@@ -27,15 +27,15 @@ creating an org needs one convention that does.
    drop grants without per-row audit. The migration aborts on orphan `org_id`s.
 5. **Platform-wide orgs** (spec OQ1 working assumption stays open). Adding `organizations.app_key`
    later is additive: a nullable column, a backfill, and `(app_key, slug)` uniqueness.
-6. **Token claim `org`** is the org UUID as a string, present only when requested.
+6. **Token claim `org`** is the org UUID as a string, present only when requested. With it the
+   token carries `org_roles`: the role keys held in exactly that org (ADR-0015); `roles` stays the
+   union.
 
 ## Consequences
 - Staff must set `org_owner_role_id` and give the default role `<app>:org:create` (catalog data)
   before users can create orgs; until then 403 `org_create_unavailable`.
 - `org_owner_role_id` and `default_role_id` must differ (422 `same_as_default_role`).
-  `build_default_role` / the manifest re-widens `<app>:member` to all non-admin permissions, so for
-  `org_mode = required` apps org-level permissions must not be declared as non-admin app
-  permissions (or the default role must be maintained by hand).
+  The default-role build skips `scope = org` permissions on org apps (ADR-0015).
 - Admin UI (`admin-pan`) must handle the new 409 on org delete.
 - Per-IP limits (`ORG_CREATE_*`, `ORGS_LIST_*`) and a per-user lifetime cap
   (`ORG_CREATE_MAX_PER_USER`) bound abuse.

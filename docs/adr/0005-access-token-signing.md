@@ -37,7 +37,8 @@ architect recommended ES256, the identity and security consults EdDSA (Ed25519).
    `https://api.mmlabs.online`), `aud` (one string, the app key), `sub` (user id, never the
    account-session id), `email`, `email_verified` (always `true`, see 9), `roles` (sorted app-scope
    role keys of this app, `AuthzService.effective_roles`), `iat`, `exp`, `jti` (uuid4). `org` is
-   added by USR-06. Adding a claim is not breaking; removing or renaming one is.
+   added by USR-06, and `org_roles` (sorted role keys held in exactly that org) only together with
+   `org` (USR-06c, ADR-0015). Adding a claim is not breaking; removing or renaming one is.
 6. **Lifetime:** `ACCESS_TOKEN_TTL_SECONDS` = 900 (bounds 60–3600). No refresh token, no
    revocation list, no `jti` denylist: a disabled user, a removed role or a logout keeps a live
    token for at most the TTL (accepted under D7). A leaked key is fixed only by rotation
