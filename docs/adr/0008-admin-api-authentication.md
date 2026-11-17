@@ -37,7 +37,9 @@ device cookie `__Host-mm_device` reaches every path, so admin auth must not read
    mounted since ADM-002b) and fails on any route that is neither guarded by exactly one `require_permission` nor in an
    explicit (method, path) public/cookie allow-list, or the self-scoped allow-list (USR-11 amendment).
 7. **Admin token TTL** = `ACCESS_TOKEN_TTL_SECONDS` (default 900 s). No separate ceiling: the
-   per-request reload already revokes. Admin tokens need a registered admin origin (ADM-002c).
+   per-request reload already revokes. Admin tokens need a registered admin origin (ADM-002c). Production runs 12 h (USR-13, ADR-0005 §6
+   amendment). The reload covers disable, role revoke and assignment expiry; it does not cover
+   logout, password reset, staff session revoke or `--clear`.
 
 ## Consequences
 - An admin call costs one user lookup and one permission query.
@@ -65,7 +67,8 @@ Completes §7. The `admin` app's origins follow this policy, enforced in
   admin row, or one not `active`/`closed`/`none` without a default role, is refused and never
   repaired.
 - **Break-glass `--clear`:** empties the set; no new admin token after at most 60 s, issued tokens
-  last up to their TTL (revoke the role or disable the user to cut them sooner).
+  last up to their TTL (12 h in production since USR-13; revoke the role or disable the user to
+  cut them sooner, and do not re-enable within the TTL).
 
 ## Amendment — admin RBAC guards (ADM-002b, 2026-11-15)
 The users and RBAC routers are mounted unconditionally; `ADMIN_USERS_API_ENABLED` and

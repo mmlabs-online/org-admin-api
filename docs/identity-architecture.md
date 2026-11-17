@@ -179,7 +179,7 @@ one. Codes: 403 `admin_wildcard_required` (`details.required = "admin:*"`), 403
 or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_super_admin_only`,
 409 `conflict`/`origin_taken`. Disabling a user revokes its account sessions on every device.
 
-Token (D7): JWT, ES256 (P-256, ADR-0005), ~15 min, header `kid` + `typ: at+jwt`.
+Token (D7): JWT, ES256 (P-256, ADR-0005), lifetime `ACCESS_TOKEN_TTL_SECONDS` (default 15 min, 12 h in production; ADR-0005 §6 as amended by USR-13), header `kid` + `typ: at+jwt`.
 Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,
 `email`, `email_verified`, `roles` (app-scope roles + roles in the selected org), `org` (only when
 `org_id` given, USR-06), `org_roles` (only with `org`: roles held in that org only, ADR-0015), `iat`, `exp`, `jti`.
@@ -257,7 +257,7 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 | D4 | Each app keeps its own login page (no central SSO page); accounts are shared. Apps use `@mmlabs/auth-client` (TS, framework-agnostic, Angular/React wrappers) posting credentials straight to the API. Backends use `mmlabs-auth` (Python): JWKS verification, role-catalog cache with ETag, `require_permission()`. |
 | D5 | Multi-account browser sessions: cookie `mm_device` (opaque, HttpOnly, Secure, SameSite=Lax, Path=/auth, host-only, stored hashed); tables `device_sessions`, `account_sessions`; each app keeps `mm_account_id` in localStorage; logging into another account in app B does not affect app A. |
 | D6 | Rotate `mm_device` on login and at most every ~24 h, with a 60 s grace for the previous value; reuse after the grace revokes the device session. |
-| D7 | `POST /auth/token {audience, account_id, org_id?}` → JWT (~15 min): iss, aud, sub, email, email_verified, roles, org?, org_roles?, iat, exp; asymmetric signing, keys from env, `kid`. |
+| D7 | `POST /auth/token {audience, account_id, org_id?}` → JWT (TTL default 15 min, 12 h in production; owner, 2026-11-17, USR-13): iss, aud, sub, email, email_verified, roles, org?, org_roles?, iat, exp; asymmetric signing, keys from env, `kid`. |
 | D8 | Non-member → `403 {error:"not_member", join_available}`; `POST /auth/apps/{key}/join {account_id}` applies `join_policy` (open/approval/closed), assigns the default role at app scope, writes audit. "Continue as <account>" = consent. |
 | D9 | Default join_policy `open`, except `admin` = `closed`. Default role `<app>:member` = all app permissions except `is_admin` ones (e.g. `<app>:roles:manage`); on `org_mode = required` apps also except `scope = org` ones (ADR-0015). Policy and role content are data. |
 | D10 | Org usage per app: `apps.org_mode` (`none` default, `required` for calechip). No org = `org_id NULL`. `organizations` lives in the Identity module. Org-scoped apps: join gives an app-scope role (e.g. with `calechip:org:create`); org roles from creating an org (owner) or invitation (ADR-0014); token `roles` = app-scope + selected-org roles; `org_roles` = selected-org roles only (ADR-0015). |

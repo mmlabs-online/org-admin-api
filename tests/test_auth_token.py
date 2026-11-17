@@ -108,6 +108,23 @@ async def test_token_happy_path(
     assert uuid.UUID(claims["jti"]).version == 4
 
 
+async def test_token_ttl_43200(
+    make_client: MakeClient, db_session: AsyncSession, viewer: Role
+) -> None:
+    user, raw, account = await _member(db_session, viewer)
+    async with make_client(access_token_ttl_seconds=43200) as client:
+        resp = await client.post(TOKEN, json=_body(account.id), headers=auth_headers(cookie=raw))
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["expires_in"] == 43200
+        jwks = (await client.get(JWKS)).json()
+    claims = verify_reference(
+        body["access_token"], jwks, audience="stoktok", issuer=TEST_JWT_ISSUER
+    )
+    assert claims["sub"] == str(user.id)
+    assert claims["exp"] - claims["iat"] == 43200
+
+
 async def test_token_roles_exclude_other_apps(
     client: AsyncClient, db_session: AsyncSession, viewer: Role
 ) -> None:

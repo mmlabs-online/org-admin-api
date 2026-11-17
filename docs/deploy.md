@@ -221,7 +221,7 @@ After the release containing ADM-012 is deployed:
 
 ## Signing key rotation
 
-Tokens live 900 s; the JWKS is cached for `max-age=300` by clients and at most 1 h by consumers
+Tokens live `ACCESS_TOKEN_TTL_SECONDS` (default 900 s; production 43200 s, USR-13); the JWKS is cached for `max-age=300` by clients and at most 1 h by consumers
 (`docs/consumers.md`).
 
 **Planned rotation:**
@@ -233,7 +233,11 @@ Tokens live 900 s; the JWKS is cached for `max-age=300` by clients and at most 1
    `max-age` (300 s) plus the longest consumer cache (≤ 1 h).
 2. Make the next key the signer (`JWT_SIGNING_KEY` = `NEXT`), replace the extra entry with the
    **old** public key, and redeploy.
-3. After the TTL (900 s) + leeway (60 s) + `max-age` (300 s), about 25 minutes, remove the old
+3. Wait TTL + verifier leeway (at most 60 s) + JWKS `max-age` (300 s), counted from when the **last**
+   process still signing with the old key stopped (the step-2 redeploy finished), not from when
+   the deploy was triggered. Production (43200 s): 43560 s, about 12 h 06 min, so wait **12.5 h**.
+   With the default 900 s: about 25 minutes. Derive the wait from the deployed TTL; if the TTL
+   changed during the wait window, use the largest TTL any signer ran with. Then remove the old
    public key from `JWT_PUBLIC_KEYS_EXTRA` and redeploy.
 
 **Emergency rotation** (key leaked): delete `~/.config/org-admin-api/secrets/jwt_signing_key.b64`
@@ -243,6 +247,21 @@ extra key; the deploy generates a new one. Then restart or flush the JWKS cache 
 fail at verifiers; clients get a 401 from their backend and call `/token` again,
 which the cookie still allows, and verifiers refetch the JWKS on the unknown `kid`. Expect about one
 failed request per active client. Never keep a leaked public key in the JWKS.
+
+**Revoking live tokens (incident):**
+
+- **Compromised consumer account:** disable the user. This stops new tokens; live tokens die at
+  `exp` (at most the TTL). For an immediate global cut, do an emergency rotation and flush consumer
+  JWKS caches.
+- **Compromised staff account:** revoke the admin role or disable the user. This takes effect on
+  the next admin request. Do **not** re-enable or re-grant within TTL + 60 s, because the stolen
+  token would work again. Logout, password reset, staff session revoke and `--clear` do not end an
+  issued admin token.
+- **Scope:** use `user_id` and `jti` from the `token_issued` log lines.
+
+**TTL change (owner, after the USR-13 merge):** set `ACCESS_TOKEN_TTL_SECONDS=43200` in
+`mmlabs-online/deployment`. It applies to tokens issued after the restart. Before setting it,
+confirm the follow-up checks in ADR-0005 (mmlabs-auth, admin-pan, ricotdin, TuDoCuaTui).
 
 ## Migration rules
 
@@ -373,7 +392,7 @@ config"). Without it settings refuse to load in production and the CLI exits 1
 signed-in app if it expired). If you don't know the password, use "forgot password" in an app,
 then reset it from the emailed link (USR-04b): this ends every signed-in session of the account
 (its account sessions on every device) and also marks the email verified. Access tokens already
-issued stay valid for at most 15 minutes (`ACCESS_TOKEN_TTL_SECONDS`).
+issued stay valid for at most `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production).
 
 Locally: `make grant-super-admin email=you@example.com`.
 
@@ -490,11 +509,11 @@ Runbook:
      out (`{"all": true}`, revoking the device session, at most 10 s) if a session cookie
      exists, deletes the jar file, and keeps the exit status.
    - Logout does not end the access token: one already issued stays valid until
-     `ACCESS_TOKEN_TTL_SECONDS` (15 min).
+     `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production).
    - After 3 failed logins for the email, Turnstile is required (`turnstile_token`) and curl
      cannot pass it: get the password right, or wait for the backoff to expire.
 7. Every admin call goes inside the marked section with `-H @"$hdr"`. Tokens last
-   `ACCESS_TOKEN_TTL_SECONDS` (15 min); disabling a user or revoking a role applies on the next
+   `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production); disabling a user or revoking a role applies on the next
    request.
 
 The `Origin` check is CSRF protection, not authentication: the password, the verified email and the
@@ -565,7 +584,7 @@ dry-run: rolled back, nothing was saved      (only with dry_run)
 
 **Break-glass `--clear`:** empties the admin origins, also on a drifted admin row (only a missing
 row is refused). No new admin token can be obtained after at
-most 60 s; tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (15 min). To cut them
+most 60 s; tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production). To cut them
 sooner, revoke the role or disable the user (reloaded on every request, ADR-0008 §3).
 
 **Host policy:** `https://admin-portal.mmlabs.online` is the admin UI host (`admin-pan`, ADR-0011)
@@ -582,7 +601,7 @@ owner decision.
 One-off clean-up: run
 `set-admin-origins --origin https://admin-portal.mmlabs.online` (replace semantics) as a dry run
 first, always. If it shows the `- origin https://admin.mmlabs.online` line, run it for real, then
-wait 60 s. Admin tokens already issued stay valid up to 15 min (see `--clear` above).
+wait 60 s. Admin tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (12 h in production; see `--clear` above).
 
 ## Register an app (USR-07)
 

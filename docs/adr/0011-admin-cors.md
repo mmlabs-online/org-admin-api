@@ -37,7 +37,7 @@ those origins only, **without** credentials. ADR-0008 §1: admin auth is Bearer 
    route set none, with or without `Origin`.
 6. **`Max-Age: 600` is an upper bound.** After `set-admin-origins --clear`, a browser's cached
    preflight may let it send requests for up to 600 s, but each response loses `ACAO` within
-   60 s, and side effects still need a valid token (TTL 900 s). Do not raise it.
+   60 s, and side effects still need a valid token (`ACCESS_TOKEN_TTL_SECONDS`, 12 h in production since USR-13; the 600 s bound is independent of the token TTL). Do not raise it.
 7. **Catalog and JWKS unchanged.** `GET /api/v1/apps/{key}/roles` is public and server-side: no
    CORS (a preflight for `POST` on the same path is admin). `/.well-known/jwks.json` keeps its own
    `ACAO: *`.

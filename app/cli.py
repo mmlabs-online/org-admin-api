@@ -106,7 +106,8 @@ MSG_ADMIN_NOT_SEEDED = "error: admin app missing or not in its seeded state; not
 MSG_SET_ORIGINS_UNEXPECTED = "error: unexpected failure; the admin origins change was not confirmed"
 MSG_ADMIN_CLOSED = (
     "note: no new admin tokens can be obtained once this applies;"
-    " issued tokens last up to their TTL"
+    " issued tokens last up to ACCESS_TOKEN_TTL_SECONDS"
+    " (revoke the role or disable the user to cut them)"
 )
 
 CLEANUP_USAGE = "usage: python -m app.cli cleanup [--dry-run]"

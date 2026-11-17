@@ -179,10 +179,24 @@ def test_jwt_keys_optional_locally(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.jwt_issuer == "http://localhost:8000"
 
 
-@pytest.mark.parametrize("ttl", [59, 3601])
+@pytest.mark.parametrize("ttl", [59, 43201])
 def test_access_token_ttl_bounds(ttl: int) -> None:
     with pytest.raises(ValidationError, match="access_token_ttl_seconds"):
         Settings(access_token_ttl_seconds=ttl)
+
+
+@pytest.mark.parametrize("ttl", [60, 3601, 43200])
+def test_access_token_ttl_accepted(ttl: int) -> None:
+    assert Settings(access_token_ttl_seconds=ttl).access_token_ttl_seconds == ttl
+
+
+def test_access_token_ttl_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCESS_TOKEN_TTL_SECONDS", "43200")
+    assert Settings(_env_file=None).access_token_ttl_seconds == 43200  # type: ignore[call-arg]
+    monkeypatch.setenv("ACCESS_TOKEN_TTL_SECONDS", "43201")
+    with pytest.raises(ValidationError, match="access_token_ttl_seconds") as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "43201" not in str(exc_info.value)
 
 
 # --- Email (USR-04) --------------------------------------------------------------------------

@@ -73,7 +73,8 @@ the `admin` app's origins (set with `set-admin-origins`).
   cookie, never send `X-MM-App` (the admin preflight refuses it).
 - Keep the token in memory only (not `localStorage`). Call `/auth/token` again about 60 s before
   `expires_in` runs out. Role changes show up in `GET /api/v1/me/permissions` on the next call;
-  the token's `roles` claim may lag up to the token TTL.
+  the token's `roles` claim may lag up to the token TTL (`ACCESS_TOKEN_TTL_SECONDS`, default 15
+  min; 12 h in production).
 - On a 401 from an admin endpoint, call `/auth/token` once; if that fails too, send the user to
   login (401 `session_invalid` from `/token` = sign in again).
 - To learn the signed-in staff member's own id, roles and permissions, call
@@ -113,6 +114,11 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/token", {
 ```
 
 - Keep the token **in memory only**: never in `localStorage`, `sessionStorage`, URLs or logs.
+- Never log `Authorization` headers (reverse proxy, APM, Sentry breadcrumbs).
+- On logout, drop the in-memory token. After a join or role change, re-mint instead of waiting for
+  `exp`.
+- Treat developer tokens (copied for scripts) as a 12 h password: never in committed `.env` files,
+  shell history, CI logs or chat.
 - Refresh it before `exp` by calling `/token` again (the cookie still allows it). There is no
   refresh token.
 - Send it only to ricotdin's own backend, as `Authorization: Bearer <token>`.
@@ -145,7 +151,7 @@ caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_
   keeps app-level permissions plus `<app>:org:create` (ADR-0015).
 - Create errors: 403 `org_create_forbidden` (no `<app>:org:create`), `org_limit_reached`, 409
   `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
-- A role change in an org reaches tokens within the token TTL (about 15 minutes).
+- A role change in an org reaches tokens within the token TTL (up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production)).
 
 ### Invitations (USR-06b, ADR-0014)
 
@@ -290,8 +296,8 @@ link replaces older ones. The `/reset-password` page:
 
 **Effects.** A reset ends **every signed-in session of the account** on every device (other
 accounts signed in on the same device stay); the next `/token` for it answers 401
-`session_invalid`, so sign in again. Access tokens already issued stay valid until they expire (at
-most 15 min, `ACCESS_TOKEN_TTL_SECONDS`). A reset also marks the email verified (the user proved
+`session_invalid`, so sign in again. Access tokens already issued stay valid until they expire
+(up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production)). A reset also marks the email verified (the user proved
 they receive mail there) and clears the login backoff for the email.
 
 ## Accounts and joining an app
@@ -365,8 +371,18 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 9. Use `PyJWT[crypto]>=2.10.1` (2.10.0 has CVE-2024-53861, a partial `iss` match; also needed
    for `strict_aud`).
 10. Set a `User-Agent` on the JWKS fetch: Cloudflare may block the urllib default.
-11. Revocation lag: a logout, a disabled user or a removed role takes effect within 15 minutes
-    (the token TTL).
+11. Revocation lag: a logout, a disabled user, a removed role or org role, a suspended org and an
+    expired assignment reach a token only at its `exp` (up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production)).
+    Apps that need faster revocation check server-side, as the admin API does, or keep an
+    app-local deny list by `sub`.
+12. Never cache an authorization decision beyond the request. Map `roles` through the catalog per
+    request. Do not turn a token into a longer app session; any app session must end at or before
+    the token's `exp`.
+13. Sensitive or destructive actions may require a fresh token. Refuse `now - iat > N` (for example
+    900 s) with 401; the SPA silently re-mints through `/auth/token`, which re-checks status,
+    verification, membership and roles.
+14. Do not add your own maximum-age check below the TTL for ordinary requests; tokens up to the TTL
+    are valid.
 
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
