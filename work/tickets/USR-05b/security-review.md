@@ -79,3 +79,59 @@ None.
 - A per-credential rate-limit bucket (already listed).
 
 **Verdict: PASS with should-fix.** There are no blockers. Finding 1 (lock order and revocation re-check) should land in this ticket or as an immediate follow-up.
+
+## Attempt 2
+
+## Security re-check: USR-05b attempt 2, Attempt 1 finding 1 (lock-order inversion and revocation race)
+
+**Verdict: finding 1 is resolved.** The fix adds no new risk. Nothing blocks or should block the merge.
+
+I read `git diff HEAD~1 -- app tests` (commit b776b91) and the code around it: the whole `authenticate` and `revoke` in the service, `RbacRepository.lock_app`, `app_credentials/deps.py`, `app/db/session.py`, and the lock and re-check in `manifest.py` (lines 107 and 114). As instructed, I did not run `make check` or pytest.
+
+### Point by point
+
+1. **Lock order now matches revoke.**
+   - `revoke` (`app/modules/app_credentials/service.py:194` then `:200`) locks the `apps` row with `lock_app` (`FOR NO KEY UPDATE`), then updates the `app_credentials` row.
+   - `authenticate` (`service.py:178-179`) now does the same: `lock_app(app.key)`, then `touch_last_used`.
+   - Before the fix, `authenticate` was the only code path that wrote a credential row without holding the app lock. Now every writer of `app_credentials` takes the app lock first (issue `:107`, revoke `:194`, authenticate `:178`), so the deadlock cycle is gone.
+   - `sync` locks the same app again at `manifest.py:107`. That is the same transaction: `current_app_credential` uses the request-cached `SessionDep`, the same one `put_manifest` gets. So the second lock re-enters a lock already held and cannot block itself.
+
+2. **The touch only matches non-revoked rows.**
+   - `touch_last_used` (`app/modules/app_credentials/repository.py:73-82`) adds `revoked_at IS NULL` and `RETURNING id`, and returns whether a row was updated.
+   - The session uses the default READ COMMITTED isolation (no override in `app/db/session.py`). So the UPDATE runs after the app lock is acquired, with a fresh snapshot.
+   - If a revoke committed while the push waited for the lock, the UPDATE matches 0 rows and the push gets a 401.
+   - If the push took the lock first, the revoke waits and takes effect after the push. That ordering is fine and meets ADR-0016 "revocation is immediate".
+
+3. **The 401 stays uniform.** The race path calls `raise _reject("revoked", key_id)` (`service.py:180`). That is the same `UnauthorizedError("Authentication required")` with `Bearer realm="app"` and no details as the other four reasons. The log line carries only `reason` and `key_id`.
+
+4. **Nothing new is introduced.**
+   - **Check order:** the lock is taken after the hash check, the `revoked_at` pre-check, the disabled check (403) and the cross-app check (403 plus `record_failure`). An unauthenticated caller or another app's credential can never take or wait on the app lock.
+   - **The lock is on the right app:** it is taken on `app.key`, which equals `path_key` at that point. It is never taken on the attacker-supplied path key.
+   - **Denied-audit path:** unchanged. It still uses the separately committed `record_failure` and takes no lock.
+   - **Disabled app:** a disable that commits while the push waits is still caught by the existing re-check under the lock at `manifest.py:114`.
+   - **Race rollback:** a request that loses the race rolls back. No audit row is written, which matches the other 401s.
+
+### Findings
+
+**🔴 Blockers:** none.
+
+**🟡 Should-fix:** none.
+
+**💭 Notes**
+- **The new test does not exercise real concurrency** (`tests/test_app_credential_auth.py:229-244`). It revokes in the same session between `get_with_app` and the touch. That pins the `revoked_at IS NULL` re-check, but it does not exercise two connections or the lock order. This is acceptable: a real two-connection deadlock test would be flaky, and the lock order can be seen from the code. Optional: also assert `exc.headers["WWW-Authenticate"] == 'Bearer realm="app"'`, so the race path is pinned to the uniform 401 rather than just to the exception type.
+- **Pushes can now wait on staff writes** (`service.py:178`). Authentication now waits on the app lock, so a push can queue behind a long staff RBAC transaction on the same app. Only pushes that already passed authentication for that app can wait, and they would have waited in `sync` anyway. No action needed.
+- **The module docstring is slightly stale** (`service.py:3`). It says "Every mutator takes the app lock first", and `authenticate` now does too. Optional: mention it there. This is cosmetic.
+
+### Follow-ups (out of scope)
+None new. The Attempt 1 follow-ups still apply: a global body-size limit, logging refused authenticated pushes, the ADR-0015 app-scope grant guard, and a per-credential rate limit.
+
+**Final verdict: PASS (security).** Finding 1 is resolved and nothing new needs fixing.
+
+Files reviewed:
+- /home/user/org-admin-api/app/modules/app_credentials/service.py
+- /home/user/org-admin-api/app/modules/app_credentials/repository.py
+- /home/user/org-admin-api/app/modules/app_credentials/deps.py
+- /home/user/org-admin-api/app/modules/rbac/repository.py
+- /home/user/org-admin-api/app/modules/rbac/manifest.py
+- /home/user/org-admin-api/app/db/session.py
+- /home/user/org-admin-api/tests/test_app_credential_auth.py
