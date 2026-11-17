@@ -7,7 +7,7 @@
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/44 |
 
 ## Goal
 Members of an organization can invite people into it for an app with `org_mode = required` (calechip first), and the invited person accepts with their verified email and gets the invited role in that org. Split out of USR-06 (owner, 2026-11-17).
