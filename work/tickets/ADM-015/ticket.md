@@ -7,7 +7,7 @@
 | Areas | api, db |
 | Attempts | 1 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/51 |
 
 ## Goal
 `admin-pan` gets one read-only stats document for its dashboard, built from data that already exists.
