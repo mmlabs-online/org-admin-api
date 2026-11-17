@@ -194,23 +194,13 @@ async def test_join_unverified_403(
     assert await _audit_rows(db_session) == []
 
 
-@pytest.mark.parametrize(
-    ("join_policy", "code"),
-    [("closed", "join_closed"), ("approval", "join_approval_unavailable")],
-)
-async def test_join_policy_refused_403(
-    client: AsyncClient,
-    db_session: AsyncSession,
-    join_policy: str,
-    code: str,
-) -> None:
-    """Covers test_join_closed_403 and test_join_approval_unavailable_403."""
-    app = await make_login_app(db_session, join_policy=join_policy)
+async def test_join_closed_403(client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_login_app(db_session, join_policy="closed")
     await make_member_role(db_session, app)
     user, raw, account = await _signed_in(db_session)
     resp = await _join(client, account.id, raw)
     assert resp.status_code == 403
-    assert _error(resp)["code"] == code
+    assert _error(resp)["code"] == "join_closed"
     assert await _assignments(db_session, user) == []
     assert await _audit_rows(db_session) == []
 

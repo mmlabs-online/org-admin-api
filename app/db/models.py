@@ -5,6 +5,7 @@ from app.modules.app_credentials.models import AppCredential
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import EmailSendLog, EmailToken, LoginFailure
 from app.modules.invitations.models import OrgInvitation
+from app.modules.join_requests.models import AppJoinRequest
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
 from app.modules.sessions.models import AccountSession, DeviceSession
@@ -14,6 +15,7 @@ __all__ = [
     "AccountSession",
     "App",
     "AppCredential",
+    "AppJoinRequest",
     "AuditLog",
     "Base",
     "DeviceSession",

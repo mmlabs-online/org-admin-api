@@ -127,6 +127,19 @@ async def test_create_org_not_member_403(client: AsyncClient, db_session: AsyncS
     assert _error(resp)["details"] == {"join_available": True}
 
 
+async def test_create_org_not_member_approval_join_available(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, _, _ = await _calechip(db_session)
+    app.join_policy = "approval"
+    await db_session.flush()
+    _, raw, account = await _signed_in(db_session, None)
+    resp = await client.post(ORGS, json=_body(account), headers=_headers(raw))
+    assert resp.status_code == 403
+    assert _error(resp)["code"] == "not_member"
+    assert _error(resp)["details"] == {"join_available": True}
+
+
 async def test_create_org_no_owner_role_configured_403(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:

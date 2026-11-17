@@ -25,6 +25,7 @@ class AuditTarget(StrEnum):
     DEVICE_SESSION = "device_session"
     INVITATION = "invitation"
     APP_CREDENTIAL = "app_credential"
+    JOIN_REQUEST = "join_request"
 
 
 class AuditAction(StrEnum):
@@ -43,6 +44,9 @@ class AuditAction(StrEnum):
     APP_REGISTERED = "app.registered"
     APP_ADMIN_ORIGINS_SET = "app.admin_origins_set"
     APP_JOINED = "app.joined"
+    APP_JOIN_REQUESTED = "app.join_requested"
+    APP_JOIN_REQUEST_APPROVED = "app.join_request_approved"
+    APP_JOIN_REQUEST_REJECTED = "app.join_request_rejected"
     APP_CREDENTIAL_ISSUED = "app_credential.issued"
     APP_CREDENTIAL_REVOKED = "app_credential.revoked"
     APP_MANIFEST_SYNCED = "app.manifest_synced"

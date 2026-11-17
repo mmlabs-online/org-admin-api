@@ -34,6 +34,7 @@ from tests.auth_factories import (
     sha256,
 )
 from tests.conftest import MakeClient
+from tests.join_request_factories import make_approval_app, make_join_request
 from tests.rbac_factories import (
     assign,
     grant,
@@ -164,6 +165,22 @@ async def _cred_revoke(s: AsyncSession) -> Call:
     return f"{V1}/apps/{app.key}/credentials/{cred.id}", None
 
 
+async def _jr_pending(s: AsyncSession) -> tuple[str, uuid.UUID]:
+    app = await make_approval_app(s)
+    request = await make_join_request(s, app, await make_login_user(s))
+    return app.key, request.id
+
+
+async def _jr_approve(s: AsyncSession) -> Call:
+    key, request_id = await _jr_pending(s)
+    return f"{V1}/apps/{key}/join-requests/{request_id}/approve", None
+
+
+async def _jr_reject(s: AsyncSession) -> Call:
+    key, request_id = await _jr_pending(s)
+    return f"{V1}/apps/{key}/join-requests/{request_id}/reject", None
+
+
 # --- failure scenarios (404 unknown id/key, 409 duplicate) -------------------
 
 
@@ -247,6 +264,16 @@ async def _cred_revoke_unknown(s: AsyncSession) -> Call:
     return f"{V1}/apps/{(await _app(s)).key}/credentials/{uuid.uuid4()}", None
 
 
+async def _jr_unknown_approve(s: AsyncSession) -> Call:
+    app = await make_approval_app(s)
+    return f"{V1}/apps/{app.key}/join-requests/{uuid.uuid4()}/approve", None
+
+
+async def _jr_unknown_reject(s: AsyncSession) -> Call:
+    app = await make_approval_app(s)
+    return f"{V1}/apps/{app.key}/join-requests/{uuid.uuid4()}/reject", None
+
+
 ORG, ORG_ID = f"{V1}/organizations", f"{V1}/organizations/{{org_id}}"
 USER, ASSIGN = f"{V1}/users/{{user_id}}", f"{V1}/users/{{user_id}}/role-assignments"
 APP, PERMS, ROLES = (
@@ -255,6 +282,7 @@ APP, PERMS, ROLES = (
     f"{V1}/apps/{{key}}/roles",
 )
 CREDS = f"{V1}/apps/{{key}}/credentials"
+JREQ = f"{V1}/apps/{{key}}/join-requests"
 
 # route -> (allowed actions, success scenario, failure scenario, failure status)
 AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
@@ -306,8 +334,28 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _cred_revoke_unknown,
         404,
     ),
+    ("POST", f"{JREQ}/{{request_id}}/approve"): (
+        {"app.join_request_approved"},
+        _jr_approve,
+        _jr_unknown_approve,
+        404,
+    ),
+    ("POST", f"{JREQ}/{{request_id}}/reject"): (
+        {"app.join_request_rejected"},
+        _jr_reject,
+        _jr_unknown_reject,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
+_SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated resource
+    ("POST", f"{JREQ}/{{request_id}}/approve"): 200,
+    ("POST", f"{JREQ}/{{request_id}}/reject"): 200,
+}
+
+
+def _success_status(route: tuple[str, str]) -> int:
+    return _SUCCESS_STATUS_BY_ROUTE.get(route, _SUCCESS_STATUS[route[0]])
 
 
 @pytest.fixture
@@ -330,7 +378,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 18
+    assert len(AUDITED) == 20
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")
@@ -343,7 +391,7 @@ async def test_success_writes_one_row(
     before = await _count(db_session)
     async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
         resp = await client.request(method, url, json=body)
-    assert resp.status_code == _SUCCESS_STATUS[method], resp.text
+    assert resp.status_code == _success_status(route), resp.text
     assert await _count(db_session) == before + 1
     row = (await _rows(db_session))[-1]
     assert row.action in actions
@@ -470,10 +518,10 @@ async def test_no_secret_or_email_in_any_row(
     make_client: MakeClient, db_session: AsyncSession, actor: User
 ) -> None:
     async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
-        for (method, _), (_, success, _, _) in AUDITED.items():
+        for route, (_, success, _, _) in AUDITED.items():
             url, body = await success(db_session)
-            resp = await client.request(method, url, json=body)
-            assert resp.status_code == _SUCCESS_STATUS[method], (url, resp.text)
+            resp = await client.request(route[0], url, json=body)
+            assert resp.status_code == _success_status(route), (url, resp.text)
     rows = await _rows(db_session)
     assert len(rows) >= len(AUDITED)
     emails = list(await db_session.scalars(select(User.email)))
@@ -503,6 +551,7 @@ async def _id_logout(s: AsyncSession) -> IdCall:
 
 
 async def _id_join(s: AsyncSession) -> IdCall:
+    # The `approval` (pending) path writes one `app.join_requested` row: test_join_requests_join.py
     await make_member_role(s, await make_login_app(s))
     raw, _, (account,) = await make_device(s, await make_login_user(s))
     body = {"account_id": str(account.id)}

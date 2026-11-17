@@ -88,6 +88,9 @@ BEARER = {
     ("POST", f"{V1}/apps/{{key}}/credentials"): "admin:apps:write",
     ("GET", f"{V1}/apps/{{key}}/credentials"): "admin:apps:read",
     ("DELETE", f"{V1}/apps/{{key}}/credentials/{{credential_id}}"): "admin:apps:write",
+    ("GET", f"{V1}/apps/{{key}}/join-requests"): "admin:users:read",
+    ("POST", f"{V1}/apps/{{key}}/join-requests/{{request_id}}/approve"): "admin:roles:assign",
+    ("POST", f"{V1}/apps/{{key}}/join-requests/{{request_id}}/reject"): "admin:roles:assign",
     ("GET", f"{V1}/audit-logs"): "admin:audit:read",
 }
 # Bearer, self-scoped, no permission (ADR-0008 USR-11 amendment). GET only, no path/query/body
@@ -291,6 +294,7 @@ def _fill(path: str) -> str:
                 "permission_id",
                 "role_id",
                 "credential_id",
+                "request_id",
             )
         }
     )

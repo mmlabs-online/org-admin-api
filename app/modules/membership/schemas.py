@@ -11,4 +11,11 @@ class JoinRequest(BaseModel):
 
 
 class JoinResponse(BaseModel):
-    status: Literal["member"]  # USR-03g adds "pending" (202)
+    status: Literal["member"]
+
+
+class JoinPendingResponse(BaseModel):
+    """202: the app needs a staff decision (`join_policy = approval`)."""
+
+    status: Literal["pending"]
+    request_id: uuid.UUID

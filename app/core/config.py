@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     orgs_list_rate_limit: int = Field(default=60, ge=1)
     orgs_list_rate_window_seconds: int = Field(default=60, ge=1)
     org_create_max_per_user: int = Field(default=20, ge=1)
+    join_reject_cooldown_seconds: int = Field(default=604800, ge=0)  # 0 = no cooldown
     # Org invitations (USR-06b, ADR-0014): per-IP windows, TTL, per-inviter and per-org caps.
     invitation_create_rate_limit: int = Field(default=20, ge=1)
     invitation_create_rate_window_seconds: int = Field(default=3600, ge=1)

@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_keys import KeySet
+from app.modules.membership.service import join_available
 from app.modules.rbac.authz import AuthzService
-from app.modules.rbac.models import App, JoinPolicy, OrgMode
+from app.modules.rbac.models import App, OrgMode
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.repository import SessionRepository
 from app.modules.sessions.service import ResolvedDevice
@@ -42,6 +43,7 @@ class TokenService:
         key_set: KeySet,
         issuer: str,
         ttl_seconds: int,
+        join_reject_cooldown_seconds: int,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.accounts = SessionRepository(session)
@@ -50,6 +52,8 @@ class TokenService:
         self.key_set = key_set
         self.issuer = issuer
         self.ttl = ttl_seconds
+        self.join_reject_cooldown_seconds = join_reject_cooldown_seconds
+        self.session = session
         self.clock = clock
 
     async def issue(self, app: App, device: ResolvedDevice, data: TokenRequest) -> IssuedToken:
@@ -73,13 +77,13 @@ class TokenService:
             raise EmailUnverifiedError("Email address is not verified")
         roles = await self.authz.effective_roles(user.id, app.key)
         if not roles:
-            # What join would do now; USR-03g makes `approval` true again.
-            join_available = (
-                app.join_policy == JoinPolicy.OPEN.value and app.default_role_id is not None
+            available = await join_available(
+                self.session,
+                app,
+                user.id,
+                reject_cooldown_seconds=self.join_reject_cooldown_seconds,
             )
-            raise NotMemberError(
-                "Not a member of this app", details={"join_available": join_available}
-            )
+            raise NotMemberError("Not a member of this app", details={"join_available": available})
 
         claims: dict[str, object] = {}
         if data.org_id is not None:
