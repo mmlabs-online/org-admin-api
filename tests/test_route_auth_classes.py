@@ -45,6 +45,8 @@ COOKIE = {
     ("POST", f"{V1}/auth/apps/{{key}}/join"),
     ("POST", f"{V1}/auth/verify-email/resend"),
     ("GET", f"{V1}/auth/accounts"),
+    ("POST", f"{V1}/auth/orgs"),
+    ("GET", f"{V1}/auth/orgs"),
 }
 DOCS = {"/openapi.json", "/docs", "/docs/oauth2-redirect"}  # Starlette routes, no dependant
 

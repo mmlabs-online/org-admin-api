@@ -508,7 +508,10 @@ IDENTITY_AUDITED: dict[tuple[str, str], tuple[str, IdScenario, int]] = {
     ("POST", f"{AUTH}/password/reset"): ("auth.password_reset_completed", _id_reset, 204),
 }
 # Not audited (ADR-0009 amendment): sign-up and token issuance (follow-up), resend, forgot.
+# `POST /auth/orgs` is audited with TWO rows (organization.created + role_assignment.granted),
+# which the one-row harness above cannot express: tests/test_auth_orgs.py covers it.
 IDENTITY_NOT_AUDITED = {
+    ("POST", f"{AUTH}/orgs"),
     ("POST", f"{AUTH}/signup"),
     ("POST", f"{AUTH}/token"),
     ("POST", f"{AUTH}/verify-email/resend"),

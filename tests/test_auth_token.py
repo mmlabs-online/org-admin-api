@@ -29,7 +29,7 @@ from tests.auth_factories import (
 )
 from tests.conftest import TEST_JWT_ISSUER, TEST_JWT_SIGNING_KEY, MakeClient
 from tests.jwt_verifier import verify_reference
-from tests.rbac_factories import assign, make_role, super_admin_role
+from tests.rbac_factories import assign, make_org, make_role, super_admin_role
 
 TOKEN = "/api/v1/auth/token"
 JWKS = "/.well-known/jwks.json"
@@ -346,7 +346,137 @@ async def test_token_admin_unverified(client: AsyncClient, db_session: AsyncSess
     assert _error(resp)["code"] == "email_unverified"
 
 
-async def test_token_org_id_422(
+async def _calechip(db_session: AsyncSession) -> tuple[App, Role]:
+    """An `org_mode = required` app with a `calechip:member` role."""
+    app = await make_login_app(db_session, "calechip", org_mode="required")
+    return app, await make_role(db_session, app, "calechip:member")
+
+
+def _cal_headers(raw: str) -> dict[str, str]:
+    return auth_headers(app_key="calechip", cookie=raw)
+
+
+async def test_token_with_org_has_org_claim_and_union_roles(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, member = await _calechip(db_session)
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    org = await make_org(db_session)
+    other = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, owner, org_id=org.id)
+    await assign(db_session, user, await make_role(db_session, app, "calechip:x"), org_id=other.id)
+
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, "calechip", org_id=str(org.id)),
+        headers=_cal_headers(raw),
+    )
+    assert resp.status_code == 200, resp.text
+    claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
+    assert claims["org"] == str(org.id)
+    assert claims["roles"] == ["calechip:member", "calechip:org-owner"]  # other org's role absent
+
+
+async def test_token_without_org_app_scope_only(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, member = await _calechip(db_session)
+    org = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, await make_role(db_session, app, "calechip:x"), org_id=org.id)
+
+    resp = await client.post(TOKEN, json=_body(account.id, "calechip"), headers=_cal_headers(raw))
+    assert resp.status_code == 200, resp.text
+    claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
+    assert "org" not in claims
+    assert claims["roles"] == ["calechip:member"]
+
+
+async def test_token_app_member_without_org_role_403(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """The F2 regression: an app-scope role must not make any org usable."""
+    _, member = await _calechip(db_session)
+    org = await make_org(db_session)
+    _, raw, account = await _member(db_session, member)
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, "calechip", org_id=str(org.id)),
+        headers=_cal_headers(raw),
+    )
+    assert resp.status_code == 403
+    assert _error(resp)["code"] == "org_access_denied"
+
+
+async def test_token_unknown_org_403_same_as_non_member(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, member = await _calechip(db_session)
+    org = await make_org(db_session)
+    _, raw, account = await _member(db_session, member)
+    answers = []
+    for org_id in (uuid.uuid4(), org.id):
+        resp = await client.post(
+            TOKEN,
+            json=_body(account.id, "calechip", org_id=str(org_id)),
+            headers=_cal_headers(raw),
+        )
+        answers.append((resp.status_code, resp.json()))
+    assert answers[0] == answers[1]
+    assert answers[0][0] == 403
+
+
+async def test_token_suspended_org_403(client: AsyncClient, db_session: AsyncSession) -> None:
+    app, member = await _calechip(db_session)
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    org = await make_org(db_session, status="suspended")
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, owner, org_id=org.id)
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, "calechip", org_id=str(org.id)),
+        headers=_cal_headers(raw),
+    )
+    assert resp.status_code == 403
+    assert _error(resp)["code"] == "org_access_denied"
+
+
+async def test_token_expired_org_role_403(client: AsyncClient, db_session: AsyncSession) -> None:
+    app, member = await _calechip(db_session)
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    org = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    past = datetime(2000, 1, 1, tzinfo=UTC)
+    await assign(db_session, user, owner, org_id=org.id, expires_at=past)
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, "calechip", org_id=str(org.id)),
+        headers=_cal_headers(raw),
+    )
+    assert resp.status_code == 403
+    assert _error(resp)["code"] == "org_access_denied"
+
+
+async def test_token_other_app_role_in_org_does_not_count(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, member = await _calechip(db_session)
+    stoktok = await make_login_app(db_session)
+    foreign = await make_role(db_session, stoktok, "stoktok:viewer")
+    org = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, foreign, org_id=org.id)
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, "calechip", org_id=str(org.id)),
+        headers=_cal_headers(raw),
+    )
+    assert resp.status_code == 403
+    assert _error(resp)["code"] == "org_access_denied"
+
+
+async def test_token_org_less_app_ignores_org_id_422(
     client: AsyncClient, db_session: AsyncSession, viewer: Role
 ) -> None:
     _, raw, account = await _member(db_session, viewer)
@@ -356,6 +486,20 @@ async def test_token_org_id_422(
     assert resp.status_code == 422
     assert _error(resp)["code"] == "org_not_supported"
     assert _error(resp)["details"] == [{"field": "org_id", "reason": "not_supported"}]
+
+
+async def test_token_admin_audience_org_id_422(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _admin_with_origin(db_session)
+    _, raw, account = await _member(db_session, await super_admin_role(db_session))
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, audience="admin", org_id=str(uuid.uuid4())),
+        headers=auth_headers(app_key="admin", cookie=raw),
+    )
+    assert resp.status_code == 422
+    assert _error(resp)["code"] == "org_not_supported"
 
 
 @pytest.mark.parametrize(

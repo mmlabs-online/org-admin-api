@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.rbac.repository import RbacRepository
 from tests.conftest import MakeClient
@@ -23,6 +24,7 @@ APP_READ_KEYS = {
     "org_mode",
     "origins",
     "default_role_id",
+    "org_owner_role_id",
     "created_at",
     "updated_at",
 }
@@ -426,3 +428,119 @@ async def test_delete_app_with_assignments_409(
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
     assert (await rbac_client.get(f"{BASE}/stoktok")).status_code == 200
+
+
+# --- org owner role (USR-06a) ------------------------------------------------
+
+
+async def _org_app(db_session: AsyncSession, key: str = "calechip") -> tuple[App, Role]:
+    app = await make_app(db_session, key, org_mode="required")
+    return app, await make_role(db_session, app, f"{key}:org-owner")
+
+
+async def test_patch_org_owner_role_happy(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, owner = await _org_app(db_session)
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(owner.id)})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["org_owner_role_id"] == str(owner.id)
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": None})
+    assert resp.status_code == 200
+    assert resp.json()["org_owner_role_id"] is None
+
+
+async def test_patch_org_owner_role_set_with_org_mode_in_same_request(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip")
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    resp = await rbac_client.patch(
+        f"{BASE}/calechip", json={"org_mode": "required", "org_owner_role_id": str(owner.id)}
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_patch_org_owner_role_unknown_role_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _org_app(db_session)
+    resp = await rbac_client.patch(
+        f"{BASE}/calechip", json={"org_owner_role_id": str(uuid.uuid4())}
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"] == [
+        {"field": "org_owner_role_id", "reason": "unknown_role"}
+    ]
+
+
+async def test_patch_org_owner_role_other_app_role_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _org_app(db_session)
+    stoktok = await make_app(db_session, "stoktok")
+    foreign = await make_role(db_session, stoktok, "stoktok:viewer")
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(foreign.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "unknown_role"
+
+
+async def test_patch_org_owner_role_admin_perm_role_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, owner = await _org_app(db_session)
+    await grant(
+        db_session,
+        owner,
+        await make_permission(db_session, app, "calechip:org:manage", is_admin=True),
+    )
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(owner.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "role_has_admin_permissions"
+
+
+async def test_patch_org_owner_role_org_mode_none_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip")
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(owner.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "org_mode_required"
+
+
+async def test_patch_org_owner_role_admin_app_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    admin = await _app_row(db_session, "admin")
+    assert admin is not None
+    role = await make_role(db_session, admin, "admin:org-owner")
+    resp = await rbac_client.patch(f"{BASE}/admin", json={"org_owner_role_id": str(role.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "org_mode_required"
+
+
+async def test_patch_org_mode_none_while_owner_set_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, owner = await _org_app(db_session)
+    assert (
+        await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(owner.id)})
+    ).status_code == 200
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "none"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "org_mode_required"
+    both = await rbac_client.patch(
+        f"{BASE}/calechip", json={"org_mode": "none", "org_owner_role_id": None}
+    )
+    assert both.status_code == 200, both.text
+
+
+async def test_patch_org_owner_role_is_audited(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, owner = await _org_app(db_session)
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(owner.id)})
+    assert resp.status_code == 200
+    row = (await db_session.scalars(select(AuditLog).where(AuditLog.action == "app.updated"))).one()
+    assert row.changes == {"org_owner_role_id": {"from": None, "to": str(owner.id)}}

@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
 from app.modules.users.models import User
 
@@ -22,6 +23,14 @@ async def make_app(session: AsyncSession, key: str = "stoktok", **kwargs: object
     session.add(app)
     await session.flush()
     return app
+
+
+async def make_org(session: AsyncSession, **kwargs: object) -> Organization:
+    fields: dict[str, object] = {"slug": f"org-{uuid.uuid4().hex[:12]}", "name": "Org", **kwargs}
+    org = Organization(**fields)
+    session.add(org)
+    await session.flush()
+    return org
 
 
 async def make_permission(
