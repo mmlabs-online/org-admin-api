@@ -7,7 +7,7 @@
 | Areas | architecture, auth, security, api |
 | Attempts | 1 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/55 |
 
 ## Goal
 With 12 h access tokens (USR-13), logout, password reset, staff session revoke (USR-10) and disable-then-re-enable must end a live admin token on its next request, not at `exp`.
