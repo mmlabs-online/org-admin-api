@@ -255,8 +255,9 @@ failed request per active client. Never keep a leaked public key in the JWKS.
   stay signed in. It ends that session's **admin** tokens on the next admin request (USR-14); app
   tokens stay valid until `exp` (at most `ACCESS_TOKEN_TTL_SECONDS`, 12 h in production, plus
   30 s). Session revoke is **not** a compromise response, because the password still logs in: for a suspected
-  compromise use the steps below (disable, or revoke admin roles, held for at least TTL + 60 s;
-  password reset before re-enabling; emergency key rotation for an immediate global cut).
+  compromise use the steps below (disable the user; or, if you only revoke admin roles, hold that
+  for at least TTL + 60 s; password reset before re-enabling; emergency key rotation for an
+  immediate global cut).
 - **Compromised consumer account:** disable the user. This stops new tokens; live tokens die at
   `exp` (at most the TTL). For an immediate global cut, do an emergency rotation and flush consumer
   JWKS caches.

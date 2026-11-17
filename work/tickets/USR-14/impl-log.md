@@ -31,3 +31,22 @@ As listed in plan.md (role revoke re-grant cutoff, `--clear` kill switch, consum
 
 ## Scope self-check
 Only planned files; no commit made.
+
+# Attempt 2 (REWORK)
+
+Fixed the single item from security-review.md "Attempt 1" (docs only).
+
+## Files touched
+- `docs/deploy.md` ("Lost or shared device" bullet): the parenthesis now reads "disable the user; or, if you only revoke admin roles, hold that for at least TTL + 60 s; password reset before re-enabling; emergency key rotation for an immediate global cut". Required because the old wording implied a disable must be held for TTL + 60 s.
+
+## Checks
+`env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: exit 0; `2338 passed, 1 warning in 228.97s`. No BUG-001 flake.
+
+## Out-of-plan files
+None.
+
+## Follow-ups
+None new.
+
+## Scope self-check
+One docs sentence changed; no commit made.
