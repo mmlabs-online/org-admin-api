@@ -7,7 +7,7 @@
 | Areas | api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/47 |
 
 ## Goal
 Each mmlabs app declares its own permissions (with `is_admin` flags) and default role through a manifest, so adding or changing an app's permissions is a deploy of that app, not a change here.
