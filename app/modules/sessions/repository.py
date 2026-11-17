@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -113,6 +114,65 @@ class SessionRepository:
             .execution_options(synchronize_session=False)
         )
         return int(result.rowcount)  # type: ignore[attr-defined]
+
+    async def list_active_for_user(
+        self, user_id: uuid.UUID, *, idle: timedelta, max_age: timedelta, limit: int, offset: int
+    ) -> tuple[list[tuple[uuid.UUID, datetime, datetime, datetime, Any, str | None]], int]:
+        """Account sessions that can still mint a token (same predicates as the device
+        session's usability check), newest first, with the device's last seen, IP and UA."""
+        where = (
+            AccountSession.user_id == user_id,
+            AccountSession.revoked_at.is_(None),
+            DeviceSession.revoked_at.is_(None),
+            DeviceSession.last_seen_at >= func.now() - idle,
+            DeviceSession.created_at >= func.now() - max_age,
+        )
+        join = AccountSession.device_session_id == DeviceSession.id
+        rows = await self.session.execute(
+            select(
+                AccountSession.id,
+                AccountSession.created_at,
+                AccountSession.last_used_at,
+                DeviceSession.last_seen_at,
+                DeviceSession.ip,
+                DeviceSession.user_agent,
+            )
+            .join(DeviceSession, join)
+            .where(*where)
+            .order_by(AccountSession.created_at.desc(), AccountSession.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        total = await self.session.scalar(
+            select(func.count()).select_from(AccountSession).join(DeviceSession, join).where(*where)
+        )
+        return [(r[0], r[1], r[2], r[3], r[4], r[5]) for r in rows.all()], total or 0
+
+    async def revoke_account_of_user(self, user_id: uuid.UUID, account_id: uuid.UUID) -> bool:
+        """Revoke one account session of the user; the device session is untouched."""
+        revoked = await self.session.scalar(
+            update(AccountSession)
+            .where(
+                AccountSession.id == account_id,
+                AccountSession.user_id == user_id,
+                AccountSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=func.now())
+            .returning(AccountSession.id)
+            .execution_options(synchronize_session=False)
+        )
+        return revoked is not None
+
+    async def revoke_all_accounts_of_user_ids(self, user_id: uuid.UUID) -> list[uuid.UUID]:
+        """As `revoke_all_accounts_of_user`, returning the ids that were revoked."""
+        result = await self.session.scalars(
+            update(AccountSession)
+            .where(AccountSession.user_id == user_id, AccountSession.revoked_at.is_(None))
+            .values(revoked_at=func.now())
+            .returning(AccountSession.id)
+            .execution_options(synchronize_session=False)
+        )
+        return list(result.all())
 
     async def count_active_accounts(self, device_id: uuid.UUID) -> int:
         count = await self.session.scalar(

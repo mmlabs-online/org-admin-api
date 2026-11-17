@@ -96,6 +96,18 @@ async def _user_status(s: AsyncSession) -> Call:
     return f"{V1}/users/{(await make_user(s)).id}", {"status": "disabled"}
 
 
+async def _session_revoke(s: AsyncSession) -> Call:
+    user = await make_user(s)
+    _, _, (account,) = await make_device(s, user)
+    return f"{V1}/users/{user.id}/sessions/{account.id}", None
+
+
+async def _sessions_revoke_all(s: AsyncSession) -> Call:
+    user = await make_user(s)
+    await make_device(s, user)
+    return f"{V1}/users/{user.id}/sessions", None
+
+
 async def _assign(s: AsyncSession) -> Call:
     _, role = await _role(s)
     return f"{V1}/users/{(await make_user(s)).id}/role-assignments", {"role_id": str(role.id)}
@@ -224,6 +236,14 @@ async def _user_unknown(s: AsyncSession) -> Call:
     return f"{V1}/users/{uuid.uuid4()}", {"status": "disabled"}
 
 
+async def _session_unknown(s: AsyncSession) -> Call:
+    return f"{V1}/users/{(await make_user(s)).id}/sessions/{uuid.uuid4()}", None
+
+
+async def _sessions_unknown_user(s: AsyncSession) -> Call:
+    return f"{V1}/users/{uuid.uuid4()}/sessions", None
+
+
 async def _assign_unknown_user(s: AsyncSession) -> Call:
     _, role = await _role(s)
     return f"{V1}/users/{uuid.uuid4()}/role-assignments", {"role_id": str(role.id)}
@@ -330,6 +350,18 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
     ("PATCH", ORG_ID): ({"organization.updated"}, _org_update, _org_unknown, 404),
     ("DELETE", ORG_ID): ({"organization.deleted"}, _org_delete, _org_unknown_delete, 404),
     ("PATCH", USER): ({"user.disabled", "user.enabled"}, _user_status, _user_unknown, 404),
+    ("DELETE", f"{USER}/sessions/{{session_id}}"): (
+        {"user.session_revoked"},
+        _session_revoke,
+        _session_unknown,
+        404,
+    ),
+    ("DELETE", f"{USER}/sessions"): (
+        {"user.sessions_revoked"},
+        _sessions_revoke_all,
+        _sessions_unknown_user,
+        404,
+    ),
     ("POST", ASSIGN): ({"role_assignment.granted"}, _assign, _assign_unknown_user, 404),
     ("DELETE", f"{ASSIGN}/{{assignment_id}}"): (
         {"role_assignment.revoked"},
@@ -431,7 +463,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 23
+    assert len(AUDITED) == 25
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")
@@ -492,6 +524,48 @@ async def test_denied_guard_writes_row(
     assert len(rows) == before + 2
     denied = sorted((r.action, r.outcome) for r in rows if r.outcome == "denied")
     assert denied == [("app.updated", "denied"), ("role_assignment.revoked", "denied")]
+
+
+async def test_session_self_revoke_writes_denied_row(
+    make_client: MakeClient, db_session: AsyncSession, actor: User
+) -> None:
+    """USR-10: staff cannot revoke their own sessions; each refusal writes one denied row."""
+    _, _, (account,) = await make_device(db_session, actor)
+    await db_session.commit()  # the denied write rolls back first: keep the setup
+    before = await _count(db_session)
+    async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
+        one = await client.delete(f"{V1}/users/{actor.id}/sessions/{account.id}")
+        assert one.status_code == 403
+        assert one.json()["error"]["code"] == "self_session_change_forbidden"
+        await db_session.refresh(actor)  # expired by the denied request's rollback
+        every = await client.delete(f"{V1}/users/{actor.id}/sessions")
+        assert every.status_code == 403
+        assert every.json()["error"]["code"] == "self_session_change_forbidden"
+    rows = (await _rows(db_session))[before:]
+    assert sorted((r.action, r.outcome) for r in rows) == [
+        ("user.session_revoked", "denied"),
+        ("user.sessions_revoked", "denied"),
+    ]
+    assert all(r.changes == {"reason": "self_session_change_forbidden"} for r in rows)
+    await db_session.refresh(account)
+    assert account.revoked_at is None
+
+
+async def test_session_revoke_noops_write_no_row(
+    make_client: MakeClient, db_session: AsyncSession, actor: User
+) -> None:
+    user = await make_user(db_session)
+    _, _, (account,) = await make_device(db_session, user)
+    other = await make_user(db_session)  # no sessions
+    account.revoked_at = datetime.now(UTC)
+    await db_session.flush()
+    before = await _count(db_session)
+    async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
+        none = await client.delete(f"{V1}/users/{other.id}/sessions")
+        assert none.status_code == 204
+        done = await client.delete(f"{V1}/users/{user.id}/sessions/{account.id}")
+        assert done.status_code == 404
+    assert await _count(db_session) == before
 
 
 async def test_noop_writes_no_row(
