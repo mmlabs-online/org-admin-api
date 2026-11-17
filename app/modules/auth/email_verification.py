@@ -61,12 +61,20 @@ async def daily_cap_refusal(
     """None when one more `purpose` email fits the global daily cap, else the refusal reason
     (`daily_cap` or `purpose_cap`; USR-04b, USR-04d).
 
-    Counts real sends (tokens issued in the last 24 h) under one global advisory lock, so
-    concurrent requests cannot all pass the check.
+    Counts real sends (tokens issued and invitations sent in the last 24 h) under one global
+    advisory lock, so concurrent requests cannot all pass the check.
     """
     await sends.lock_global()
-    total_24h, verify_24h = await tokens.count_issued_24h()
-    return cap_refusal(purpose, total_24h=total_24h, verify_24h=verify_24h, daily_cap=daily_cap)
+    token_total, verify_24h = await tokens.count_issued_24h()
+    # Invitations have no token row: their send-log rows are exact sends (USR-06b).
+    invite_24h = await sends.count_purpose_24h("invite")
+    return cap_refusal(
+        purpose,
+        total_24h=token_total + invite_24h,
+        verify_24h=verify_24h,
+        invite_24h=invite_24h,
+        daily_cap=daily_cap,
+    )
 
 
 class EmailVerificationService:

@@ -147,6 +147,44 @@ caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_
   `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
 - A role change in an org reaches tokens within the token TTL (about 15 minutes).
 
+### Invitations (USR-06b, ADR-0014)
+
+A member holding `<app>:org:invite` **in that org** invites an email address:
+`POST /api/v1/auth/orgs/{org_id}/invitations` `{account_id, email, role}` (cookie class,
+`credentials: "include"`, `X-MM-App`). `role` is a role key of the calling app: no `is_admin`
+permission, and nothing beyond the inviter's own permissions in that org (the owner role is
+invitable by an owner; there is no member removal in v1, staff only). The answer is always
+`201 {id, org_id, role, expires_at}`, whether or not the address has an account, is a member, or
+hit a send limit: do not promise delivery. The mail links to
+`{Origin}/accept-invitation#token=<token>`; the link works once and expires (default 7 days).
+
+Each app implements the `/accept-invitation` page: read the token from the fragment, clear it
+with `history.replaceState`, serve it with `Referrer-Policy: no-referrer`, make the user sign in
+(or sign up and verify) with **exactly the invited address** (Gmail dots and plus tags are not
+folded), then `POST /api/v1/auth/invitations/accept` `{account_id, token}`. Success is
+`200 {org_id, roles}`; accepting also joins the app (default role) if the account is not a member,
+then `/auth/token` with `org_id` works.
+
+| Status / code | Meaning |
+|---|---|
+| 201 | invitation created (or silently not sent: limits) |
+| 403 `org_access_denied` | unknown, suspended or not-a-member org (one answer) |
+| 403 `org_invite_forbidden` | no `<app>:org:invite` in that org |
+| 403 `invite_role_forbidden` | the role holds an admin permission or more than the inviter has |
+| 403 `invitation_limit_reached` | inviter's daily cap or the org's pending cap |
+| 403 `org_invite_unavailable` | app setup does not allow invitations (see below) |
+| 403 `email_unverified` | the account's email is not verified |
+| 403 `invitation_email_mismatch` | the token is for another address; not consumed |
+| 422 `unknown_role` | not a role key of this app |
+| 422 `token_invalid` | unknown, used, expired, revoked/superseded token or another app's; the same answer for all |
+
+Staff configuration requirement (the S1 guard): the app needs `org_mode = required`,
+`join_policy = open`, a default role and an org owner role, and the default role and the owner
+role must share no permission except `<app>:org:create`. Otherwise invitations answer 403
+`org_invite_unavailable` (create and accept; nothing is consumed). The manifest sync re-widening
+`<app>:member` therefore disables invitations until USR-06c. Residual risk: a staff-granted
+app-scope role that carries org-level permissions still reaches every org token.
+
 ## Email verification
 
 A new account is unverified; `/token` (and join, USR-03b) answer 403 `email_unverified` until the

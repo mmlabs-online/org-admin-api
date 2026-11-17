@@ -190,3 +190,57 @@ async def test_effective_roles_drop_foreign_prefix(db_session: AsyncSession) -> 
     authz = AuthzService(db_session)
     assert await authz.effective_roles(user.id, "stoktok") == ["stoktok:viewer"]
     assert await authz.effective_roles(user.id, "admin") == []
+
+
+async def test_org_permission_keys_org_exact(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    member = await make_role(db_session, app, "calechip:member")
+    viewer = await make_role(db_session, app, "calechip:viewer")
+    p_member = await make_permission(db_session, app, "calechip:org:create")
+    p_read = await make_permission(db_session, app, "calechip:data:read")
+    await grant(db_session, member, p_member)
+    await grant(db_session, viewer, p_read)
+    user = await make_user(db_session)
+    org, other = await make_org(db_session), await make_org(db_session)
+    await assign(db_session, user, member)  # app scope: never counts
+    await assign(db_session, user, viewer, org_id=org.id)
+    authz = AuthzService(db_session)
+    assert await authz.org_permissions(user.id, "calechip", org.id) == ["calechip:data:read"]
+    assert await authz.org_permissions(user.id, "calechip", other.id) == []
+    assert await authz.org_permissions(user.id, "calechip", uuid.uuid4()) == []
+
+
+async def test_org_permission_keys_suspended_org_empty(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    viewer = await make_role(db_session, app, "calechip:viewer")
+    await grant(db_session, viewer, await make_permission(db_session, app, "calechip:data:read"))
+    user = await make_user(db_session)
+    org = await make_org(db_session, status="suspended")
+    await assign(db_session, user, viewer, org_id=org.id)
+    assert await AuthzService(db_session).org_permissions(user.id, "calechip", org.id) == []
+
+
+async def test_org_permission_keys_expired_ignored(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    viewer = await make_role(db_session, app, "calechip:viewer")
+    await grant(db_session, viewer, await make_permission(db_session, app, "calechip:data:read"))
+    user = await make_user(db_session)
+    org = await make_org(db_session)
+    await assign(db_session, user, viewer, org_id=org.id, expires_at=PAST)
+    assert await AuthzService(db_session).org_permissions(user.id, "calechip", org.id) == []
+
+
+async def test_org_permission_keys_other_app_excluded(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    other = await make_app(db_session, "other", org_mode="required")
+    role = await make_role(db_session, app, "calechip:viewer")
+    await grant(db_session, role, await make_permission(db_session, app, "calechip:data:read"))
+    other_role = await make_role(db_session, other, "other:viewer")
+    await grant(db_session, other_role, await make_permission(db_session, other, "other:data:read"))
+    user = await make_user(db_session)
+    org = await make_org(db_session)
+    await assign(db_session, user, role, org_id=org.id)
+    await assign(db_session, user, other_role, org_id=org.id)
+    authz = AuthzService(db_session)
+    assert await authz.org_permissions(user.id, "calechip", org.id) == ["calechip:data:read"]
+    assert await authz.org_permissions(user.id, "other", org.id) == ["other:data:read"]

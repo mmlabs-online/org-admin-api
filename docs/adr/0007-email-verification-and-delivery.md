@@ -61,6 +61,13 @@ mmlabs site already sends from, which changes D3's "dedicated account".
    not settings; `EMAIL_DAILY_CAP` stays the operator knob. Every capped send logs
    `email_not_sent reason=<daily_cap|purpose_cap> purpose=<verify|reset>` (`daily_cap`: the total
    cap; `purpose_cap`: the purpose's share), resend included; response bodies are unchanged.
+   *Amended by USR-06b (2026-11-17):* org invitations are a third purpose, `invite`, in
+   `email_send_log` (the CHECK is widened; invitations have no `email_tokens` row, so every
+   `invite` send-log row is a real send and counts toward the global cap). The shares are now
+   verify 70 %, reset 40 %, invite 10 % of `EMAIL_DAILY_CAP` (each at least 1), keeping the
+   floors: verify at least 100 - 40 - 10 = 50 %, reset at least 100 - 70 - 10 = 20 %. The
+   verify ceiling drops from 80 % to 70 % and the reset ceiling from 50 % to 40 %. Per target
+   email, invitations are limited to 1/min and 3/24 h across all orgs; limits are silent (ADR-0014).
 5. **Delivery.** An in-process `asyncio.Queue` (max 1000) with one worker, fed by a FastAPI
    background task, i.e. only after the request's transaction committed. Up to 3 attempts with
    2 s / 8 s backoff (±20 %) for transient errors (4xx, timeouts, disconnects); permanent 5xx are

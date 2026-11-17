@@ -75,12 +75,12 @@ class EmailToken(UUIDPkMixin, Base):
 
 
 class EmailSendLog(UUIDPkMixin, Base):
-    """One accepted verification/reset send, keyed by the email HMAC (no email stored, R11)."""
+    """One accepted verification/reset/invitation send, keyed by the email HMAC (R11: no email)."""
 
     __tablename__ = "email_send_log"
     __table_args__ = (
         CheckConstraint("octet_length(email_hmac) = 32", name="email_hmac_length"),
-        CheckConstraint("purpose IN ('verify', 'reset')", name="purpose_valid"),
+        CheckConstraint("purpose IN ('verify', 'reset', 'invite')", name="purpose_valid"),
         Index("ix_email_send_log_email_hmac_purpose_sent_at", "email_hmac", "purpose", "sent_at"),
         Index("ix_email_send_log_sent_at", "sent_at"),
     )

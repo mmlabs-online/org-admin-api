@@ -154,7 +154,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/orgs` `{account_id, name, slug, description?}` | cookie; needs the app-scope permission `<app>:org:create` (ADR-0013) | create org, creator gets `apps.org_owner_role_id` in it; 201 | USR-06a |
 | `GET /api/v1/auth/orgs?account_id=` | cookie | the account's orgs where it holds an org-exact role of the calling app (`X-MM-App`; no `app=` parameter), `Page[…]` with the caller's roles | USR-06a |
 | `POST /api/v1/auth/token` with `org_id` | cookie | adds `org` claim; 403 `org_access_denied` (unknown, suspended or not-a-member org, one answer); 422 `org_not_supported` for `org_mode = none` apps | USR-06a |
-| `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06b |
+| `POST /api/v1/auth/orgs/{id}/invitations` `{account_id, email, role}` · `POST /api/v1/auth/invitations/accept` `{account_id, token}` | cookie; invite needs `<app>:org:invite` in that org (org-exact); accept is bound to the invited verified email (token in the body, ADR-0014) | invite / accept into an org | USR-06b |
 | Admin: `/api/v1/organizations` (CRUD) | Bearer `aud=admin` + `require_permission` (`admin:organizations:read\|write`) | organizations | ADM-001, ADM-002 |
 | Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`; `admin:*` for privileged users) | staff user management | USR-01, ADM-002 |
 | Admin (self-scoped): `GET /api/v1/me/permissions` | Bearer `aud=admin`, self-scoped, no permission (ADR-0008 USR-11 amendment) | caller's own `user_id`, admin role keys, effective admin permissions | USR-11 |
@@ -259,7 +259,7 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 | D7 | `POST /auth/token {audience, account_id, org_id?}` → JWT (~15 min): iss, aud, sub, email, email_verified, roles, org?, iat, exp; asymmetric signing, keys from env, `kid`. |
 | D8 | Non-member → `403 {error:"not_member", join_available}`; `POST /auth/apps/{key}/join {account_id}` applies `join_policy` (open/approval/closed), assigns the default role at app scope, writes audit. "Continue as <account>" = consent. |
 | D9 | Default join_policy `open`, except `admin` = `closed`. Default role `<app>:member` = all app permissions except `is_admin` ones (e.g. `<app>:roles:manage`). Policy and role content are data. |
-| D10 | Org usage per app: `apps.org_mode` (`none` default, `required` for calechip). No org = `org_id NULL`. `organizations` lives in the Identity module. Org-scoped apps: join gives an app-scope role (e.g. with `calechip:org:create`); org roles from creating an org (owner) or invitation; token `roles` = app-scope + selected-org roles. |
+| D10 | Org usage per app: `apps.org_mode` (`none` default, `required` for calechip). No org = `org_id NULL`. `organizations` lives in the Identity module. Org-scoped apps: join gives an app-scope role (e.g. with `calechip:org:create`); org roles from creating an org (owner) or invitation (ADR-0014); token `roles` = app-scope + selected-org roles. |
 | D11 | No hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP ~20/min, Turnstile after 3 failures; identical error for wrong email or password. |
 | D12 | CORS echoes only `apps.origins` with credentials; every cookie-authenticated POST checks Origin and requires `X-MM-App: <key>`. |
 

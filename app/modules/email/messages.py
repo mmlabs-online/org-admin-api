@@ -44,3 +44,27 @@ def reset_message(link: str) -> tuple[str, str]:
         "mmlabs\n"
     )
     return RESET_SUBJECT, body
+
+
+INVITE_SUBJECT = "Lời mời tham gia tổ chức / You're invited to an organization"
+
+
+def invitation_message(link: str, app_name: str, org_name: str | None) -> tuple[str, str]:
+    org = f' "{org_name}"' if org_name else ""
+    body = (
+        "Xin chào,\n\n"
+        f"Bạn được mời tham gia một tổ chức{org} trên {app_name}. Đăng nhập bằng đúng địa "
+        "chỉ email này, rồi bấm vào liên kết dưới đây để chấp nhận. Liên kết dùng được một lần "
+        "và sẽ hết hạn.\n\n"
+        f"{link}\n\n"
+        "Nếu bạn không biết về lời mời này, hãy bỏ qua email này.\n\n"
+        "---\n\n"
+        "Hello,\n\n"
+        f"You have been invited to join an organization{org} on {app_name}. Sign in with "
+        "this exact email address, then open the link below to accept. The link works once "
+        "and will expire.\n\n"
+        f"{link}\n\n"
+        "If you do not know about this invitation, you can ignore this email.\n\n"
+        "mmlabs\n"
+    )
+    return INVITE_SUBJECT, body

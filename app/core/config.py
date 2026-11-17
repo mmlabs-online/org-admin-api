@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     orgs_list_rate_limit: int = Field(default=60, ge=1)
     orgs_list_rate_window_seconds: int = Field(default=60, ge=1)
     org_create_max_per_user: int = Field(default=20, ge=1)
+    # Org invitations (USR-06b, ADR-0014): per-IP windows, TTL, per-inviter and per-org caps.
+    invitation_create_rate_limit: int = Field(default=20, ge=1)
+    invitation_create_rate_window_seconds: int = Field(default=3600, ge=1)
+    invitation_accept_rate_limit: int = Field(default=20, ge=1)
+    invitation_accept_rate_window_seconds: int = Field(default=600, ge=1)
+    invitation_ttl_hours: int = Field(default=168, ge=1)
+    invitation_max_per_inviter_per_day: int = Field(default=20, ge=1)
+    invitation_max_pending_per_org: int = Field(default=50, ge=1)
     # JWKS: app backends may share one egress IP.
     jwks_rate_limit: int = Field(default=120, ge=1)
     jwks_rate_window_seconds: int = Field(default=60, ge=1)
@@ -92,7 +100,8 @@ class Settings(BaseSettings):
     smtp_username: str | None = None
     smtp_password: SecretStr | None = None
     email_from: str | None = None  # defaults to SMTP_USERNAME
-    # All verification/reset sends per 24 h: verify uses at most 80 %, reset the rest (USR-04b).
+    # All verification/reset/invitation sends per 24 h: verify at most 70 %, reset 40 %,
+    # invitations 10 % (USR-04b, USR-06b).
     email_daily_cap: int = Field(default=300, ge=1)
     verify_email_rate_limit: int = Field(default=20, ge=1)
     verify_email_rate_window_seconds: int = Field(default=60, ge=1)

@@ -21,6 +21,7 @@ class SystemActor:
 SYSTEM_CLI = SystemActor("system:cli", privileged=True)
 SYSTEM_JOIN = SystemActor("system:join", privileged=False)
 SYSTEM_ORG_CREATE = SystemActor("system:org_create", privileged=False)
+SYSTEM_ORG_INVITE = SystemActor("system:org_invite", privileged=False)
 
 Actor = AdminPrincipal | SystemActor
 

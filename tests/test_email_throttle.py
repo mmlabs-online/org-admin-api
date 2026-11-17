@@ -32,26 +32,57 @@ def test_resend_retry_after(
 
 
 @pytest.mark.parametrize(
-    ("purpose", "total", "verify", "cap", "expected"),
+    ("purpose", "total", "verify", "invite", "cap", "expected"),
     [
-        ("reset", 149, 0, 300, None),  # reset share: 50 % of 300 = 150
-        ("reset", 150, 0, 300, "purpose_cap"),
-        ("verify", 239, 239, 300, None),  # verify share: 80 % of 300 = 240
-        ("verify", 240, 240, 300, "purpose_cap"),
-        ("verify", 250, 100, 300, None),  # reset sends do not use the verify share
-        ("verify", 299, 149, 300, None),  # reset at its ceiling cannot take verify's floor
-        ("reset", 299, 240, 300, None),  # verify sends do not use the reset share
-        ("reset", 300, 0, 300, "daily_cap"),  # the total cap binds every purpose
-        ("verify", 300, 0, 300, "daily_cap"),
-        ("reset", 0, 0, 1, None),  # cap 1: each share floors at 1
-        ("verify", 0, 0, 1, None),
-        ("verify", 1, 0, 1, "daily_cap"),
-        ("reset", 1, 1, 1, "daily_cap"),
-        ("reset", 2, 0, 5, "purpose_cap"),  # cap 5: reset share max(1, 2) = 2
-        ("reset", 4, 3, 5, None),
-        ("verify", 3, 3, 5, None),  # cap 5: verify share 4
-        ("verify", 4, 4, 5, "purpose_cap"),
+        ("reset", 119, 0, 0, 300, None),  # reset share: 40 % of 300 = 120
+        ("reset", 120, 0, 0, 300, "purpose_cap"),
+        ("verify", 209, 209, 0, 300, None),  # verify share: 70 % of 300 = 210
+        ("verify", 210, 210, 0, 300, "purpose_cap"),
+        ("invite", 29, 0, 29, 300, None),  # invite share: 10 % of 300 = 30
+        ("invite", 30, 0, 30, 300, "purpose_cap"),
+        ("verify", 250, 100, 0, 300, None),  # reset sends do not use the verify share
+        ("reset", 299, 210, 0, 300, None),  # verify sends do not use the reset share
+        ("reset", 150, 0, 40, 300, None),  # invite sends do not use the reset share
+        ("verify", 150, 100, 50, 300, None),  # invite sends do not use the verify share
+        ("invite", 250, 100, 0, 300, None),  # verify/reset sends do not use the invite share
+        ("reset", 300, 0, 0, 300, "daily_cap"),  # the total cap binds every purpose
+        ("verify", 300, 0, 0, 300, "daily_cap"),
+        ("invite", 300, 0, 0, 300, "daily_cap"),
+        ("reset", 0, 0, 0, 1, None),  # cap 1: each share floors at 1
+        ("verify", 0, 0, 0, 1, None),
+        ("invite", 0, 0, 0, 1, None),
+        ("verify", 1, 0, 0, 1, "daily_cap"),
+        ("reset", 1, 1, 0, 1, "daily_cap"),
+        ("reset", 2, 0, 0, 5, "purpose_cap"),  # cap 5: reset share max(1, 2) = 2
+        ("reset", 4, 3, 0, 5, None),
+        ("verify", 2, 2, 0, 5, None),  # cap 5: verify share 3
+        ("verify", 3, 3, 0, 5, "purpose_cap"),
+        ("invite", 1, 0, 1, 5, "purpose_cap"),  # cap 5: invite share max(1, 0) = 1
     ],
 )
-def test_cap_refusal(purpose: str, total: int, verify: int, cap: int, expected: str | None) -> None:
-    assert cap_refusal(purpose, total_24h=total, verify_24h=verify, daily_cap=cap) == expected
+def test_cap_refusal(
+    purpose: str, total: int, verify: int, invite: int, cap: int, expected: str | None
+) -> None:
+    assert (
+        cap_refusal(purpose, total_24h=total, verify_24h=verify, invite_24h=invite, daily_cap=cap)
+        == expected
+    )
+
+
+def test_invite_share_cannot_take_reset_floor() -> None:
+    # Verify and invite at their ceilings (210 + 30 of 300): reset still gets its 20 % floor (60).
+    for sent in range(60):
+        refusal = cap_refusal(
+            "reset", total_24h=240 + sent, verify_24h=210, invite_24h=30, daily_cap=300
+        )
+        assert refusal is None
+    assert (
+        cap_refusal("reset", total_24h=300, verify_24h=210, invite_24h=30, daily_cap=300)
+        == "daily_cap"
+    )
+
+
+def test_resend_retry_after_custom_daily_limit() -> None:
+    assert resend_retry_after(NOW, _ago(61), 2, _ago(3600), daily_limit=3) is None
+    assert resend_retry_after(NOW, _ago(61), 3, _ago(3600), daily_limit=3) == 86400 - 3600
+    assert resend_retry_after(NOW, _ago(61), 3, _ago(3600)) is None  # the default limit is 5
