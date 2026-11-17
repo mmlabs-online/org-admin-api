@@ -49,7 +49,7 @@ from app.modules.auth.schemas import (
 from app.modules.auth.service import LoginService, LogoutService, SignupService
 from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import TurnstileVerifier
-from app.modules.membership.schemas import JoinRequest, JoinResponse
+from app.modules.membership.schemas import JoinPendingResponse, JoinRequest, JoinResponse
 from app.modules.membership.service import JoinService
 from app.modules.tokens.deps import KeySetDep
 from app.modules.tokens.schemas import TokenRequest, TokenResponse
@@ -195,6 +195,7 @@ async def token(
         key_set=key_set,
         issuer=settings.jwt_issuer,
         ttl_seconds=settings.access_token_ttl_seconds,
+        join_reject_cooldown_seconds=settings.join_reject_cooldown_seconds,
     ).issue(app, device, body)
     if device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)
@@ -244,9 +245,15 @@ async def list_accounts(
 
 @router.post(
     "/apps/{key}/join",
-    response_model=JoinResponse,
+    response_model=JoinResponse | JoinPendingResponse,
     dependencies=[rate_limit("join")],
-    responses={401: _ERR, 403: _ERR, 422: _ERR, 429: _ERR},
+    responses={
+        202: {"model": JoinPendingResponse, "description": "Waiting for a staff decision"},
+        401: _ERR,
+        403: _ERR,
+        422: _ERR,
+        429: _ERR,
+    },
 )
 async def join_app(
     request: Request,
@@ -258,15 +265,21 @@ async def join_app(
     body: JoinRequest,
     device: DeviceDep,
     ctx: AuditContextDep,
-) -> JoinResponse:
+) -> JoinResponse | JoinPendingResponse:
     """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`; `{key}` must be the
     calling app. "Continue as <account>" is the consent (D8). 200 for a new or an existing
-    membership (idempotent)."""
-    await JoinService(session).join(app, device, key, body, ctx=ctx)
+    membership (idempotent); 202 `pending` + `request_id` on an `approval` app (idempotent);
+    403 `join_rejected` inside the cooldown after a rejection."""
     settings: Settings = request.app.state.settings
+    result = await JoinService(
+        session, reject_cooldown_seconds=settings.join_reject_cooldown_seconds
+    ).join(app, device, key, body, ctx=ctx)
     if device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)
     response.headers["Cache-Control"] = "no-store"
+    if result.request_id is not None:
+        response.status_code = status.HTTP_202_ACCEPTED
+        return JoinPendingResponse(status="pending", request_id=result.request_id)
     return JoinResponse(status="member")
 
 

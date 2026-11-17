@@ -50,9 +50,11 @@ async def create_org(
     """The caller needs the app-scope permission `<app>:org:create`; the creator gets the app's
     org owner role in the new org."""
     settings: Settings = request.app.state.settings
-    org = await OrgSelfService(session, max_per_user=settings.org_create_max_per_user).create(
-        app, device, body, ctx=ctx
-    )
+    org = await OrgSelfService(
+        session,
+        max_per_user=settings.org_create_max_per_user,
+        join_reject_cooldown_seconds=settings.join_reject_cooldown_seconds,
+    ).create(app, device, body, ctx=ctx)
     _finish(request, response, device)
     return org
 
@@ -76,7 +78,9 @@ async def list_my_orgs(
     """Orgs where the account holds a role of the calling app (own data only)."""
     settings: Settings = request.app.state.settings
     items, total = await OrgSelfService(
-        session, max_per_user=settings.org_create_max_per_user
+        session,
+        max_per_user=settings.org_create_max_per_user,
+        join_reject_cooldown_seconds=settings.join_reject_cooldown_seconds,
     ).list_mine(app, device, account_id, limit=page.limit, offset=page.offset)
     _finish(request, response, device)
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)

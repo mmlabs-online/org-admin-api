@@ -322,6 +322,8 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/accounts", {
 
 ### Joining ("Continue as <account>")
 
+`join_approval_unavailable` is gone from the HTTP API (it was provisional until USR-03g).
+
 Sequence: `/token` → 403 `not_member` with `details.join_available: true` → show "Continue as
 <email>" → on the user's click, join → call `/token` again.
 
@@ -333,6 +335,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
   body: JSON.stringify({ account_id }),
 });
 // 200 {"status": "member"} → call /token again
+// 202 {"status": "pending", "request_id": "..."} → waiting for staff approval
 ```
 
 - **The click is the consent** (D8): only call join after the user chose the account on a
@@ -341,6 +344,13 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 - Idempotent: an existing member gets the same 200 and nothing changes.
 - Under `join_policy = open` the user gets the app's default role (`<app>:member`) at app scope. A
   member that staff removed can join again; staff use `closed` (or tighten the role) to stop that.
+- Under `join_policy = approval` join queues one request and answers 202 `pending` with its
+  `request_id`; posting again returns the same id (idempotent). Staff approve (the user gets the
+  app's default role at app scope) or reject. After a 202, poll `/token` (not join) at a modest
+  interval or on the next app open; do not poll faster than the join rate limit. After a rejection
+  the user cannot ask again for a cooldown (default 7 days): join answers 403 `join_rejected` with
+  no reason, and `not_member.details.join_available` is false until it ends.
+- `not_member.details.join_available` is true for `approval` apps with a default role.
 
 | Status / code | Meaning |
 |---|---|
@@ -348,7 +358,8 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 | 401 `session_invalid` | Account not signed in on this device: re-list the accounts or sign in. |
 | 403 `email_unverified` | Verify the email first (see "Email verification"). |
 | 403 `join_closed` | The app does not accept joins (`admin` included). |
-| 403 `join_approval_unavailable` | The app uses approval, which is not available yet (USR-03g). |
+| 202 `{"status":"pending","request_id"}` | Waiting for staff approval (`approval` apps): poll `/token`. |
+| 403 `join_rejected` | Rejected recently; try later. No reason is given. |
 | 403 `join_unavailable` | The app is misconfigured (no usable default role): contact staff. |
 | 403 `app_mismatch` | Bug: the path key must equal `X-MM-App`. |
 | 403 `app_header_required` / `origin_not_allowed` | Bug or misconfiguration: header or origin. |

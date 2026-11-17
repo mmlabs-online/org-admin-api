@@ -262,7 +262,8 @@ async def test_token_email_unverified_403(
     [
         ("open", True, True),
         ("open", False, False),
-        ("approval", True, False),  # USR-03g makes approval joinable again
+        ("approval", True, True),
+        ("approval", False, False),
         ("closed", True, False),
     ],
 )

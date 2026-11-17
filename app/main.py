@@ -24,6 +24,7 @@ from app.modules.auth.turnstile import CloudflareTurnstileVerifier
 from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.email.sender import GmailSmtpSender, build_email_sender
 from app.modules.health.router import router as health_router
+from app.modules.join_requests.router import router as join_requests_router
 from app.modules.rbac.assignments_router import router as assignments_router
 from app.modules.rbac.manifest_router import router as manifest_router
 from app.modules.rbac.models import ADMIN_APP_KEY
@@ -110,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(app_credentials_router, prefix=settings.api_prefix)
     app.include_router(manifest_router, prefix=settings.api_prefix)
     app.include_router(assignments_router, prefix=settings.api_prefix)
+    app.include_router(join_requests_router, prefix=settings.api_prefix)
     app.include_router(audit_router, prefix=settings.api_prefix)
     app.include_router(me_router, prefix=settings.api_prefix)
     install_openapi(app)

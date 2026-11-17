@@ -66,8 +66,11 @@ is a member of B (else `403 not_member` with `join_available`), the org (if any)
 checks the account (401 `session_invalid`) and the verified email (403 `email_unverified`); an existing
 app-scope member gets 200 with no write; then applies `join_policy`: `open` assigns B's default role at
 app scope (`org_id NULL`, an expired row is revived) and writes an audit entry → 200 `{"status":"member"}`
-→ app retries `/api/v1/auth/token`. `closed` and `admin` → 403 `join_closed`; `approval` → 403
-`join_approval_unavailable` until USR-03g; no usable default role → 403 `join_unavailable` (USR-03b).
+→ app retries `/api/v1/auth/token`. `closed` and `admin` → 403 `join_closed`; no usable default role →
+403 `join_unavailable` (USR-03b). `approval` (USR-03g) queues one `join_requests` row (idempotent) and
+writes `app.join_requested` → 202 `{"status":"pending","request_id"}`; inside the rejection cooldown
+(`JOIN_REJECT_COOLDOWN_SECONDS`, default 7 days) → 403 `join_rejected`. Staff then approve (grants the
+default role at app scope, `granted_by` = staff) or reject; the app polls `/token`.
 
 **Switch / list accounts** — `GET /api/v1/auth/accounts` lists the device's non-revoked account sessions
 of active users, oldest first: `{"items": [{account_id, email, email_verified, display_name}]}` (a single
@@ -110,8 +113,10 @@ role_assignments   (id, user_id, role_id, org_id → organizations NULL, granted
                     expires_at NULL, created_at)   org_id NULL = app scope; never 0
 organizations      (id uuid, name, slug unique, description NULL, status active|suspended,
                     created_by → users NULL, created_at, updated_at)   [Identity module; existing table moved, D15]
-join_requests      (id, app_id, user_id, status pending|approved|rejected, created_at, decided_by NULL)
-                    — only needed for join_policy = approval (USR-03g)
+join_requests      (id, app_id, user_id, status pending|approved|rejected, created_at, decided_at NULL,
+                    decided_by NULL) — join_policy = approval (USR-03g). CHECK pending iff decided_at
+                    NULL; partial unique (app_id, user_id) WHERE pending; FKs cascade app/user,
+                    decided_by SET NULL
 email_tokens       (id, user_id, purpose verify|reset, token_hash, expires_at, used_at NULL,
                     created_at)  (USR-04)
 email_send_log     (id, email_hmac, purpose, sent_at)   — resend limits; HMAC-SHA256 with
@@ -144,7 +149,9 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/login` `{email, password, turnstile_token?}` | public (per-IP limit; Turnstile after 3 failures) + Origin/`X-MM-App` check (sets `__Host-mm_device`, ADR-0004) | create/rotate device session, add account session → `{account_id, user}` | USR-03 |
 | `GET /api/v1/auth/accounts` | cookie + Origin + `X-MM-App` | accounts signed in on this device | USR-03b |
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT (also `aud=admin` since ADM-002), or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03c, ADM-002 |
-| `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + Origin + `X-MM-App` (= `{key}`) | apply join policy, assign default role, audit; `approval` in USR-03g | USR-03b |
+| `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + Origin + `X-MM-App` (= `{key}`) | apply join policy, assign default role, audit; `approval`: 202 pending (USR-03g) | USR-03b |
+| `GET /api/v1/apps/{key}/join-requests?status=` | Bearer `admin:users:read` | staff list (default `pending`) | USR-03g |
+| `POST /api/v1/apps/{key}/join-requests/{request_id}/approve` \| `/reject` | Bearer `admin:roles:assign` | decide a request (200; 409 reasons in the response) | USR-03g |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
 | `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification; resend accepts `X-MM-App: admin` for staff only (USR-12); signup and forgot refuse admin (ADM-002d) | USR-04 |
 | `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04b) | send reset link (silent per-email limit) | USR-04b |
@@ -208,7 +215,8 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   every admin mutation (organizations, user status, apps, permissions, roles, role permissions,
   role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
   grant-super-admin, cleanup summary, create-account: `user.created` + `app.joined`) and `app.joined`
-  (ADM-004). Identity events (ADM-004b):
+  (ADM-004); join requests (USR-03g): `app.join_requested`, `app.join_request_approved`,
+  `app.join_request_rejected`. Identity events (ADM-004b):
   `auth.login_succeeded`, `auth.login_failed` (after the password check only; anonymous actor, no
   email), `auth.logged_out`, `auth.logged_out_all`, `device_session.reuse_revoked`,
   `auth.password_reset_completed`, `auth.email_verified`. Manifest pushes (USR-05b): one

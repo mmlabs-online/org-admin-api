@@ -16,6 +16,7 @@ from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext, EndUser
 from app.modules.audit.service import AuditLogger
 from app.modules.auth.errors import OriginNotAllowedError
+from app.modules.membership.service import join_available
 from app.modules.organizations.errors import (
     OrgCreateForbiddenError,
     OrgCreateUnavailableError,
@@ -26,7 +27,7 @@ from app.modules.organizations.repository import OrganizationRepository
 from app.modules.organizations.schemas import AuthOrgCreate, AuthOrgRead, MyOrgRead
 from app.modules.rbac.actor import SYSTEM_ORG_CREATE
 from app.modules.rbac.authz import AuthzService, permits
-from app.modules.rbac.models import App, AppStatus, JoinPolicy, OrgMode
+from app.modules.rbac.models import App, AppStatus, OrgMode
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import AssignmentService, assignment_changes
 from app.modules.sessions.errors import SessionInvalidError
@@ -49,7 +50,11 @@ def _org_not_supported() -> OrgNotSupportedError:
 
 
 class OrgSelfService:
-    def __init__(self, session: AsyncSession, *, max_per_user: int) -> None:
+    def __init__(
+        self, session: AsyncSession, *, max_per_user: int, join_reject_cooldown_seconds: int
+    ) -> None:
+        self.session = session
+        self.join_reject_cooldown_seconds = join_reject_cooldown_seconds
         self.repo = OrganizationRepository(session)
         self.rbac = RbacRepository(session)
         self.authz = AuthzService(session)
@@ -86,12 +91,13 @@ class OrgSelfService:
 
         app_permissions = await self.authz.effective_permissions(user.id, app.key)
         if not await self.authz.effective_roles(user.id, app.key):
-            join_available = (
-                app.join_policy == JoinPolicy.OPEN.value and app.default_role_id is not None
+            available = await join_available(
+                self.session,
+                app,
+                user.id,
+                reject_cooldown_seconds=self.join_reject_cooldown_seconds,
             )
-            raise NotMemberError(
-                "Not a member of this app", details={"join_available": join_available}
-            )
+            raise NotMemberError("Not a member of this app", details={"join_available": available})
         if not permits(app_permissions, f"{app.key}:{ORG_CREATE_ACTION}"):
             raise OrgCreateForbiddenError("Not allowed to create organizations")
 

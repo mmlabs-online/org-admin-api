@@ -12,7 +12,7 @@ class JoinClosedError(PermissionDeniedError):
 
 
 class JoinApprovalUnavailableError(PermissionDeniedError):
-    """`approval` apps until USR-03g."""
+    """CLI `create-account --join` only: `approval` apps need a staff decision."""
 
     code = "join_approval_unavailable"
 
@@ -21,3 +21,9 @@ class JoinUnavailableError(PermissionDeniedError):
     """`open` app without a usable default role (NULL, missing, or holding `is_admin`)."""
 
     code = "join_unavailable"
+
+
+class JoinRejectedError(PermissionDeniedError):
+    """A join request was rejected recently (cooldown). No reason, decider or date is revealed."""
+
+    code = "join_rejected"
