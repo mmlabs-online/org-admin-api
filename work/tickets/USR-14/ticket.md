@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | IN_PROGRESS |
+| State | REVIEW |
 | Priority | P2 |
 | Areas | architecture, auth, security, api |
 | Attempts | 0 |
@@ -27,3 +27,4 @@ USR-13, USR-10.
 
 ## Notes / answers from owner
 - 2026-11-17 (owner): create from the USR-13/USR-10 follow-ups (most valuable with 12 h tokens).
+- 2026-11-17 (orchestrator): checked `mmlabs-auth` in the workspace: the Python verifier uses PyJWT with `require` on the six claims only (extra claims accepted); the TS package is a browser client and does not verify tokens. admin-pan not in the workspace — owner to confirm before deploy.

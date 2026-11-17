@@ -75,6 +75,9 @@ the `admin` app's origins (set with `set-admin-origins`).
   `expires_in` runs out. Role changes show up in `GET /api/v1/me/permissions` on the next call;
   the token's `roles` claim may lag up to the token TTL (`ACCESS_TOKEN_TTL_SECONDS`, default 15
   min; 12 h in production).
+- An admin token ends when its account session ends: logout of that account in **any** app on the
+  same browser, logout-all, password reset, staff session revoke, or disabling the user. The next
+  admin call is 401; re-mint once, and on `session_invalid` go to login. Do not decode `sid`.
 - On a 401 from an admin endpoint, call `/auth/token` once; if that fails too, send the user to
   login (401 `session_invalid` from `/token` = sign in again).
 - To learn the signed-in staff member's own id, roles and permissions, call
@@ -297,7 +300,7 @@ link replaces older ones. The `/reset-password` page:
 
 **Effects.** A reset ends **every signed-in session of the account** on every device (other
 accounts signed in on the same device stay); the next `/token` for it answers 401
-`session_invalid`, so sign in again. Access tokens already issued stay valid until they expire
+`session_invalid`, so sign in again. Admin tokens end at once; app tokens already issued stay valid until they expire
 (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production). A reset also marks the email verified (the user proved
 they receive mail there) and clears the login backoff for the email.
 
@@ -386,7 +389,8 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 11. Revocation lag: a logout, a disabled user, a removed role or org role, a suspended org and an
     expired assignment reach a token only at its `exp` (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).
     Apps that need faster revocation check server-side, as the admin API does, or keep an
-    app-local deny list by `sub`.
+    app-local deny list by `sub`. Only `aud=admin` tokens are session-bound, and that check is
+    server-side in the admin API.
 12. Never cache an authorization decision beyond the request. Map `roles` through the catalog per
     request. Do not turn a token into a longer app session; any app session must end at or before
     the token's `exp`.
@@ -399,7 +403,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
 as a string), `org_roles` (only with `org`: the sorted role keys held in that org only), `iat`,
-`exp`, `jti`.
+`exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
 
 For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles plus the roles
 held in the `org` org). Authorize org-scoped data and actions **only** from `org_roles`, mapped

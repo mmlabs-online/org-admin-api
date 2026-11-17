@@ -64,9 +64,10 @@ async def update_user_status(
 
 _REVOKE_LIMITS = (
     "Revoking sessions stops the user from getting **new** access tokens (`/auth/token` -> 401 "
-    "`session_invalid`). It does **not** end tokens already issued, including admin "
-    "(`aud=admin`) tokens: they stay valid until `exp`, at most `ACCESS_TOKEN_TTL_SECONDS` "
-    "(12 h in production) plus 30 s leeway. It also does not stop a new sign-in with the "
+    "`session_invalid`) and ends the user's admin (`aud=admin`) tokens bound to those sessions "
+    "on their next admin request. Tokens of other apps stay valid until `exp`, at most "
+    "`ACCESS_TOKEN_TTL_SECONDS` (12 h in production) plus 30 s leeway. It does not stop a "
+    "new sign-in with the "
     "password. IP and user agent are recorded when the browser first signed in and are shared "
     "by every account on that browser."
 )

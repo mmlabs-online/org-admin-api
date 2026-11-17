@@ -173,13 +173,13 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | Admin (self-scoped): `GET /api/v1/me/permissions` | Bearer `aud=admin`, self-scoped, no permission (ADR-0008 USR-11 amendment) | caller's own `user_id`, admin role keys, effective admin permissions | USR-11 |
 | Admin: `/api/v1/apps`, `/apps/{key}/permissions`, `/apps/{key}/roles` (writes) | Bearer `aud=admin` + `require_permission` (`admin:apps:read\|write`, `admin:roles:manage`; `admin:*` for the admin app and `is_admin` changes) | apps, permissions, roles | USR-02, ADM-002 |
 | Admin: `/api/v1/users/{id}/role-assignments` | Bearer `aud=admin` + `require_permission` (`admin:users:read`, `admin:roles:assign`; `admin:*` for privileged roles) | role assignments | USR-02, ADM-002 |
-| Admin: `GET\|DELETE /api/v1/users/{id}/sessions`, `DELETE /api/v1/users/{id}/sessions/{session_id}` | Bearer `aud=admin` + `admin:*` (self → 403 `self_session_change_forbidden`) | list active account sessions (`Page`, `no-store`), revoke one / all (account sessions only; device sessions stay). Revoking sessions stops the user from getting **new** access tokens (`/auth/token` -> 401 `session_invalid`). It does **not** end tokens already issued, including admin (`aud=admin`) tokens: they stay valid until `exp`, at most `ACCESS_TOKEN_TTL_SECONDS` (12 h in production) plus 30 s leeway. It also does not stop a new sign-in with the password. IP and user agent are recorded when the browser first signed in and are shared by every account on that browser. | USR-10 |
+| Admin: `GET\|DELETE /api/v1/users/{id}/sessions`, `DELETE /api/v1/users/{id}/sessions/{session_id}` | Bearer `aud=admin` + `admin:*` (self → 403 `self_session_change_forbidden`) | list active account sessions (`Page`, `no-store`), revoke one / all (account sessions only; device sessions stay). Revoking sessions stops the user from getting **new** access tokens (`/auth/token` -> 401 `session_invalid`) and ends the user's admin (`aud=admin`) tokens bound to those sessions on their next admin request (USR-14). Tokens of other apps stay valid until `exp`, at most `ACCESS_TOKEN_TTL_SECONDS` (12 h in production) plus 30 s leeway. It does not stop a new sign-in with the password. IP and user agent are recorded when the browser first signed in and are shared by every account on that browser. | USR-10 |
 | Admin: `GET /api/v1/audit-logs` (filters `actor_user_id`, `actor_kind`, `action`, `target_type`, `target_id`, `app_key`, `from`/`to`) | Bearer `aud=admin` + `require_permission` (`admin:audit:read`, held only via `admin:*`) | read-only audit log | ADM-004 |
 
 Admin auth (ADR-0008): the Bearer token comes from the `Authorization` header only, never the
 device cookie. It is verified like `docs/consumers.md` prescribes (`typ`, ES256, `kid`, `iss`,
 `aud=admin`, `exp`, required claims, `email_verified`); then the user is reloaded (active,
-verified) and its admin permissions are read from the database on every request. 401
+verified) and its admin permissions are read from the database on every request; the reload also checks that the token's `sid` account session (and its device) is not revoked (USR-14). 401
 `unauthorized` (`WWW-Authenticate: Bearer realm="admin"`, no details) for a missing or bad token
 or an unusable user; 403 `permission_denied` with `details.required` for a missing permission.
 `admin:*` grants every admin permission.
@@ -195,7 +195,7 @@ or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_su
 Token (D7): JWT, ES256 (P-256, ADR-0005), lifetime `ACCESS_TOKEN_TTL_SECONDS` (default 15 min, 12 h in production; ADR-0005 §6 as amended by USR-13), header `kid` + `typ: at+jwt`.
 Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,
 `email`, `email_verified`, `roles` (app-scope roles + roles in the selected org), `org` (only when
-`org_id` given, USR-06), `org_roles` (only with `org`: roles held in that org only, ADR-0015), `iat`, `exp`, `jti`.
+`org_id` given, USR-06), `org_roles` (only with `org`: roles held in that org only, ADR-0015), `iat`, `exp`, `jti`, `sid` (only for `aud=admin`: the account-session id, USR-14).
 
 ## 5. Security rules (complements R11 in CLAUDE.md)
 
@@ -221,7 +221,7 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
   grant-super-admin, cleanup summary, create-account: `user.created` + `app.joined`) and `app.joined`
   (ADM-004); join requests (USR-03g): `app.join_requested`, `app.join_request_approved`,
-  `app.join_request_rejected`; staff session revoke (USR-10): `user.session_revoked`, `user.sessions_revoked` (session ids and counts only; no-ops write nothing). Already-issued access tokens stay valid until `exp`, at most `ACCESS_TOKEN_TTL_SECONDS` (12 h in production) plus 30 s leeway, including admin tokens. Identity events (ADM-004b):
+  `app.join_request_rejected`; staff session revoke (USR-10): `user.session_revoked`, `user.sessions_revoked` (session ids and counts only; no-ops write nothing). Already-issued access tokens stay valid until `exp`, at most `ACCESS_TOKEN_TTL_SECONDS` (12 h in production) plus 30 s leeway for app tokens; admin tokens end on the next admin request (USR-14). Identity events (ADM-004b):
   `auth.login_succeeded`, `auth.login_failed` (after the password check only; anonymous actor, no
   email), `auth.logged_out`, `auth.logged_out_all`, `device_session.reuse_revoked`,
   `auth.password_reset_completed`, `auth.email_verified`. Manifest pushes (USR-05b): one

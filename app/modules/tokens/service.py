@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.jwt_keys import KeySet
 from app.modules.membership.service import join_available
 from app.modules.rbac.authz import AuthzService
-from app.modules.rbac.models import App, OrgMode
+from app.modules.rbac.models import ADMIN_APP_KEY, App, OrgMode
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.repository import SessionRepository
 from app.modules.sessions.service import ResolvedDevice
@@ -95,6 +95,9 @@ class TokenService:
             roles = await self.authz.effective_roles(user.id, app.key, data.org_id)
             claims["org"] = str(data.org_id)
             claims["org_roles"] = org_roles  # org-exact only (ADR-0015); `roles` stays the union
+
+        if app.key == ADMIN_APP_KEY:
+            claims["sid"] = str(account.id)  # admin tokens end with this account session (USR-14)
 
         now = int(self.clock())
         jti = str(uuid.uuid4())

@@ -17,13 +17,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.jwt_keys import build_key_set
 from app.modules.rbac.models import App, Permission
 from app.modules.users.models import User
-from tests.auth_factories import make_login_user
+from tests.auth_factories import make_device, make_login_user
 from tests.conftest import TEST_JWT_ISSUER, TEST_JWT_SIGNING_KEY
 from tests.rbac_factories import assign, grant, make_role
 
 # The app under test signs with this key (`JWT_SIGNING_KEY`), so tokens minted here verify.
 KEY_SET = build_key_set(TEST_JWT_SIGNING_KEY, [])
 DROP = object()  # claim/header override: leave the member out
+_SIDS: dict[uuid.UUID, uuid.UUID] = {}  # user id -> account-session id (the token's `sid`)
+
+
+async def admin_session(session: AsyncSession, user: User) -> uuid.UUID:
+    """A live device + account session for `user`; `claims_for(user)` uses it as `sid`."""
+    _, _, (account,) = await make_device(session, user)
+    _SIDS[user.id] = account.id
+    return account.id
 
 
 async def make_staff(
@@ -49,6 +57,7 @@ async def make_staff(
         role = await make_role(session, admin, f"admin:test-{uuid.uuid4().hex[:8]}")
         await grant(session, role, *perms)
         await assign(session, user, role, expires_at=expires_at)
+    await admin_session(session, user)
     return user
 
 
@@ -66,6 +75,8 @@ def claims_for(user_or_sub: User | str, **overrides: Any) -> dict[str, Any]:
         "exp": now + 900,
         "jti": str(uuid.uuid4()),
     }
+    if isinstance(user_or_sub, User) and user_or_sub.id in _SIDS:
+        claims["sid"] = str(_SIDS[user_or_sub.id])
     claims.update(overrides)
     return {k: v for k, v in claims.items() if v is not DROP}
 

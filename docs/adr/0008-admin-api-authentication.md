@@ -39,10 +39,10 @@ device cookie `__Host-mm_device` reaches every path, so admin auth must not read
 7. **Admin token TTL** = `ACCESS_TOKEN_TTL_SECONDS` (default 900 s). No separate ceiling: the
    per-request reload already revokes. Admin tokens need a registered admin origin (ADM-002c). Production runs 12 h (USR-13, ADR-0005 §6
    amendment). The reload covers disable, role revoke and assignment expiry; it does not cover
-   logout, password reset, staff session revoke or `--clear`.
+   `--clear`. Logout, password reset and staff session revoke are covered since USR-14 (amendment below).
 
 ## Consequences
-- An admin call costs one user lookup and one permission query.
+- An admin call costs one user lookup, one permission query and (USR-14) one session lookup.
 - Tokens are never logged; denials log reason, `jti` and `user_id` when known, never email.
 - Adding an admin route without `require_permission` fails the test suite.
 - No admin token can be obtained in an environment until `set-admin-origins` (ADM-002c) sets
@@ -102,7 +102,7 @@ longer decides privileged writes:
 - **Check order:** lock the app (ADR-0003 §10) → 404 → request-shape 422s → 403 guards → state
   409/422 → write. User status locks `admin` first, then the user row, so the last-super-admin
   guard is serialized with revokes; disabling revokes the user's account sessions on every device
-  (device sessions stay; issued app tokens last until `exp`).
+  (device sessions stay; issued app tokens last until `exp`; admin tokens end with the sessions, USR-14).
 - **Accepted risks (v1):** effective permissions are read before the app lock, so a concurrent
   revoke of `admin:*` can let one in-flight request pass; the origin-uniqueness check runs under
   different app locks, so two concurrent writes could claim one origin (staff-only, follow-up for
@@ -185,3 +185,31 @@ person before granting an admin role to an existing account).
 
 Rejected alternative: allow any signed-in account (simpler, same outcome for staff, but re-opens
 F6 for no staff benefit).
+
+## Amendment: session-bound admin tokens (USR-14, 2026-11-17)
+Amends §3, §7 and Consequences. Closes ADR-0005 accepted risk 4 for logout, password reset, staff
+session revoke and disable-then-re-enable.
+
+- **Mint:** `/auth/token` with `audience=admin` adds `sid` = the account-session id (`account_id`,
+  ADR-0004) to the token. Consumer tokens never carry it.
+- **Reload (§3):** `current_admin` parses `sid` (missing or malformed: 401, log reason `sid`) and
+  `AdminAuthService.principal` checks, with one `EXISTS` over `account_sessions` JOIN
+  `device_sessions`, that the account session belongs to the token's `sub` and that neither it nor
+  its device is revoked. Otherwise 401 (log reason `session`). Same envelope and
+  `WWW-Authenticate` as every other admin 401; the cause is only logged. No cache, no fallback: a
+  lookup error is a 500, never an allow. `GET /api/v1/me/permissions` is covered too.
+- **Why it works:** logout, logout-all, cookie reuse, password reset, staff revoke (one and all) and
+  disable all set `revoked_at` on the account session; re-enable never clears it. The check is made
+  when the token is used, so there is no clock comparison and the mint race is covered.
+- **No idle or max-age check:** device idle (days) and max age (365 d) are far longer than the TTL,
+  and minting already needs a usable device.
+- **§7:** logout, password reset and staff session revoke now end an admin token on its next
+  request. `--clear` still does not. Role revoke followed by a re-grant within TTL + leeway still
+  revives a token (follow-up).
+- **Rollout:** admin tokens issued before the deploy have no `sid` and get 401 once (fail closed);
+  clients re-mint.
+- **Rejected: `tokens_valid_after`** (per-user cutoff against `iat`): needs a column and migration,
+  logs out every session of the user on a single-session logout, has a one-second `iat` boundary and
+  an app-versus-DB clock comparison, and closes no extra trigger.
+- **Consequence:** one more indexed (primary key) lookup per admin call. An in-flight request that
+  passed the check before a concurrent revoke commits completes.

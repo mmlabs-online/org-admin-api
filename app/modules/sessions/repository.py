@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -215,6 +215,19 @@ class SessionRepository:
         if created_before is not None:
             query = query.where(AccountSession.created_at < created_before)
         return await self.session.scalar(query.execution_options(populate_existing=True))
+
+    async def is_account_active(self, account_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        """The user's account session and its device are both not revoked (database clock)."""
+        query = select(
+            exists().where(
+                AccountSession.id == account_id,
+                AccountSession.user_id == user_id,
+                AccountSession.revoked_at.is_(None),
+                DeviceSession.id == AccountSession.device_session_id,
+                DeviceSession.revoked_at.is_(None),
+            )
+        )
+        return bool(await self.session.scalar(query))
 
     async def list_active_accounts(
         self, device_id: uuid.UUID, *, created_before: datetime | None

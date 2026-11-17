@@ -89,11 +89,25 @@ verifier leeway stays 30 s (consumers at most 60 s).
    expiry immediate for `aud=admin`. But logout, password reset, staff session revoke,
    disable-then-re-enable within TTL + leeway (counted from the disable/revoke time) and `set-admin-origins --clear` do **not** end a stolen
    admin token. Cutting one means keeping the user disabled or the role revoked for at least
-   TTL + leeway, or an emergency key rotation.
+   TTL + leeway, or an emergency key rotation. *(Amended by USR-14: logout, reset, staff revoke and
+   disable-then-re-enable now end an admin token; see the amendment below.)*
 5. Key rotation must keep the old public key for TTL + leeway + JWKS `max-age` (about 12 h 06 min;
    wait 12.5 h) after the last old-key signer stopped. Emergency rotation is the only global kill
    switch, bounded by consumer JWKS caches (at most 1 h unless flushed).
 
 **Follow-ups (not in this ticket):** a per-audience admin TTL; a `tokens_valid_after` or `sid`
-check in the admin reload; capping `exp` at the earliest assignment expiry; verifying consumer
+check in the admin reload *(done by USR-14, `sid`)*; capping `exp` at the earliest assignment expiry; verifying consumer
 libraries and apps (`mmlabs-auth`, admin-pan, ricotdin, TuDoCuaTui) before production is set to 43200.
+
+## Amendment: `sid` for admin tokens (USR-14, 2026-11-17)
+- **§5 claims:** `sid` is an optional claim, present only when `aud=admin`. It equals the
+  account-session id (`account_id`, ADR-0004). `sub` is unchanged and is still never the
+  account-session id. Adding a claim is not breaking; verifiers must not require `sid`
+  (`REQUIRED_CLAIMS` is unchanged). The admin API requires it (ADR-0008 USR-14 amendment).
+- **Risk 4 rewritten:** for `aud=admin`, logout, password reset, staff session revoke and
+  disable-then-re-enable end the token on the next admin request. Still open: role revoke followed
+  by a re-grant within TTL + leeway, and `set-admin-origins --clear`.
+- **Risk 2 (consumer apps) is unchanged:** their tokens stay valid until `exp`.
+- **Rejected alternative: `tokens_valid_after`.** A per-user cutoff compared with `iat` needs a
+  migration, over-kills the user's other sessions, depends on second-granularity `iat` and on the
+  app and DB clocks agreeing, and adds nothing for the listed triggers.
