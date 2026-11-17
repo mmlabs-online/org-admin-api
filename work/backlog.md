@@ -57,7 +57,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-05b | Manifest push endpoint (app credential auth) | DONE | P2 | api, auth, security | 1 | 2026-11-17 |
 | ADM-006 | Org product entitlements | DONE | P2 | architecture, db, api | 0 | 2026-11-17 |
 | ADM-018 | Service read of org entitlements (`ent` token claim) | BACKLOG | P3 | architecture, auth, security, api | 0 | 2026-11-17 |
-| USR-14 | Admin tokens end on logout, password reset and staff session revoke | BACKLOG | P2 | architecture, auth, security, api | 0 | 2026-11-17 |
+| USR-14 | Admin tokens end on logout, password reset and staff session revoke | PLANNING | P2 | architecture, auth, security, api | 0 | 2026-11-17 |
 | USR-15 | Join requests hardening | BACKLOG | P3 | api, auth, security, db | 0 | 2026-11-17 |
 | ADM-019 | Guard org_mode required → none while org data exists | BACKLOG | P3 | api, db | 0 | 2026-11-17 |
 | BUG-001 | `test_purge_batches_share_cutoff` fails intermittently in `make check` | BACKLOG | P3 | db | 0 | 2026-11-17 |
