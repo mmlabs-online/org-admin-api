@@ -7,7 +7,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 
 | ID | Title | State | Priority | Areas | Attempts | Updated |
 |---|---|---|---|---|---|---|
-| USR-13 | Allow 12-hour access tokens (ADR-0005 amendment) | BACKLOG | P1 | architecture, auth, security | 0 | 2026-11-17 |
+| USR-13 | Allow 12-hour access tokens (ADR-0005 amendment) | PLANNING | P1 | architecture, auth, security | 0 | 2026-11-17 |
 | ADM-001 | Scaffold FastAPI + PostgreSQL service, tooling and CI | DONE | P1 | architecture, db | 1 | 2026-11-10 |
 | ADM-007 | Release and deploy pipeline to api.mmlabs.online | IN_PROGRESS | P1 | architecture, security | 0 | 2026-11-10 |
 | USR-01 | Users, passwords (Argon2id) and sign-up with Turnstile | DONE | P1 | architecture, db, api, auth, security | 1 | 2026-11-11 |
