@@ -63,7 +63,11 @@ class InvitationRepository:
         invited_by: uuid.UUID,
         ttl: timedelta,
     ) -> OrgInvitation:
-        """`expires_at` is on the database clock, like every other expiry check."""
+        """`expires_at` is on the database clock, like every other expiry check.
+
+        The partial unique index `uq_org_invitations_pending` cannot race here: the caller holds
+        the app lock (`lock_app`) and the per-email advisory lock, which serialize every create.
+        If that lock is ever removed, map its IntegrityError to ConflictError."""
         invitation = OrgInvitation(
             org_id=org_id,
             app_id=app_id,

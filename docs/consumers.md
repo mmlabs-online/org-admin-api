@@ -155,7 +155,8 @@ A member holding `<app>:org:invite` **in that org** invites an email address:
 permission, and nothing beyond the inviter's own permissions in that org (the owner role is
 invitable by an owner; there is no member removal in v1, staff only). The answer is always
 `201 {id, org_id, role, expires_at}`, whether or not the address has an account, is a member, or
-hit a send limit: do not promise delivery. The mail links to
+hit the per-address send limit: do not promise delivery. The global daily send cap answers
+429 `rate_limited` with `Retry-After` instead. The mail links to
 `{Origin}/accept-invitation#token=<token>`; the link works once and expires (default 7 days).
 
 Each app implements the `/accept-invitation` page: read the token from the fragment, clear it
@@ -167,11 +168,12 @@ then `/auth/token` with `org_id` works.
 
 | Status / code | Meaning |
 |---|---|
-| 201 | invitation created (or silently not sent: limits) |
+| 201 | invitation created (or silently not sent: per-address limit) |
+| 429 `rate_limited` | per-IP limit, or the global daily send cap / invite share; back off for `Retry-After` |
 | 403 `org_access_denied` | unknown, suspended or not-a-member org (one answer) |
 | 403 `org_invite_forbidden` | no `<app>:org:invite` in that org |
 | 403 `invite_role_forbidden` | the role holds an admin permission or more than the inviter has |
-| 403 `invitation_limit_reached` | inviter's daily cap or the org's pending cap |
+| 403 `invitation_limit_reached` | inviter's daily cap (default 5) or the org's pending cap |
 | 403 `org_invite_unavailable` | app setup does not allow invitations (see below) |
 | 403 `email_unverified` | the account's email is not verified |
 | 403 `invitation_email_mismatch` | the token is for another address; not consumed |
@@ -180,8 +182,11 @@ then `/auth/token` with `org_id` works.
 
 Staff configuration requirement (the S1 guard): the app needs `org_mode = required`,
 `join_policy = open`, a default role and an org owner role, and the default role and the owner
-role must share no permission except `<app>:org:create`. Otherwise invitations answer 403
-`org_invite_unavailable` (create and accept; nothing is consumed). The manifest sync re-widening
+role must share no permission except `<app>:org:create`. The owner role must also be a superset of all
+org-level permissions, or the guard can pass while the default role widens a narrower invited role.
+Otherwise invitations answer 403 `org_invite_unavailable` (create and accept; nothing is consumed).
+Any member holding `org:invite` can supersede another member's pending invitation to the same
+address by re-inviting it (inside the org). The manifest sync re-widening
 `<app>:member` therefore disables invitations until USR-06c. Residual risk: a staff-granted
 app-scope role that carries org-level permissions still reaches every org token.
 

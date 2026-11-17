@@ -8,7 +8,8 @@ USR-06b: expand-only except the `email_send_log` CHECK swap.
 
 1. New table `org_invitations` (only SHA-256(token) and the email HMAC are stored).
 2. `email_send_log.purpose` CHECK widened to `('verify', 'reset', 'invite')`, added `NOT VALID`
-   and then validated, so the swap holds no long lock.
+   and then validated. `DROP CONSTRAINT` takes ACCESS EXCLUSIVE until commit and `VALIDATE`
+   runs in the same transaction, so the split saves no lock time; `email_send_log` is small.
 
 `downgrade()` is lossy for invitations and `invite` send-log rows.
 """

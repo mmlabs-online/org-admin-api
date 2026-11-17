@@ -39,3 +39,17 @@
 ### Scope self-check
 - Could the diff be smaller? No: every file maps to the plan list; mail copy and docs are the minimum.
 - Diff size: see `git diff --shortstat` of the commits (production about 700 new lines incl. migration, the rest tests and docs).
+
+## Should-fix (after PASS review; security-review S-1, S-2, N-2, N-4, N-6, N-7, N-8)
+
+Files touched:
+- `app/modules/invitations/service.py`: `_supersede` helper; the per-target silent branch now supersedes this org's own pending invitations (audit `invitation_revoked`, reason `superseded`) before the silent 201 (S-1); the global cap / invite share raises `DailyCapReachedError(DAILY_CAP_RETRY_SECONDS)` (429 `rate_limited`, `Retry-After`) instead of a silent 201 (S-2); `hmac.compare_digest` for the email match (N-8).
+- `app/modules/invitations/repository.py`: comment on `add` that the app lock prevents the partial-unique race (N-7).
+- `app/core/config.py`: `invitation_max_per_inviter_per_day` default 20 -> 5 (S-2).
+- `migrations/versions/20261117_c5e91d3a7b24_usr06b_org_invitations.py`: docstring lock wording only (N-6).
+- `docs/adr/0014-org-invitations.md`, `docs/consumers.md`, `docs/deploy.md`: S-1/S-2 behaviour, owner-superset precondition (N-2), same-org supersede by any `org:invite` member (N-4).
+- Tests: `tests/test_invitations_create.py` (new `test_target_limited_reinvite_supersedes_and_audits`, global cap test now expects 429 + Retry-After, target-capped test expects the supersede audit row), `tests/test_invitations_accept.py` (owner token gives 422 `token_invalid` after a throttled viewer re-invite).
+
+Checks: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: 1941 passed (ruff, format, mypy clean). One earlier full run had a flaky `test_cli_audit_purge::test_purge_batches_share_cutoff` that passes alone and on rerun.
+
+Out-of-plan files: none beyond the listed should-fix items. Follow-ups: N-1, N-3, N-5 unchanged.

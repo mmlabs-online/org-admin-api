@@ -412,7 +412,9 @@ async def test_response_same_when_target_capped(
     await email_dispatcher.join()
     assert len(fake_email.sent) == 1
     assert len(await invitations(db_session)) == 1
-    assert len(await _audit(db_session, env)) == audit_before
+    # Only the supersede of the first invitation is audited (S-1); no created row.
+    after = await _audit(db_session, env)
+    assert len(after) == audit_before + 1 and sum(r.action.endswith("revoked") for r in after) == 1
     # The 3 per 24 h limit, across orgs.
     await db_session.execute(
         text("UPDATE email_send_log SET sent_at = sent_at - interval '3 hours'")
@@ -432,6 +434,19 @@ async def test_response_same_when_target_capped(
     await email_dispatcher.join()
     assert len(fake_email.sent) == 1
     assert len(await invitations(db_session)) == 1
+
+
+async def test_target_limited_reinvite_supersedes_and_audits(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    env = await setup_calechip(db_session)
+    assert (await _invite(client, env, role="calechip:org-owner")).status_code == 201
+    resp = await _invite(client, env)  # within a minute: silent, role viewer
+    assert resp.status_code == 201 and resp.json()["role"] == "calechip:org-viewer"
+    rows = await invitations(db_session)
+    assert len(rows) == 1 and rows[0].revoked_at is not None
+    revoked = [r for r in await _audit(db_session, env) if r.action.endswith("revoked")]
+    assert len(revoked) == 1 and revoked[0].changes == {"reason": "superseded"}
 
 
 async def test_create_does_not_query_users_by_email() -> None:
@@ -470,7 +485,7 @@ async def test_create_rate_limited_429(make_client: MakeClient, db_session: Asyn
     assert resp.status_code == 429 and _error(resp)["code"] == "rate_limited"
 
 
-async def test_global_cap_counts_invites(
+async def test_global_cap_counts_invites_and_answers_429(
     make_client: MakeClient,
     db_session: AsyncSession,
     fake_email: FakeEmailSender,
@@ -480,7 +495,9 @@ async def test_global_cap_counts_invites(
     async with make_client(email_daily_cap=5) as client:  # invite share: max(1, 5 * 10 // 100)
         first = await _invite(client, env, "a@example.com")
         second = await _invite(client, env, "b@example.com")
-    assert first.status_code == second.status_code == 201
+    assert first.status_code == 201
+    assert second.status_code == 429 and _error(second)["code"] == "rate_limited"
+    assert second.headers["Retry-After"] == "3600"
     await email_dispatcher.join()
     assert [m.to for m in fake_email.sent] == ["a@example.com"]
     assert len(await invitations(db_session)) == 1

@@ -264,6 +264,20 @@ async def test_replayed_expired_superseded_unknown_other_app_identical_422(
     assert all(b == bodies[0] for b in bodies)
 
 
+async def test_owner_token_dead_after_throttled_downgrade_reinvite(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    fake_email: FakeEmailSender,
+    email_dispatcher: EmailDispatcher,
+) -> None:
+    env = await setup_calechip(db_session)
+    invitee = await _invitee(db_session)
+    owner_token = await _send(client, env, email_dispatcher, fake_email, role="calechip:org-owner")
+    await _send(client, env, email_dispatcher, fake_email)  # within 60 s: silent, viewer
+    resp = await _accept(client, invitee, owner_token)
+    assert resp.status_code == 422 and _error(resp)["code"] == "token_invalid"
+
+
 async def test_accept_bad_account_401(client: AsyncClient, db_session: AsyncSession) -> None:
     await setup_calechip(db_session)
     invitee = await _invitee(db_session)

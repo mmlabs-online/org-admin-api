@@ -34,9 +34,14 @@ single use, expiring, hashed at rest, and must not become an account or membersh
 8. **Join on accept (B1).** Accepting joins the app with the default role when the account has
    no app-scope role (`app.joined` audited). Closed or unusable apps refuse, nothing consumed.
 9. **No oracle on create.** The create path never reads `users` by email and answers the same
-   201 for every target, including the silent per-target (1/min, 3/24 h, across orgs) and
-   global-cap refusals, which write nothing. Per-inviter (20/day) and per-org pending (50) caps
-   are about the caller and answer 403 `invitation_limit_reached`.
+   201 for every target, including the silent per-target limit (1/min, 3/24 h, across orgs),
+   which sends nothing but still supersedes this org's own pending invitations for that address
+   (so a downgrade re-invite never leaves the higher role live). The global daily cap and the
+   invite share say nothing about the target and answer 429 `rate_limited` with `Retry-After`
+   (as verify and reset), so a cap used up by others is visible. Per-inviter (5/day) and per-org
+   pending (50) caps are about the caller and answer 403 `invitation_limit_reached`. A member
+   holding `org:invite` can supersede another member's pending invitation to the same address
+   by re-inviting it (the effect stays inside the org).
 10. **Email cap.** Purpose `invite` has a 10 % share of `EMAIL_DAILY_CAP`; verify 70 %, reset 40 %
     (ADR-0007 amendment) keep the verify >= 50 % and reset >= 20 % floors.
 11. **S1 guard (data only, fail closed).** An org token carries app-scope roles plus the org
@@ -45,6 +50,9 @@ single use, expiring, hashed at rest, and must not become an account or membersh
     `join_policy = open`, the default and owner roles are set, the default role has no admin
     permission, and the default and owner roles share no permission except `<app>:org:create`.
     Otherwise 403 `org_invite_unavailable` (create and accept). No new token claim.
+    Precondition: the owner role is a superset of all org-level permissions; with a sparse owner
+    role the overlap check can pass while the default role still carries an org-level
+    permission (fixed for good by USR-06c).
 
 ## Consequences
 - Residual risk: a staff-granted app-scope role carrying org-level permissions still reaches

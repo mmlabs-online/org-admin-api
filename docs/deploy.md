@@ -183,7 +183,7 @@ docker compose -p org-admin-api logs --since 24h org-admin-api | grep -E 'email_
 | `email_not_sent reason=daily_cap` | Our total `EMAIL_DAILY_CAP` is reached | Sign-up spikes, forgot floods (per-IP 429s) | Find the source; consider `EMAIL_DAILY_CAP` |
 | `email_not_sent reason=purpose_cap purpose=reset` | Reset used its 40 % share | Per-IP 429s and Turnstile failures on forgot | Repeated: likely forgot abuse; verification keeps its share |
 | `email_not_sent reason=purpose_cap purpose=verify` | Verification used its 70 % share | Sign-up volume | Repeated: sign-up spam; reset keeps its share |
-| `invitation_not_sent reason=purpose_cap` (or `daily_cap`, `target_limit`) | Invitations used their 10 % share, the global cap, or the per-target limit | Heavy invite use | Repeated: invite abuse; verify and reset keep their floors |
+| `invitation_not_sent reason=purpose_cap` (or `daily_cap`, `target_limit`) | Invitations used their 10 % share or the global cap (answered 429), or the per-target limit (silent 201) | Heavy invite use | Repeated: invite abuse; verify and reset keep their floors |
 | `email_dropped reason=paused\|queue_full\|shutdown` | Mail dropped while paused, with a full queue, or at a stop | The event before it (quota/auth), traffic, deploy time | Users resend; investigate repeated `queue_full` |
 
 Alert rule: any `email_quota_exceeded` or `email_auth_failed` → act the same day;

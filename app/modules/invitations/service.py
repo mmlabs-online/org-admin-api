@@ -6,6 +6,7 @@ exactly the one org (`org_permissions`), never the app+org union. The create pat
 `users` by email and answers the same for every target (no account/member oracle).
 """
 
+import hmac
 import logging
 import secrets
 import uuid
@@ -17,8 +18,16 @@ from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext, EndUser
 from app.modules.audit.diff import change
 from app.modules.audit.service import AuditLogger
-from app.modules.auth.email_throttle import INVITE_DAILY_LIMIT, resend_retry_after
-from app.modules.auth.email_verification import daily_cap_refusal, email_token_hash
+from app.modules.auth.email_throttle import (
+    DAILY_CAP_RETRY_SECONDS,
+    INVITE_DAILY_LIMIT,
+    resend_retry_after,
+)
+from app.modules.auth.email_verification import (
+    DailyCapReachedError,
+    daily_cap_refusal,
+    email_token_hash,
+)
 from app.modules.auth.errors import OriginNotAllowedError, TokenInvalidError
 from app.modules.auth.repository import EmailSendLogRepository, EmailTokenRepository
 from app.modules.auth.service import normalize_email
@@ -185,28 +194,23 @@ class InvitationService:
         # Serializes every invite to this address across orgs (also the partial-unique race).
         await self.sends.lock(email_hmac, INVITE)
         window = await self.sends.window(email_hmac, INVITE)
+        actor = EndUser(user.id)
         if (
             resend_retry_after(
                 window.now, window.last, window.count, window.oldest, daily_limit=INVITE_DAILY_LIMIT
             )
             is not None
         ):
+            # Silent, but the inviter's earlier invitations to this address must not stay live
+            # with a role the 201 no longer describes (S-1): supersede this org's own.
+            await self._supersede(org_id, app, email_hmac, actor, ctx)
             return await self._silent(org_id, role, "target_limit"), None
         reason = await daily_cap_refusal(self.tokens, self.sends, INVITE, self.daily_cap)
-        if reason is not None:
-            return await self._silent(org_id, role, reason), None
+        if reason is not None:  # says nothing about the target: not silent (S-2)
+            logger.warning("invitation_not_sent reason=%s org_id=%s", reason, org_id)
+            raise DailyCapReachedError(DAILY_CAP_RETRY_SECONDS, reason)
 
-        actor = EndUser(user.id)
-        for old_id in await self.repo.supersede_pending(org_id, app.id, email_hmac):
-            await self.audit.record(
-                AuditAction.ORGANIZATION_INVITATION_REVOKED,
-                actor=actor,
-                ctx=ctx,
-                target=(AuditTarget.INVITATION, old_id),
-                app_key=app.key,
-                org_id=org_id,
-                changes={"reason": "superseded"},
-            )
+        await self._supersede(org_id, app, email_hmac, actor, ctx)
         token = secrets.token_urlsafe(32)
         invitation = await self.repo.add(
             org_id=org_id,
@@ -250,8 +254,27 @@ class InvitationService:
             outgoing,
         )
 
+    async def _supersede(
+        self,
+        org_id: uuid.UUID,
+        app: App,
+        email_hmac: bytes,
+        actor: EndUser,
+        ctx: AuditContext,
+    ) -> None:
+        for old_id in await self.repo.supersede_pending(org_id, app.id, email_hmac):
+            await self.audit.record(
+                AuditAction.ORGANIZATION_INVITATION_REVOKED,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.INVITATION, old_id),
+                app_key=app.key,
+                org_id=org_id,
+                changes={"reason": "superseded"},
+            )
+
     async def _silent(self, org_id: uuid.UUID, role: Role, reason: str) -> InvitationCreated:
-        """The same 201 as a real invitation; nothing is written, queued or audited, so the
+        """The same 201 as a real invitation; nothing is queued or sent, so the
         response does not reveal that the target is capped (no email in the log line)."""
         logger.warning("invitation_not_sent reason=%s org_id=%s", reason, org_id)
         return InvitationCreated(
@@ -277,7 +300,9 @@ class InvitationService:
         row = await self.repo.get_pending_for_update(email_token_hash(token), app.id)
         if row is None:
             raise _token_invalid()
-        if row.email_hmac != self.email_hasher.hmac(normalize_email(user.email)):
+        if not hmac.compare_digest(
+            row.email_hmac, self.email_hasher.hmac(normalize_email(user.email))
+        ):
             raise InvitationEmailMismatchError("This invitation is for another email address")
         await self._guard(app)
         role = await self._recheck(app, row)

@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     invitation_accept_rate_limit: int = Field(default=20, ge=1)
     invitation_accept_rate_window_seconds: int = Field(default=600, ge=1)
     invitation_ttl_hours: int = Field(default=168, ge=1)
-    invitation_max_per_inviter_per_day: int = Field(default=20, ge=1)
+    invitation_max_per_inviter_per_day: int = Field(default=5, ge=1)
     invitation_max_pending_per_org: int = Field(default=50, ge=1)
     # JWKS: app backends may share one egress IP.
     jwks_rate_limit: int = Field(default=120, ge=1)
