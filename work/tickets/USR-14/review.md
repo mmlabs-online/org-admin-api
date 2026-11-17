@@ -46,3 +46,29 @@ No violations found.
 ### Follow-ups (out of scope)
 - As listed in plan.md: a per-user cutoff for role revoke followed by re-grant within TTL; `--clear` as an immediate admin kill switch; consumer-side session introspection; folding the session check into the user query.
 - Pre-deploy: the owner confirms that the admin-pan verifier accepts the extra `sid` claim (not in this workspace). The release note should say that admin tokens issued before the deploy get one 401 and must be re-minted.
+
+## Attempt 2 — 2026-11-17
+Verdict: PASS
+
+Scope: docs-only rework for the single 🟡 in security-review.md "## Attempt 1" (runbook wording). Reviewed the attempt-2 delta only (`git diff HEAD~1 -- docs`). Attempt 1 code was already PASSed above.
+
+### Checks (run by reviewer)
+- `service postgresql start` then `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: exit 0. ruff "All checks passed!"; ruff format "313 files already formatted"; mypy "Success: no issues found in 146 source files"; pytest "2338 passed, 1 warning in 222.69s" on the first run (no BUG-001 flake, no rerun needed).
+- alembic check: not applicable (no migration changes in this attempt).
+
+### Acceptance criteria
+- [x] security-review 🟡 fixed: `docs/deploy.md:258-260` now reads "(disable the user; or, if you only revoke admin roles, hold that for at least TTL + 60 s; password reset before re-enabling; emergency key rotation for an immediate global cut)", which is word-for-word the fix the security review asked for.
+- [x] Accurate against code: disabling revokes every account session (`app/modules/users/service.py:79-81`, `revoke_all_accounts_of_user`), and admin requests check session revocation, so disable needs no TTL hold. Only a role revoke that leaves sessions alive needs the TTL + 60 s hold before a re-grant. This matches the "Compromised staff account" bullet (`docs/deploy.md:265-269`), so the runbook is now self-consistent.
+- [x] Scope: the diff touches only `docs/deploy.md` (one sentence) plus workflow files (`work/backlog.md`, `work/tickets/USR-14/impl-log.md`, `ticket.md`). No code changed.
+
+### Issues
+None.
+
+### Rules R1–R11
+No violations found.
+
+### Nits (do not block)
+- None new.
+
+### Follow-ups (out of scope)
+- Unchanged from attempt 1.
