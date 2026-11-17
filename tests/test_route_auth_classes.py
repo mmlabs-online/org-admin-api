@@ -66,6 +66,7 @@ BEARER = {
     ("GET", f"{V1}/organizations/{{org_id}}"): "admin:organizations:read",
     ("PATCH", f"{V1}/organizations/{{org_id}}"): "admin:organizations:write",
     ("DELETE", f"{V1}/organizations/{{org_id}}"): "admin:organizations:write",
+    ("GET", f"{V1}/stats/dashboard"): "admin:stats:read",
     ("GET", f"{V1}/organizations/{{org_id}}/entitlements"): "admin:entitlements:read",
     ("POST", f"{V1}/organizations/{{org_id}}/entitlements"): "admin:entitlements:write",
     ("PATCH", f"{V1}/organizations/{{org_id}}/entitlements/{{entitlement_id}}"): (

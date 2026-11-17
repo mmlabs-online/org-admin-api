@@ -155,6 +155,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `GET /api/v1/apps/{key}/join-requests?status=` | Bearer `admin:users:read` | staff list (default `pending`) | USR-03g |
 | `POST /api/v1/apps/{key}/join-requests/{request_id}/approve` \| `/reject` | Bearer `admin:roles:assign` | decide a request (200; 409 reasons in the response) | USR-03g |
 | Admin: `/api/v1/organizations/{org_id}/entitlements` (GET `?active=`, POST, PATCH/DELETE `/{entitlement_id}`) | Bearer `admin:entitlements:read` (GET) / `admin:entitlements:write` | grant, update, revoke and list an org's product entitlements (409 reasons in `details[0].reason`) | ADM-006 |
+| Admin: `GET /api/v1/stats/dashboard` | Bearer `aud=admin` + `require_permission` (`admin:stats:read`, `is_admin`, granted to no role; `admin:*` covers it) | dashboard counters, plus every app's key and name incl. disabled and `admin` apps via `members_per_app` (single document, `Cache-Control: no-store`, no audit row) | ADM-015 |
 | `POST /api/v1/auth/logout` `{account_id}` \| `{all: true}` | cookie | revoke one account session / the device session | USR-03 |
 | `POST /api/v1/auth/verify-email` `{token}`; `POST /api/v1/auth/verify-email/resend` `{account_id}` | public / cookie | email verification; resend accepts `X-MM-App: admin` for staff only (USR-12); signup and forgot refuse admin (ADM-002d) | USR-04 |
 | `POST /api/v1/auth/password/forgot` `{email, turnstile_token}` → always 202 | public, Turnstile, per-IP limit + Origin/`X-MM-App` check (USR-04b) | send reset link (silent per-email limit) | USR-04b |
@@ -303,6 +304,7 @@ Decisions from the USR-03b plan (2026-11-13):
 | D23 | **Proposed, pending owner (USR-11):** self-scoped admin read `GET /api/v1/me/permissions` — R3 class 1 without `require_permission`, and R9 exception (singular `me`, single document). |
 | D24 | **Decided (USR-12, 2026-11-16):** verification resend accepts `X-MM-App: admin` for users with an effective admin role only (403 `origin_not_allowed` otherwise); signup and forgot keep refusing admin. See ADR-0008 amendment. |
 | D25 | **Accepted (owner merged USR-05a, PR #47, 2026-11-17):** new R3 auth class 4 "app credential" (opaque per-app API key `mmak_<key_id>_<secret>`, SHA-256 hash only, accepted only on `PUT /api/v1/apps/{key}/manifest` and only for its own app) and R9 exception (singular `manifest`, a single document). See ADR-0016. |
+| D26 | **Proposed in ADM-015, accepted when the owner merges it (answers OQ4–OQ6, 2026-11-17):** R9 exception — `GET /api/v1/stats/dashboard` is a single, bounded document (fixed counters, 12 months, one entry per app), not `Page[T]`. Permission `admin:stats:read` (`is_admin`): counts, no audit rows exposed; it also reveals every app's key and name, including disabled apps and the `admin` app, through `members_per_app` (accepted by the owner, appsec finding 1, so no `admin:apps:read` is needed for that list). Members = OQ5 definition, one shared repository function (`RbacRepository.member_counts`) also used by ADM-016. |
 
 ## 9. Open questions
 

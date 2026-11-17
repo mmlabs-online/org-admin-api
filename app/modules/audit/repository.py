@@ -1,8 +1,10 @@
-"""Append-only by shape (AC2): `add` and `list` are the only row operations; `rollback`,
+"""Append-only by shape (AC2): `add` and `list` are the only row operations (plus the read-only
+`count_actions_since`); `rollback`,
 `commit` and `begin_nested` touch session state only (ADM-004b failure paths). The DB trigger
 backs this up."""
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -75,3 +77,13 @@ class AuditRepository:
             .offset(offset)
         )
         return list(result.scalars()), total or 0
+
+    async def count_actions_since(self, actions: Sequence[str], since: datetime) -> dict[str, int]:
+        """Rows per action with `occurred_at >= since` (index range scan on `ix_audit_log_action`).
+        No upper bound: rows committed after the transaction started may be included."""
+        result = await self.session.execute(
+            select(AuditLog.action, func.count())
+            .where(AuditLog.action.in_(actions), AuditLog.occurred_at >= since)
+            .group_by(AuditLog.action)
+        )
+        return {action: total for action, total in result}
