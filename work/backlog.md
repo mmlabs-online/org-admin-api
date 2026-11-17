@@ -45,7 +45,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-004b | Audit identity events, denied privileged attempts and retention | DONE | P1 | db, api, security, auth | 1 | 2026-11-15 |
 | ADM-004c | Audit retention purge | DONE | P1 | db, security | 1 | 2026-11-15 |
 | ADM-004d | Audit log DB hardening | DONE | P2 | db, security | 1 | 2026-11-15 |
-| USR-06 | Organizations and org-aware tokens (first consumer: calechip) — slice 06a | REVIEW | P2 | architecture, db, api, auth, security | 0 | 2026-11-11 |
+| USR-06 | Organizations and org-aware tokens (first consumer: calechip) — slice 06a | DONE | P2 | architecture, db, api, auth, security | 0 | 2026-11-11 |
 | USR-06b | Org invitations (create, accept by verified email) | BACKLOG | P2 | api, auth, security, db | 0 | 2026-11-17 |
 | USR-04d | Email hardening: dispatcher shutdown, retention cleanup, daily-cap alert | DONE | P1 | auth, db | 1 | 2026-11-13 |
 | USR-03g | Join approval flow (join_requests + staff approve/reject) | BACKLOG | P2 | api, auth, security, db | 0 | 2026-11-13 |

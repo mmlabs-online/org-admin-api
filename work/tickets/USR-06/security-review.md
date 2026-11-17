@@ -99,3 +99,11 @@
 6. Already in the plan (A9): CLAUDE.md R11 still says `mm_device` / `Path=/api/v1/auth`, but the code and D20 use `__Host-mm_device` / `Path=/`. The owner needs to fix CLAUDE.md.
 
 **Verdict: PASS** with two 🟡 should-fix items (S1: refuse `org_owner_role_id == default_role_id` and add the doc warning; S2: audit coverage classification). There are no 🔴 blockers.
+
+## Should-fix re-check (3c3f357)
+
+**Verdict: PASS.** `uv run pytest tests/test_rbac_apps_api.py tests/test_audit_coverage.py -q`: 116 passed.
+
+- 🟡 S1 fixed: `app/modules/rbac/service.py:428-435` compares the resulting owner and default role ids for any PATCH shape and returns 422 `same_as_default_role` without changing the app; three tests (`tests/test_rbac_apps_api.py:523-559`). Doc warnings in `docs/consumers.md:142-145` and ADR-0013 Consequences are accurate. `org_role_keys` now uses `OrganizationStatus.ACTIVE.value` (same behaviour).
+- 🟡 S2 fixed: `POST /auth/orgs` moved to `IDENTITY_MULTI_ROW_AUDITED` (`tests/test_audit_coverage.py:518-520`), asserted disjoint; the three sets together still equal the mutating PUBLIC + COOKIE routes, so the route is still swept.
+- 💭 New (not a blocker): the staff `build_default_role` endpoint (`rbac/service.py:252-286`) writes via `set_default_role_if_null` (`rbac/repository.py:101`) and bypasses the new guard: if staff cleared `default_role_id` and set `org_owner_role_id` to `<app>:member`, the builder can set the default to the same role. Staff-only, after a specific misconfiguration. Fix: add `App.org_owner_role_id.is_distinct_from(role_id)` to that WHERE, or a DB CHECK `default_role_id IS DISTINCT FROM org_owner_role_id` (migration; follow-up).
