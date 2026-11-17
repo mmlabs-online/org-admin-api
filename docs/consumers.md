@@ -377,8 +377,8 @@ For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles
 held in the `org` org). Authorize org-scoped data and actions **only** from `org_roles`, mapped
 through the role catalog, and scope all data by the `org` claim. Use `roles` of a token **without**
 `org_id` for app-level actions (create or pick an org). Never authorize org data from the `roles`
-of an org token. If `org` is present and `org_roles` is absent, reject the token. If you change
-`org_mode` from `none` to `required`, mark org-level permissions `scope = org` first (ADR-0015).
+of an org token. If `org` is present and `org_roles` is absent, reject the token. When staff change
+`org_mode` from `none` to `required`, they mark org-level permissions `scope = org` first (ADR-0015).
 
 Follow-up (not in this API): `mmlabs-auth` needs an `org_roles` accessor, a
 `require_org_permission(k)` that maps only `org_roles` through the catalog, rejection of a token

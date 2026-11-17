@@ -561,15 +561,14 @@ class AppService:
                 "org_permissions",
                 "scope_conflict",
             )
-        if any(_violates_reserved(data.key, k, PermissionScope.ORG) for k in org_requested) or any(
-            _violates_reserved(data.key, k, PermissionScope.APP) for k in requested
+        for field, keys, scope in (
+            ("org_permissions", org_requested, PermissionScope.ORG),
+            ("permissions", requested, PermissionScope.APP),
         ):
-            raise _register_refusal(
-                UnprocessableError,
-                "This key has a fixed scope",
-                "org_permissions",
-                "reserved_scope",
-            )
+            if any(_violates_reserved(data.key, k, scope) for k in keys):
+                raise _register_refusal(
+                    UnprocessableError, "This key has a fixed scope", field, "reserved_scope"
+                )
 
         app = await self.repo.lock_app(data.key)
         existing: set[str] = set()
@@ -846,6 +845,12 @@ class PermissionService:
         if data.scope is not None and _violates_reserved(app.key, data.key, data.scope):
             raise _reserved_scope()
         scope = data.scope or default_scope(app.key, app.org_mode, data.key)
+        if (
+            scope == PermissionScope.APP
+            and app.org_mode == OrgMode.REQUIRED.value
+            and reserved_scope(app.key, data.key) is None
+        ):  # a new app-scope permission reaches the member role of an org app (ADR-0015)
+            require_super(actor)
         if await self.repo.get_permission_by_key(app.id, data.key) is not None:
             raise ConflictError("Permission key is already taken")
         try:

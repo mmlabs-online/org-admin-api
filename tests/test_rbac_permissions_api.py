@@ -431,7 +431,20 @@ async def test_create_scope_default_org_on_org_app(
     resp = await rbac_client.post(url, json={"key": "calechip:projects:read"})
     assert resp.status_code == 201 and resp.json()["scope"] == "org"
     resp = await rbac_client.post(url, json={"key": "calechip:x:y", "scope": "app"})
-    assert resp.json()["scope"] == "app"
+    assert resp.status_code == 201 and resp.json()["scope"] == "app"
+
+
+async def test_create_scope_app_on_org_app_requires_super(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    url = await _org_app_url(db_session)
+    async with make_client(admin_permissions=["admin:roles:manage"]) as leaf:
+        org = await leaf.post(url, json={"key": "calechip:x:z"})
+        resp = await leaf.post(url, json={"key": "calechip:x:y", "scope": "app"})
+    assert org.status_code == 201 and org.json()["scope"] == "org"
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "admin_wildcard_required"
+    assert await _perm(db_session, "calechip:x:y") is None
 
 
 async def test_create_scope_default_app_on_none_app(

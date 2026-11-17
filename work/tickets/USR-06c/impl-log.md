@@ -43,3 +43,16 @@
 ### Scope self-check
 - Could the diff be smaller? No: every file maps to the plan; docs are the minimum the plan lists.
 - Diff size: see `git diff --shortstat` of the commits.
+
+## Should-fix (after PASS review)
+
+### Files touched
+- `app/modules/rbac/service.py`: S-1 `PermissionService._create` requires `admin:*` for a non-reserved `scope = app` permission on an `org_mode = required` app (denied row via the existing `create` wrapper; `SYSTEM_CLI` unaffected); N-2 register refusal reports `permissions` or `org_permissions` per the offending list.
+- `docs/adr/0015-*.md` (§2 line), `docs/deploy.md` (N-3), `docs/consumers.md` (N-4).
+- `tests/test_rbac_permissions_api.py` (leaf 403 / super 201), `tests/test_rbac_apps_api.py` (`test_app_create_org_mode_required_builds_scoped_member`; a new app has no permissions, so the test adds them via the API and rebuilds with `RoleCatalogService.build_default_role`).
+
+### Checks
+- `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: ruff, format, mypy clean, `1989 passed`.
+
+### Out-of-plan files
+- None. Follow-ups: none new. N-2 field is not visible through the CLI (message is per reason), so no new test.

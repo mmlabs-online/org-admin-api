@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.rbac.repository import RbacRepository
+from app.modules.rbac.service import RoleCatalogService
 from tests.conftest import MakeClient
 from tests.rbac_factories import assign, grant, make_app, make_permission, make_role, make_user
 
@@ -161,6 +162,30 @@ async def test_create_app_builds_member_role(
     assert body["default_role_id"] == str(role.id)
     held = await RbacRepository(db_session).role_permission_keys(role.id)
     assert held == {}
+
+
+async def test_app_create_org_mode_required_builds_scoped_member(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    resp = await rbac_client.post(
+        BASE, json={"key": "calechip", "name": "Calechip", "org_mode": "required"}
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["org_mode"] == "required" and body["default_role_id"] is not None
+    perms = f"{BASE}/calechip/permissions"
+    for key, scope, is_admin in (
+        ("calechip:a:read", "app", False),
+        ("calechip:b:read", "org", False),
+        ("calechip:c:manage", "app", True),
+    ):
+        created = await rbac_client.post(
+            perms, json={"key": key, "scope": scope, "is_admin": is_admin}
+        )
+        assert created.status_code == 201
+    await RoleCatalogService(db_session).build_default_role("calechip")
+    held = await RbacRepository(db_session).role_permission_keys(uuid.UUID(body["default_role_id"]))
+    assert set(held.values()) == {"calechip:a:read"}
 
 
 async def test_create_app_duplicate_key_409(rbac_client: AsyncClient) -> None:

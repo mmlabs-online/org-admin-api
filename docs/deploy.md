@@ -603,8 +603,8 @@ exists (One-time setup, step 6).
 
 `--permission` adds `scope = app` permissions (they go into the member role). `--org-permission`
 (`org_mode = required` apps only; repeatable) adds `scope = org` permissions, which never reach
-the member role (USR-06c, ADR-0015); the output shows `+ org permission <k>`. Refusals, all before
-the first write: exit 64 `reserved_scope` (`<key>:org:create` is always `--permission`,
+the member role (USR-06c, ADR-0015); the output shows `+ org permission <k>`. All refusals leave
+nothing saved: exit 64 `reserved_scope` (`<key>:org:create` is always `--permission`,
 `<key>:org:invite` always `--org-permission`), `scope_conflict` (a key in both flags),
 `org_mode_required`; exit 1 `scope_mismatch` (the key is stored with the other scope; change it
 through the admin API) and `member_is_org_owner`. The `ops-org-admin-api` workflow input for

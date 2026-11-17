@@ -22,7 +22,9 @@ Date: 2026-11-17
    When omitted on create, a reserved key decides first (`<app>:org:create` is `app`,
    `<app>:org:invite` is `org`; an explicit contradiction is 422 `reserved_scope`), otherwise
    `org` on `org_mode = required` apps (fail closed) and `app` on others. On org apps, app to org
-   is refused (409) while the default role holds the permission, and org to app needs `admin:*`.
+   is refused (409) while the default role holds the permission, and org to app needs `admin:*`. Creating a non-reserved `scope = app` permission on an
+   `org_mode = required` app also needs `admin:*` (denied attempts are audited); `register-app`
+   (system actor) is exempt.
    Scope changes are audited. Scope has no effect on `org_mode = none` apps.
 3. **Build rule.** For `org_mode = required` apps the default-role build targets
    `is_admin = false AND scope = 'app'`; a rebuild removes `scope = 'org'` permissions. This
