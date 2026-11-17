@@ -169,3 +169,16 @@ The values are fixed-length HMACs that the caller cannot pick freely, so there i
 
 ## Verdict
 **PASS with should-fix.** No 🔴. S-1 (silent re-invite leaves the higher-privileged invitation live) should be fixed in this ticket because it is a small change. S-2 should be fixed, or accepted explicitly by the owner and recorded in ADR-0014.
+
+## Should-fix re-check (b9214cd)
+
+**Verdict: PASS.** `uv run pytest tests/test_invitations_create.py tests/test_invitations_accept.py -q`: 54 passed.
+
+- 🟡 S-1 fixed: the per-target-limit branch calls `_supersede(org_id, app, email_hmac, …)` (this org, app and address only; audited `invitation_revoked`) before the silent 201. Tests: `test_owner_token_dead_after_throttled_downgrade_reinvite`, `test_target_limited_reinvite_supersedes_and_audits`.
+- 🟡 S-2 fixed: global cap / invite share → `DailyCapReachedError(DAILY_CAP_RETRY_SECONDS, reason)` = 429 `rate_limited`, `Retry-After: 3600`, same envelope as verify/reset; rolls back (nothing superseded or written); only the per-target limit stays silent; per-inviter default 5; ADR-0014 §9, consumers.md, deploy.md updated; `test_global_cap_counts_invites_and_answers_429`.
+- N-2, N-4 documented (ADR-0014 §9/§11, consumers.md); N-6 docstring fixed; N-7 docstring on `InvitationRepository.add`; N-8 `hmac.compare_digest`. No new endpoints, logging or `users` reads.
+
+### 🟡 R-1 (new). While the cap is exhausted, 201 vs 429 shows whether the address was invited recently
+- Where: `app/modules/invitations/service.py` create step 8 — `resend_retry_after(...)` runs before `daily_cap_refusal(...)`.
+- Risk: with the cap used up, a target over its per-target limit gets the silent 201 and every other target gets 429, so an inviter can learn that someone (possibly another org) invited this address within the last minute or ≥3 times in 24 h. No account-existence or membership leak; needs an exhausted cap (~6 accounts × 5/day). Low severity but deterministic.
+- Fix: check the global cap first, then the per-target limit (lock order stays email advisory lock → `lock_global`). Test: with `email_daily_cap=5`, invite A, then invite A again within 60 s → 429, not 201.
