@@ -29,3 +29,6 @@ Depends on USR-06 (06a), USR-06b. Must land before USR-05.
 
 ## Notes / answers from owner
 - 2026-11-17 (owner): create USR-06c and run it now.
+- 2026-11-17 (owner, answering the consults' blocking questions):
+  1. **Approved:** add an additive `org_roles` claim to org tokens (org-exact role keys, present only when `org` is present); `roles` stays the D10 union. Spec §5.8 claims line may be amended accordingly.
+  2. **Approved:** classify org-level permissions with a data marker `permissions.scope` (`app` | `org`); the default role of an `org_mode = required` app only takes `scope = 'app'` permissions. Spec §5.3 default-role wording may be amended accordingly.
