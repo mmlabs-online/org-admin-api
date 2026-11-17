@@ -40,7 +40,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-014 | Docs — admin UI hostname and forgot-password credentials | DONE | P2 | security | 1 | 2026-11-16 |
 | ADM-015 | Dashboard stats endpoint for the admin UI | DONE | P3 | api, db | 1 | 2026-11-17 |
 | ADM-016 | `member_count` on the staff apps list and app detail | DONE | P3 | api, db | 0 | 2026-11-17 |
-| USR-10 | Staff session management for a user (list, revoke one, revoke all) | PLANNING | P3 | api, auth, security, db | 0 | 2026-11-16 |
+| USR-10 | Staff session management for a user (list, revoke one, revoke all) | IN_PROGRESS | P3 | api, auth, security, db | 0 | 2026-11-16 |
 | ADM-017 | Operational reports (placeholder) | BLOCKED | P3 | architecture, db, api, security | 0 | 2026-11-16 |
 | ADM-004 | Audit log (admin actions, login, join, role changes, org membership) | DONE | P1 | db, api, security | 1 | 2026-11-15 |
 | ADM-004b | Audit identity events, denied privileged attempts and retention | DONE | P1 | db, api, security, auth | 1 | 2026-11-15 |
