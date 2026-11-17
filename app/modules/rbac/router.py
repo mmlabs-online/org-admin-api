@@ -14,8 +14,10 @@ from app.core.config import Settings
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
 from app.modules.audit.deps import AuditContextDep
+from app.modules.rbac.models import App
 from app.modules.rbac.schemas import (
     AppCreate,
+    AppFields,
     AppRead,
     AppUpdate,
     PermissionCreate,
@@ -37,11 +39,21 @@ def _with_409(key: str, description: str) -> dict[str, Any]:
     return kwargs
 
 
+def _app_read(app: App, member_count: int) -> AppRead:
+    return AppRead(**AppFields.model_validate(app).model_dump(), member_count=member_count)
+
+
+async def _app_read_counted(svc: AppService, app: App) -> AppRead:
+    return _app_read(app, (await svc.member_counts([app])).get(app.id, 0))
+
+
 @router.get("", response_model=Page[AppRead], **require_permission("admin:apps:read"))
 async def list_apps(session: SessionDep, page: PageDep) -> Page[AppRead]:
-    items, total = await AppService(session).list_apps(limit=page.limit, offset=page.offset)
+    svc = AppService(session)
+    items, total = await svc.list_apps(limit=page.limit, offset=page.offset)
+    counts = await svc.member_counts(items)
     return Page(
-        items=[AppRead.model_validate(a) for a in items],
+        items=[_app_read(a, counts.get(a.id, 0)) for a in items],
         total=total,
         limit=page.limit,
         offset=page.offset,
@@ -57,12 +69,14 @@ async def list_apps(session: SessionDep, page: PageDep) -> Page[AppRead]:
 async def register_app(
     session: SessionDep, principal: AdminDep, ctx: AuditContextDep, body: AppCreate
 ) -> AppRead:
-    return AppRead.model_validate(await AppService(session).create(body, actor=principal, ctx=ctx))
+    svc = AppService(session)
+    return await _app_read_counted(svc, await svc.create(body, actor=principal, ctx=ctx))
 
 
 @router.get("/{key}", response_model=AppRead, **require_permission("admin:apps:read"))
 async def get_app(session: SessionDep, key: str) -> AppRead:
-    return AppRead.model_validate(await AppService(session).get(key))
+    svc = AppService(session)
+    return await _app_read_counted(svc, await svc.get(key))
 
 
 @router.patch(
@@ -79,10 +93,9 @@ async def update_app(
     body: AppUpdate,
 ) -> AppRead:
     settings: Settings = request.app.state.settings
-    app = await AppService(session).update(
-        key, body, actor=principal, ctx=ctx, app_env=settings.app_env
-    )
-    return AppRead.model_validate(app)
+    svc = AppService(session)
+    app = await svc.update(key, body, actor=principal, ctx=ctx, app_env=settings.app_env)
+    return await _app_read_counted(svc, app)
 
 
 @router.delete(

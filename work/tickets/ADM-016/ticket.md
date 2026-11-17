@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P3 |
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/52 |
 
 ## Goal
 The Apps screen in `admin-pan` can show a "Members" column, through an additive field that breaks nothing.
@@ -31,3 +31,4 @@ USR-02c (role assignments), ADM-012. Can be merged with ADM-015, which reuses th
 - Needs answers before PLAN: **OQ4**, **OQ5** (`docs/spec-v1.md` §8).
 - 2026-11-17 (owner) **OQ4**: new permission `admin:stats:read` for the dashboard stats document (counts only, no audit rows exposed); `member_count` uses the existing `admin:apps:read`.
 - 2026-11-17 (owner) **OQ5**: a member = distinct user with at least one non-expired role assignment on the app (app scope or any org); only users with status `active` count (unverified email still counts); the `admin` app shows its count (= staff).
+- 2026-11-17 (orchestrator): consult step reuses the ADM-015 consult notes (`work/tickets/ADM-015/consult-*.md`), which already cover `member_count` (shared `RbacRepository.member_counts`, merged in ADM-015).

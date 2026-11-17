@@ -1,19 +1,30 @@
 import unicodedata
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import RoleCatalogService
+from tests.admin_auth_factories import make_staff
+from tests.auth_factories import make_login_user
 from tests.conftest import MakeClient
-from tests.rbac_factories import assign, grant, make_app, make_permission, make_role, make_user
+from tests.rbac_factories import (
+    assign,
+    grant,
+    make_app,
+    make_org,
+    make_permission,
+    make_role,
+    make_user,
+)
 
 BASE = "/api/v1/apps"
 APP_READ_KEYS = {
@@ -28,6 +39,7 @@ APP_READ_KEYS = {
     "org_owner_role_id",
     "created_at",
     "updated_at",
+    "member_count",
 }
 
 
@@ -640,3 +652,189 @@ async def test_patch_org_mode_required_default_holds_org_permission_422(
     resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "required"})
     assert resp.status_code == 422
     assert resp.json()["error"]["details"][0]["reason"] == "role_has_org_permissions"
+
+
+# --- member_count (ADM-016, OQ5) -----------------------------------------------
+
+
+async def _counts(c: AsyncClient) -> dict[str, int]:
+    resp = await c.get(BASE, params={"limit": 100})
+    assert resp.status_code == 200
+    return {i["key"]: i["member_count"] for i in resp.json()["items"]}
+
+
+async def _detail_count(c: AsyncClient, key: str) -> int:
+    resp = await c.get(f"{BASE}/{key}")
+    assert resp.status_code == 200
+    return int(resp.json()["member_count"])
+
+
+async def test_list_apps_member_count(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    one = await make_app(db_session, "ma-one")
+    two = await make_app(db_session, "ma-two")
+    await make_app(db_session, "ma-zero")
+    r1, r2 = await make_role(db_session, one, "mm:r"), await make_role(db_session, two, "mm:r")
+    await assign(db_session, await make_login_user(db_session), r1)
+    for _ in range(2):
+        await assign(db_session, await make_login_user(db_session), r2)
+    counts = await _counts(rbac_client)
+    assert (counts["ma-one"], counts["ma-two"], counts["ma-zero"]) == (1, 2, 0)
+    total = (await rbac_client.get(BASE)).json()["total"]
+    # Page scoped to ids: the page holding only `ma-zero` reports 0 (default-0 path).
+    for off in range(total):
+        page = (await rbac_client.get(BASE, params={"limit": 1, "offset": off})).json()["items"]
+        if page[0]["key"] == "ma-zero":
+            assert page[0]["member_count"] == 0
+            break
+    else:
+        raise AssertionError("ma-zero not listed")
+
+
+async def test_get_app_member_count(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "ma-get")
+    await make_app(db_session, "ma-get0")
+    role = await make_role(db_session, app, "mm:r")
+    for _ in range(2):
+        await assign(db_session, await make_login_user(db_session), role)
+    assert await _detail_count(rbac_client, "ma-get") == 2
+    assert await _detail_count(rbac_client, "ma-get0") == 0
+
+
+async def test_member_count_app_and_org_scope(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "ma-scope")
+    r1, r2 = await make_role(db_session, app, "mm:a"), await make_role(db_session, app, "mm:b")
+    o1, o2 = await make_org(db_session), await make_org(db_session)
+    user = await make_login_user(db_session)
+    await assign(db_session, user, r1)
+    await assign(db_session, user, r2)
+    await assign(db_session, user, r1, org_id=o1.id)
+    await assign(db_session, user, r1, org_id=o2.id)
+    assert (await _counts(rbac_client))["ma-scope"] == 1
+    assert await _detail_count(rbac_client, "ma-scope") == 1
+    await assign(db_session, await make_login_user(db_session), r1, org_id=o1.id)
+    assert (await _counts(rbac_client))["ma-scope"] == 2
+    assert await _detail_count(rbac_client, "ma-scope") == 2
+
+
+async def test_member_count_excludes_expired(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "ma-exp")
+    role = await make_role(db_session, app, "mm:r")
+    past = datetime.now(UTC) - timedelta(days=1)
+    future = datetime.now(UTC) + timedelta(days=1)
+    await assign(db_session, await make_login_user(db_session), role, expires_at=past)
+    assert await _detail_count(rbac_client, "ma-exp") == 0
+    await assign(db_session, await make_login_user(db_session), role, expires_at=future)
+    assert await _detail_count(rbac_client, "ma-exp") == 1
+    assert (await _counts(rbac_client))["ma-exp"] == 1
+
+
+async def test_member_count_disabled_excluded_unverified_counted(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "ma-status")
+    role = await make_role(db_session, app, "mm:r")
+    await assign(db_session, await make_login_user(db_session, status="disabled"), role)
+    await assign(db_session, await make_login_user(db_session, verified=False), role)
+    assert await _detail_count(rbac_client, "ma-status") == 1
+
+
+async def test_member_count_admin_app_counts_staff(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    before = await _detail_count(rbac_client, "admin")
+    await make_staff(db_session, "admin:apps:read")
+    assert await _detail_count(rbac_client, "admin") == before + 1
+
+
+async def test_member_count_after_create_and_patch(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    created = await rbac_client.post(BASE, json={"key": "ma-new", "name": "New"})
+    assert created.status_code == 201
+    assert created.json()["member_count"] == 0
+    role = await db_session.get(Role, uuid.UUID(created.json()["default_role_id"]))
+    assert role is not None
+    await assign(db_session, await make_login_user(db_session), role)
+    patched = await rbac_client.patch(f"{BASE}/ma-new", json={"name": "Renamed"})
+    assert patched.status_code == 200
+    assert patched.json()["member_count"] == 1
+
+
+async def test_member_count_matches_dashboard(
+    rbac_client: AsyncClient, db_session: AsyncSession, make_client: MakeClient
+) -> None:
+    mixed = await make_app(db_session, "ma-mix")
+    await make_app(db_session, "ma-none")
+    role = await make_role(db_session, mixed, "mm:r")
+    org = await make_org(db_session)
+    past = datetime.now(UTC) - timedelta(days=1)
+    await assign(db_session, await make_login_user(db_session), role)
+    await assign(db_session, await make_login_user(db_session), role, org_id=org.id)
+    await assign(db_session, await make_login_user(db_session), role, expires_at=past)
+    await assign(db_session, await make_login_user(db_session, status="disabled"), role)
+    await assign(db_session, await make_login_user(db_session, verified=False), role)
+    listed = await _counts(rbac_client)
+    async with make_client(admin_permissions=["admin:*"]) as c:
+        resp = await c.get("/api/v1/stats/dashboard")
+    assert resp.status_code == 200
+    dash = {r["app_key"]: r["member_count"] for r in resp.json()["members_per_app"]}
+    assert listed == dash
+    assert listed["ma-mix"] == 3
+
+
+async def test_member_count_visible_with_apps_read_only(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "ma-ro")
+    await assign(
+        db_session, await make_login_user(db_session), await make_role(db_session, app, "mm:r")
+    )
+    async with make_client(admin_permissions=["admin:apps:read"]) as c:
+        assert (await _counts(c))["ma-ro"] == 1
+        assert await _detail_count(c, "ma-ro") == 1
+
+
+async def _app_statements(
+    make_client: MakeClient, db_session: AsyncSession, path: str
+) -> list[str]:
+    engine = (await db_session.connection()).sync_connection.engine
+    seen: list[str] = []
+
+    def _listener(*args: Any) -> None:
+        seen.append(args[2])
+
+    event.listen(engine, "before_cursor_execute", _listener)
+    try:
+        async with make_client(admin_permissions=["admin:apps:read"]) as c:
+            assert (await c.get(path)).status_code == 200
+    finally:
+        event.remove(engine, "before_cursor_execute", _listener)
+    return seen
+
+
+async def _app_with_member(db_session: AsyncSession) -> App:
+    app = await make_app(db_session, f"qa-{uuid.uuid4().hex[:8]}")
+    await assign(
+        db_session, await make_login_user(db_session), await make_role(db_session, app, "mm:r")
+    )
+    return app
+
+
+async def test_list_apps_query_count(make_client: MakeClient, db_session: AsyncSession) -> None:
+    await _app_with_member(db_session)
+    few = await _app_statements(make_client, db_session, BASE)
+    for _ in range(4):
+        await _app_with_member(db_session)
+    many = await _app_statements(make_client, db_session, BASE)
+    assert len(few) == len(many) == 3
+    assert sum("role_assignments" in s for s in many) == 1
+
+
+async def test_get_app_query_count(make_client: MakeClient, db_session: AsyncSession) -> None:
+    app = await _app_with_member(db_session)
+    seen = await _app_statements(make_client, db_session, f"{BASE}/{app.key}")
+    assert len(seen) == 2
