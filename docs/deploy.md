@@ -524,6 +524,38 @@ The `Origin` check is CSRF protection, not authentication: the password, the ver
 `https://admin-portal.mmlabs.online`) is the browser path; operators without it use this curl
 runbook. The browser console is not a supported path.
 
+## App credentials (USR-05a)
+
+An app pushes its permission manifest with a per-app credential (ADR-0016, route in USR-05b).
+Staff issue, list and revoke credentials through the admin API. Issuing needs `admin:*` on top of
+`admin:apps:write`; at most **2 active** credentials per app; the `admin` app and disabled apps
+get none. Run these calls inside the marked section of the "Admin access" subshell (token only via
+`-H @"$hdr"`). The credential value is shown **once**: write it straight to a 0600 file, never to
+stdout, argv, a log or an issue. The `key_id` is safe to share.
+
+Issue (inside the subshell, `umask 077` is already set):
+
+```sh
+cred=$(mktemp)
+curl -fsS -X POST -H @"$hdr" "$api/apps/<key>/credentials" | python3 -c 'import json,sys;print(json.load(sys.stdin)["credential"])' > "$cred"
+# copy the file's content into the deployment repo's GitHub Environment secret
+# (environment limited to `main`, required reviewer), then:
+rm -f -- "$cred"
+```
+
+List (metadata only, newest first; revoked ones stay with `active: false`):
+
+```sh
+curl -fsS -H @"$hdr" "$api/apps/<key>/credentials"
+```
+
+- **Rotation:** issue the second credential, update the secret, deploy once, then revoke the old
+  one (find its `id` by `key_id` in the list): `curl -fsS -X DELETE -H @"$hdr" "$api/apps/<key>/credentials/<id>"`.
+- **Leak:** revoke at once (`DELETE` as above; revoking twice is a no-op), then issue a new one.
+  Revocation is immediate.
+- Issue, refusals and revocations are audited (`app_credential.issued`, `app_credential.revoked`);
+  no secret or hash is stored in the audit log.
+
 ## Set admin origins (ADM-002c)
 
 The `admin` app's browser origins are set only from the CLI, through `AppService.set_admin_origins`

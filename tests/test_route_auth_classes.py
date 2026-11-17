@@ -77,6 +77,9 @@ BEARER = {
     ("PATCH", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("DELETE", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("PUT", f"{V1}/apps/{{key}}/roles/{{role_id}}/permissions"): "admin:roles:manage",
+    ("POST", f"{V1}/apps/{{key}}/credentials"): "admin:apps:write",
+    ("GET", f"{V1}/apps/{{key}}/credentials"): "admin:apps:read",
+    ("DELETE", f"{V1}/apps/{{key}}/credentials/{{credential_id}}"): "admin:apps:write",
     ("GET", f"{V1}/audit-logs"): "admin:audit:read",
 }
 # Bearer, self-scoped, no permission (ADR-0008 USR-11 amendment). GET only, no path/query/body
@@ -256,7 +259,14 @@ def _fill(path: str) -> str:
     return path.replace("{key}", "stoktok").format_map(
         {
             name: uuid.uuid4()
-            for name in ("org_id", "user_id", "assignment_id", "permission_id", "role_id")
+            for name in (
+                "org_id",
+                "user_id",
+                "assignment_id",
+                "permission_id",
+                "role_id",
+                "credential_id",
+            )
         }
     )
 

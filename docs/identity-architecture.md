@@ -151,7 +151,8 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `POST /api/v1/auth/password/reset` `{token, new_password}` | public, per-IP limit | set password, revoke all account sessions of the user (every device) | USR-04b |
 | `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03c |
 | `GET /api/v1/apps/{key}/roles` (ETag / 304) | public (D17), per-IP limit | role → permissions catalog | USR-02e |
-| `PUT /api/v1/apps/{key}/manifest` | app credential | app pushes its permissions + default role | USR-05 |
+| `PUT /api/v1/apps/{key}/manifest` | app credential (ADR-0016, D25) | app pushes its permissions + default role | USR-05b |
+| Admin: `POST\|GET /api/v1/apps/{key}/credentials`, `DELETE /api/v1/apps/{key}/credentials/{id}` | Bearer `aud=admin` + `require_permission` (`admin:apps:write` and `admin:*` to issue; `admin:apps:read`; `admin:apps:write` to revoke) | staff issue (shown once), list and revoke app credentials | USR-05a |
 | `POST /api/v1/auth/orgs` `{account_id, name, slug, description?}` | cookie; needs the app-scope permission `<app>:org:create` (ADR-0013) | create org, creator gets `apps.org_owner_role_id` in it; 201 | USR-06a |
 | `GET /api/v1/auth/orgs?account_id=` | cookie | the account's orgs where it holds an org-exact role of the calling app (`X-MM-App`; no `app=` parameter), `Page[…]` with the caller's roles | USR-06a |
 | `POST /api/v1/auth/token` with `org_id` | cookie | adds `org` claim; 403 `org_access_denied` (unknown, suspended or not-a-member org, one answer); 422 `org_not_supported` for `org_mode = none` apps | USR-06a |
@@ -285,6 +286,7 @@ Decisions from the USR-03b plan (2026-11-13):
 | D22 | **Proposed, pending owner:** R9 exception — `GET /api/v1/auth/accounts` returns a single document `{"items": [...]}`, not `Page[T]` (bounded per device). |
 | D23 | **Proposed, pending owner (USR-11):** self-scoped admin read `GET /api/v1/me/permissions` — R3 class 1 without `require_permission`, and R9 exception (singular `me`, single document). |
 | D24 | **Decided (USR-12, 2026-11-16):** verification resend accepts `X-MM-App: admin` for users with an effective admin role only (403 `origin_not_allowed` otherwise); signup and forgot keep refusing admin. See ADR-0008 amendment. |
+| D25 | **Proposed, pending owner (USR-05a, approve by merging):** new R3 auth class 4 "app credential" (opaque per-app API key `mmak_<key_id>_<secret>`, SHA-256 hash only, accepted only on `PUT /api/v1/apps/{key}/manifest` and only for its own app) and R9 exception (singular `manifest`, a single document). See ADR-0016. |
 
 ## 9. Open questions
 

@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Areas | api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/47 |
 
 ## Goal
 Each mmlabs app declares its own permissions (with `is_admin` flags) and default role through a manifest, so adding or changing an app's permissions is a deploy of that app, not a change here.
@@ -32,3 +32,4 @@ USR-02, USR-03b.
 ## Notes / answers from owner
 - 2026-11-11: until this lands, app permissions are seeded by staff through USR-02 endpoints.
 - 2026-11-17 (USR-06c plan note, no scope change): the manifest must declare `scope` (`app` | `org`) per permission (on `org_mode = required` apps a missing scope should be 422) and must go through `_build_for_app`. Test: pushing the manifest twice never adds a `scope = org` permission to `<app>:member`. See ADR-0015.
+- 2026-11-17 (orchestrator): planner split the ticket. This ticket now delivers slice 05a (app credentials, ADR-0016); the manifest endpoint moved to USR-05b.
