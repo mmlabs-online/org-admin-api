@@ -174,7 +174,10 @@ class AppCredentialService:
                 changes={"reason": AppCredentialMismatchError.code},
             )
             raise AppCredentialMismatchError("Credential belongs to another app")
-        await self.repo.touch_last_used(row.id)
+        # Same order as revoke (app lock, then credential row); the touch re-checks revocation.
+        await self.rbac.lock_app(app.key)
+        if not await self.repo.touch_last_used(row.id):
+            raise _reject("revoked", key_id)
         return caller
 
     async def list(self, key: str, *, limit: int, offset: int) -> tuple[list[CredentialView], int]:

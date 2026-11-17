@@ -9,6 +9,7 @@ from httpx import AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import UnauthorizedError
 from app.modules.app_credentials import service as credential_service
 from app.modules.app_credentials.codec import parse_credential, secret_hash
 from app.modules.app_credentials.errors import AppCredentialAppDisabledError
@@ -223,3 +224,21 @@ async def test_no_secret_in_logs(
         value = h.get("Authorization", "").removeprefix("Bearer ")
         if value.startswith("mmak_") and len(value) < 100:
             assert value not in caplog.text
+
+
+async def test_revoked_between_lookup_and_touch_401(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = await make_app(db_session, _key())
+    row, raw = await make_credential(db_session, app)
+    service = credential_service.AppCredentialService(db_session)
+    lookup = service.repo.get_with_app
+
+    async def revoke_after_lookup(key_id: str) -> Any:
+        found = await lookup(key_id)
+        await service.repo.revoke(row.id)
+        return found
+
+    monkeypatch.setattr(service.repo, "get_with_app", revoke_after_lookup)
+    with pytest.raises(UnauthorizedError):
+        await service.authenticate(raw, app.key, ctx=AuditContext.NONE)

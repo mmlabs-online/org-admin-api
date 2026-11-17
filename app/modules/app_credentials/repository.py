@@ -70,10 +70,13 @@ class AppCredentialRepository:
         row = result.one_or_none()
         return None if row is None else (row[0], row[1])
 
-    async def touch_last_used(self, credential_id: uuid.UUID) -> None:
-        await self.session.execute(
+    async def touch_last_used(self, credential_id: uuid.UUID) -> bool:
+        """Touches only a non-revoked row; False when it was revoked in the meantime."""
+        updated = await self.session.scalar(
             update(AppCredential)
-            .where(AppCredential.id == credential_id)
+            .where(AppCredential.id == credential_id, AppCredential.revoked_at.is_(None))
             .values(last_used_at=func.now())
+            .returning(AppCredential.id)
             .execution_options(synchronize_session=False)
         )
+        return updated is not None

@@ -38,3 +38,13 @@ None beyond the plan's list (`errors.py` and the ADR-0016 status line are the pl
 ### Scope self-check
 - Could the diff be smaller? No; every file is in the plan.
 - Diff size: about 450 lines of production code, 220 lines of docs, 800 lines of tests.
+
+## Attempt 2 (REWORK: security-review Attempt 1, finding 1)
+
+Files touched:
+- `app/modules/app_credentials/repository.py` - `touch_last_used` updates only non-revoked rows, returns bool (required because: revocation race fix).
+- `app/modules/app_credentials/service.py` - `authenticate` takes `lock_app` before the touch (same order as revoke); no row updated -> uniform 401 "revoked" (required because: lock-order inversion fix).
+- `tests/test_app_credential_auth.py` - `test_revoked_between_lookup_and_touch_401` (revoke after lookup, before touch -> UnauthorizedError).
+
+Checks: `make check` green: 2126 passed, 1 warning (ruff, format, mypy clean).
+Out-of-plan files: none. Follow-ups: none. Scope self-check: only finding 1 addressed; not committed.
