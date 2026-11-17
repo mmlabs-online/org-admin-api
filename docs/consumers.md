@@ -139,6 +139,10 @@ caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_
 - Staff must configure the app first: `PATCH /api/v1/apps/{key}` with `org_owner_role_id`. Until
   it is set, create answers 403 `org_create_unavailable`. Keep the default role to app-level
   permissions plus `<app>:org:create`.
+- The org owner role must differ from the default role (422 `same_as_default_role`). Warning: the
+  manifest sync (`build_default_role`) re-widens `<app>:member` to all non-admin permissions, so for
+  `org_mode = required` apps org-level permissions must not be declared as non-admin app
+  permissions (or the default role must be maintained by hand).
 - Create errors: 403 `org_create_forbidden` (no `<app>:org:create`), `org_limit_reached`, 409
   `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
 - A role change in an org reaches tokens within the token TTL (about 15 minutes).

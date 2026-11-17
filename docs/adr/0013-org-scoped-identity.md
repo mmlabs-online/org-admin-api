@@ -32,6 +32,10 @@ creating an org needs one convention that does.
 ## Consequences
 - Staff must set `org_owner_role_id` and give the default role `<app>:org:create` (catalog data)
   before users can create orgs; until then 403 `org_create_unavailable`.
+- `org_owner_role_id` and `default_role_id` must differ (422 `same_as_default_role`).
+  `build_default_role` / the manifest re-widens `<app>:member` to all non-admin permissions, so for
+  `org_mode = required` apps org-level permissions must not be declared as non-admin app
+  permissions (or the default role must be maintained by hand).
 - Admin UI (`admin-pan`) must handle the new 409 on org delete.
 - Per-IP limits (`ORG_CREATE_*`, `ORGS_LIST_*`) and a per-user lifetime cap
   (`ORG_CREATE_MAX_PER_USER`) bound abuse.

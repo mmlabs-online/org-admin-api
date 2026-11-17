@@ -52,3 +52,10 @@
 ### Scope self-check
 - Could the diff be smaller? No; each file is in the plan or is a test fixture fix forced by the new FK.
 - Diff size: +1761 / -31 lines over 38 files (about 40% tests).
+
+## Should-fix (after PASS review, USR-06a)
+
+- S1: `AppService._update` (`app/modules/rbac/service.py`) refuses `org_owner_role_id == default_role_id` (422, field `org_owner_role_id`, reason `same_as_default_role`), using effective values so both PATCH directions and a combined PATCH are covered. Tests in `tests/test_rbac_apps_api.py` (three). Warning about `build_default_role` re-widening `<app>:member` added to `docs/consumers.md` and ADR-0013 Consequences.
+- S2: `tests/test_audit_coverage.py`: `POST /auth/orgs` moved to new `IDENTITY_MULTI_ROW_AUDITED`, asserted disjoint from the other two sets and included in the classification sweep.
+- Nit: `app/modules/rbac/repository.py` uses `OrganizationStatus.ACTIVE.value`.
+- Checks: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check` exit 0, "1841 passed, 1 warning".

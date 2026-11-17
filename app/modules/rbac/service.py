@@ -425,6 +425,15 @@ class AppService:
                     details=[{"field": "org_owner_role_id", "reason": "org_mode_required"}],
                 )
 
+        default_role_id = (
+            data.default_role_id if "default_role_id" in fields else app.default_role_id
+        )
+        if owner_role_id is not None and owner_role_id == default_role_id:
+            raise UnprocessableError(
+                "The org owner role must differ from the default role",
+                details=[{"field": "org_owner_role_id", "reason": "same_as_default_role"}],
+            )
+
         if "origins" in changes:
             origins = list(data.origins or [])
             if app.key == ADMIN_APP_KEY:

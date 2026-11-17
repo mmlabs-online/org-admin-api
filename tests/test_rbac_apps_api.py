@@ -520,6 +520,44 @@ async def test_patch_org_owner_role_admin_app_422(
     assert resp.json()["error"]["details"][0]["reason"] == "org_mode_required"
 
 
+async def test_patch_org_owner_role_same_as_default_role_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _org_app(db_session)
+    assert (
+        await rbac_client.patch(f"{BASE}/calechip", json={"default_role_id": str(role.id)})
+    ).status_code == 200
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(role.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"] == [
+        {"field": "org_owner_role_id", "reason": "same_as_default_role"}
+    ]
+
+
+async def test_patch_default_role_same_as_org_owner_role_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _org_app(db_session)
+    assert (
+        await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(role.id)})
+    ).status_code == 200
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"default_role_id": str(role.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "same_as_default_role"
+
+
+async def test_patch_both_roles_the_same_in_one_request_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _org_app(db_session)
+    resp = await rbac_client.patch(
+        f"{BASE}/calechip",
+        json={"default_role_id": str(role.id), "org_owner_role_id": str(role.id)},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "same_as_default_role"
+
+
 async def test_patch_org_mode_none_while_owner_set_422(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:

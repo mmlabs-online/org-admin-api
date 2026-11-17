@@ -6,7 +6,7 @@ from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, or_, s
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.organizations.models import Organization
+from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
     App,
@@ -320,7 +320,7 @@ class RbacRepository:
                 RoleAssignment.user_id == user_id,
                 RoleAssignment.org_id == org_id,
                 App.key == app_key,
-                Organization.status == "active",
+                Organization.status == OrganizationStatus.ACTIVE.value,
                 # Database clock, never the Python one.
                 or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
             )
