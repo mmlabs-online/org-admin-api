@@ -6,7 +6,7 @@ from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, or_, s
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.organizations.models import Organization
+from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
     App,
@@ -305,6 +305,28 @@ class RbacRepository:
         return list(
             await self.session.scalars(self._active_assignments(stmt, user_id, app_key, org_id))
         )
+
+    async def org_role_keys(self, user_id: uuid.UUID, app_key: str, org_id: uuid.UUID) -> list[str]:
+        """Role keys held in exactly `org_id` (never the app-scope union): unexpired, and only
+        while the org is `active`. Empty for an unknown, suspended or not-a-member org."""
+        stmt = (
+            select(Role.key)
+            .distinct()
+            .select_from(RoleAssignment)
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(App, App.id == Role.app_id)
+            .join(Organization, Organization.id == RoleAssignment.org_id)
+            .where(
+                RoleAssignment.user_id == user_id,
+                RoleAssignment.org_id == org_id,
+                App.key == app_key,
+                Organization.status == OrganizationStatus.ACTIVE.value,
+                # Database clock, never the Python one.
+                or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
+            )
+            .order_by(Role.key)
+        )
+        return list(await self.session.scalars(stmt))
 
     async def effective_permission_keys(
         self, user_id: uuid.UUID, app_key: str, org_id: uuid.UUID | None

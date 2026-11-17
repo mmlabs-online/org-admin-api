@@ -51,7 +51,7 @@ class AppCreate(BaseModel):
 
 
 class AppUpdate(BaseModel):
-    """Partial update; `key` is immutable. Explicit null is accepted only for `default_role_id`."""
+    """Partial update; `key` is immutable. Null only for the role ids."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -61,6 +61,7 @@ class AppUpdate(BaseModel):
     org_mode: OrgMode | None = None
     origins: list[str] | None = Field(default=None, max_length=MAX_ORIGINS)
     default_role_id: uuid.UUID | None = None
+    org_owner_role_id: uuid.UUID | None = None
 
     @field_validator("origins")
     @classmethod
@@ -69,7 +70,7 @@ class AppUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _null_only_for_default_role(self) -> Self:
-        for field in self.model_fields_set - {"default_role_id"}:
+        for field in self.model_fields_set - {"default_role_id", "org_owner_role_id"}:
             if getattr(self, field) is None:
                 raise ValueError(f"{field} must not be null")
         return self
@@ -86,6 +87,7 @@ class AppRead(BaseModel):
     org_mode: OrgMode
     origins: list[str]
     default_role_id: uuid.UUID | None
+    org_owner_role_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

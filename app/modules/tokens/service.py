@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_keys import KeySet
 from app.modules.rbac.authz import AuthzService
-from app.modules.rbac.models import App, JoinPolicy
+from app.modules.rbac.models import App, JoinPolicy, OrgMode
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.repository import SessionRepository
 from app.modules.sessions.service import ResolvedDevice
@@ -18,6 +18,7 @@ from app.modules.tokens.errors import (
     AudienceMismatchError,
     EmailUnverifiedError,
     NotMemberError,
+    OrgAccessDeniedError,
     OrgNotSupportedError,
 )
 from app.modules.tokens.schemas import TokenRequest
@@ -54,9 +55,9 @@ class TokenService:
     async def issue(self, app: App, device: ResolvedDevice, data: TokenRequest) -> IssuedToken:
         if data.audience != app.key:
             raise AudienceMismatchError("Audience does not match the calling app")
-        if data.org_id is not None:
+        if data.org_id is not None and app.org_mode == OrgMode.NONE.value:
             raise OrgNotSupportedError(
-                "Organization-scoped tokens are not supported yet",
+                "This app does not use organizations",
                 details=[{"field": "org_id", "reason": "not_supported"}],
             )
         # No `headers`: the cookie is not cleared, other accounts on the device stay signed in.
@@ -80,6 +81,15 @@ class TokenService:
                 "Not a member of this app", details={"join_available": join_available}
             )
 
+        claims: dict[str, object] = {}
+        if data.org_id is not None:
+            # Org-exact: the app-scope role above must not make an unknown, suspended or
+            # foreign org look usable. One answer for all three (no existence oracle).
+            if not await self.authz.org_role_keys(user.id, app.key, data.org_id):
+                raise OrgAccessDeniedError("No access to this organization", details={})
+            roles = await self.authz.effective_roles(user.id, app.key, data.org_id)
+            claims["org"] = str(data.org_id)
+
         now = int(self.clock())
         jti = str(uuid.uuid4())
         token = self.key_set.sign(
@@ -90,16 +100,18 @@ class TokenService:
                 "email": user.email,
                 "email_verified": True,  # unverified users were refused above
                 "roles": roles,
+                **claims,
                 "iat": now,
                 "exp": now + self.ttl,
                 "jti": jti,
             }
         )
         logger.info(
-            "token_issued user_id=%s account_session_id=%s aud=%s kid=%s jti=%s",
+            "token_issued user_id=%s account_session_id=%s aud=%s org_id=%s kid=%s jti=%s",
             user.id,
             account.id,
             app.key,
+            data.org_id,
             self.key_set.signing_kid,
             jti,
         )

@@ -518,3 +518,52 @@ async def test_put_role_permissions_integrity_race_is_409(
     # The savepoint kept the session usable.
     assert await db_session.scalar(select(func.count()).select_from(App)) == 2
     assert await _held(db_session, role.id) == set()
+
+
+# --- org owner role guards (USR-06a) -----------------------------------------
+
+
+async def _owner_setup(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> tuple[App, Role, Permission]:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    role = await make_role(db_session, app, "calechip:org-owner")
+    perm = await make_permission(db_session, app, "calechip:orgs:manage", is_admin=False)
+    patch = await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(role.id)})
+    assert patch.status_code == 200, patch.text
+    return app, role, perm
+
+
+async def test_delete_org_owner_role_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role, _ = await _owner_setup(rbac_client, db_session)
+    resp = await rbac_client.delete(f"{URL.replace('stoktok', 'calechip')}/{role.id}")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "conflict"
+    assert await _role(db_session, "calechip:org-owner") is not None
+
+
+async def test_add_admin_permission_to_org_owner_role_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, role, _ = await _owner_setup(rbac_client, db_session)
+    await make_permission(db_session, app, "calechip:roles:manage", is_admin=True)
+    resp = await rbac_client.put(
+        _put_url(role.id, "calechip"), json={"permission_keys": ["calechip:roles:manage"]}
+    )
+    assert resp.status_code == 409
+    assert await _held(db_session, role.id) == set()
+
+
+async def test_flip_permission_is_admin_held_by_org_owner_role_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role, perm = await _owner_setup(rbac_client, db_session)
+    await grant(db_session, role, perm)
+    resp = await rbac_client.patch(
+        f"{BASE}/calechip/permissions/{perm.id}", json={"is_admin": True}
+    )
+    assert resp.status_code == 409
+    await db_session.refresh(perm)
+    assert perm.is_admin is False

@@ -37,6 +37,7 @@ mmlabs runs several products/services. Admin tasks (managing customer orgs, user
 ### §5.1 Organizations — *done (ADM-001)*
 CRUD for organizations (slug, name, description, status `active`/`suspended`). Paginated list.
 > 2026-11-11 (D10, D15): this table moves to the Identity module (USR-06), gains `created_by`, keeps `description` and `status`; apps use it per `apps.org_mode`.
+> 2026-11-17 (USR-06a, done): owned by Identity (D15 = ownership; code stays in `app/modules/organizations/`), `created_by` added, FK from `role_assignments.org_id` (RESTRICT; admin delete with assignments answers 409 `org_has_assignments`). End-user create/list and org-scoped tokens: ADR-0013. Invitations: USR-06b.
 
 ### §5.2 Staff authentication
 Only authenticated mmlabs staff can call `/api/v1/*`. Health endpoints stay public. Approach (SSO/OIDC vs. other) is an open question (§8 Q2).

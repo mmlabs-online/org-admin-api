@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Areas | architecture, db, api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-11 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/43 |
 
 ## Goal
 Apps with `org_mode = required` (calechip first) can work inside an organization: users create orgs (becoming owner) or are invited, and tokens carry the selected org and the roles held in it.
@@ -32,3 +32,8 @@ USR-03b, USR-03c (token endpoint), ADM-004 (audit), USR-04 (verified email for i
 
 ## Notes / answers from owner
 - New ticket (2026-11-11). OQ1 (platform-wide vs per-app orgs) open; working assumption platform-wide, design so `organizations.app_key` can be added later.
+- 2026-11-17 (owner): "đồng ý mặc định" for the plan's blocking questions:
+  1. Split approved: this ticket (USR-06) now delivers slice **USR-06a** (org foundation, org owner role, create/list orgs, org-scoped tokens; AC1, AC2, AC3, AC5, AC6 org-create part, AC7 except invite/accept). AC4 and the invitation parts of AC6/AC7 move to **USR-06b**. No AC dropped.
+  2. Org owner role recorded as data: `apps.org_owner_role_id`.
+  3. Admin `DELETE /api/v1/organizations/{id}` on an org with role assignments → 409 `org_has_assignments` (RESTRICT); admin-pan to be told.
+  USR-06b questions B1–B4: owner said "defaults" in general; confirm when USR-06b is planned.

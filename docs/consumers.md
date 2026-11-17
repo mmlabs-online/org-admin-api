@@ -125,8 +125,27 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/token", {
 | 403 `email_unverified` | Ask the user to verify their email; offer "resend" (see "Email verification"). |
 | 403 `audience_mismatch` | Bug: `audience` must equal the `X-MM-App` key. |
 | 403 `app_header_required` / `origin_not_allowed` | Bug or misconfiguration: wrong `X-MM-App`, or the page origin is not in the app's `origins`. |
-| 422 `validation_error` / `org_not_supported` | Bug: bad body; `org_id` is not supported until USR-06. |
+| 403 `org_access_denied` | `org_id` given but the user holds no role of this app in that org, or the org is unknown or suspended (one answer for all three). Re-list the user's orgs. |
+| 422 `validation_error` / `org_not_supported` | Bug: bad body, or `org_id` sent to an app with `org_mode = none`. |
 | 429 `rate_limited` | Back off for `Retry-After` seconds. |
+
+## Organizations (`org_mode = required` apps, USR-06a)
+
+Flow for calechip: join (`/auth/apps/{key}/join`) -> `POST /api/v1/auth/orgs`
+`{account_id, name, slug}` (cookie class; needs `<app>:org:create`, held at app scope by the
+default role; the creator becomes the org owner) -> `GET /api/v1/auth/orgs?account_id=` (the
+caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_id`.
+
+- Staff must configure the app first: `PATCH /api/v1/apps/{key}` with `org_owner_role_id`. Until
+  it is set, create answers 403 `org_create_unavailable`. Keep the default role to app-level
+  permissions plus `<app>:org:create`.
+- The org owner role must differ from the default role (422 `same_as_default_role`). Warning: the
+  manifest sync (`build_default_role`) re-widens `<app>:member` to all non-admin permissions, so for
+  `org_mode = required` apps org-level permissions must not be declared as non-admin app
+  permissions (or the default role must be maintained by hand).
+- Create errors: 403 `org_create_forbidden` (no `<app>:org:create`), `org_limit_reached`, 409
+  `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
+- A role change in an org reaches tokens within the token TTL (about 15 minutes).
 
 ## Email verification
 
@@ -309,7 +328,12 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
     (the token TTL).
 
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
-`email_verified`, `roles`, `iat`, `exp`, `jti` (`org` arrives with USR-06).
+`email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
+as a string), `iat`, `exp`, `jti`.
+
+For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles plus the roles
+held in the `org` org), so **scope all data by the `org` claim**, never by a role name alone. A
+token without `org_id` carries app-scope roles only: enough to create or pick an org.
 
 Python backends: prefer `mmlabs-auth`, which implements this checklist; the sketch stays for
 other stacks.

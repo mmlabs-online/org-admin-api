@@ -514,11 +514,18 @@ IDENTITY_NOT_AUDITED = {
     ("POST", f"{AUTH}/verify-email/resend"),
     ("POST", f"{AUTH}/password/forgot"),
 }
+# Audited with several rows, which the one-row harness above cannot express: `POST /auth/orgs`
+# writes organization.created + role_assignment.granted (covered by tests/test_auth_orgs.py).
+IDENTITY_MULTI_ROW_AUDITED = {
+    ("POST", f"{AUTH}/orgs"),
+}
 
 
 def test_every_mutating_identity_route_is_classified() -> None:
     assert set(IDENTITY_AUDITED).isdisjoint(IDENTITY_NOT_AUDITED)
-    assert set(IDENTITY_AUDITED) | IDENTITY_NOT_AUDITED == {
+    assert IDENTITY_MULTI_ROW_AUDITED.isdisjoint(IDENTITY_NOT_AUDITED)
+    assert IDENTITY_MULTI_ROW_AUDITED.isdisjoint(IDENTITY_AUDITED)
+    assert set(IDENTITY_AUDITED) | IDENTITY_MULTI_ROW_AUDITED | IDENTITY_NOT_AUDITED == {
         r for r in PUBLIC | COOKIE if r[0] != "GET"
     }
 

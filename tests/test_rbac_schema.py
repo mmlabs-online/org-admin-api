@@ -7,7 +7,15 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
-from tests.rbac_factories import assign, grant, make_app, make_permission, make_role, make_user
+from tests.rbac_factories import (
+    assign,
+    grant,
+    make_app,
+    make_org,
+    make_permission,
+    make_role,
+    make_user,
+)
 
 
 async def test_seed_admin_app(db_session: AsyncSession) -> None:
@@ -230,7 +238,7 @@ async def test_org_scoped_assignments_unique_per_org(db_session: AsyncSession) -
     app = await make_app(db_session)
     role = await make_role(db_session, app, "stoktok:member")
     user = await make_user(db_session)
-    org_a, org_b = uuid.uuid4(), uuid.uuid4()
+    org_a, org_b = (await make_org(db_session)).id, (await make_org(db_session)).id
     await assign(db_session, user, role)
     await assign(db_session, user, role, org_id=org_a)
     await assign(db_session, user, role, org_id=org_b)

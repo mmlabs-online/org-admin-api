@@ -19,6 +19,12 @@ class NotMemberError(AppError):
 
 
 class OrgNotSupportedError(UnprocessableError):
-    """`org_id` until USR-06."""
+    """The app does not use organizations (`org_mode = none`)."""
 
     code = "org_not_supported"
+
+
+class OrgAccessDeniedError(PermissionDeniedError):
+    """One answer for an unknown, suspended or not-a-member org (no existence oracle)."""
+
+    code = "org_access_denied"

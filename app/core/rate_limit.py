@@ -75,6 +75,8 @@ Scope = Literal[
     "token",
     "accounts",
     "join",
+    "org_create",
+    "orgs_list",
     "jwks",
     "verify_email",
     "verify_email_resend",
@@ -91,6 +93,8 @@ _LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
     "token": lambda s: RateLimit(s.token_rate_limit, s.token_rate_window_seconds),
     "accounts": lambda s: RateLimit(s.accounts_rate_limit, s.accounts_rate_window_seconds),
     "join": lambda s: RateLimit(s.join_rate_limit, s.join_rate_window_seconds),
+    "org_create": lambda s: RateLimit(s.org_create_rate_limit, s.org_create_rate_window_seconds),
+    "orgs_list": lambda s: RateLimit(s.orgs_list_rate_limit, s.orgs_list_rate_window_seconds),
     "jwks": lambda s: RateLimit(s.jwks_rate_limit, s.jwks_rate_window_seconds),
     "verify_email": lambda s: RateLimit(
         s.verify_email_rate_limit, s.verify_email_rate_window_seconds

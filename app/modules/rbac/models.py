@@ -67,6 +67,16 @@ class App(UUIDPkMixin, TimestampMixin, Base):
             name="fk_apps_default_role_same_app",
             use_alter=True,
         ),
+        ForeignKeyConstraint(
+            ["org_owner_role_id", "id"],
+            ["roles.id", "roles.app_id"],
+            name="fk_apps_org_owner_role_same_app",
+            use_alter=True,
+        ),
+        CheckConstraint(
+            "org_owner_role_id IS NULL OR org_mode = 'required'",
+            name="org_owner_requires_org_mode",
+        ),
     )
 
     key: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -93,6 +103,8 @@ class App(UUIDPkMixin, TimestampMixin, Base):
         ARRAY(Text), nullable=False, default=list, server_default=text("'{}'::text[]")
     )
     default_role_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    # Role the creator of an org gets in it (USR-06a); only for `org_mode = required` apps.
+    org_owner_role_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
 
 
 class Permission(UUIDPkMixin, TimestampMixin, Base):
@@ -182,8 +194,14 @@ class RoleAssignment(UUIDPkMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id"), nullable=False)
-    # FK to organizations is added in USR-06 (ticket scope).
-    org_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "organizations.id",
+            ondelete="RESTRICT",
+            name="fk_role_assignments_org_id_organizations",
+        ),
+    )
     granted_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )

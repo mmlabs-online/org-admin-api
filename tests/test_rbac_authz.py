@@ -9,7 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rbac.authz import AuthzService, permits
 from app.modules.rbac.models import Role
-from tests.rbac_factories import assign, grant, make_app, make_permission, make_role, make_user
+from tests.rbac_factories import (
+    assign,
+    grant,
+    make_app,
+    make_org,
+    make_permission,
+    make_role,
+    make_user,
+)
 
 PAST = datetime(2000, 1, 1, tzinfo=UTC)
 FUTURE = datetime(2999, 1, 1, tzinfo=UTC)
@@ -29,7 +37,7 @@ async def test_effective_roles_app_scope(db_session: AsyncSession) -> None:
 async def _org_setup(db_session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
     app = await make_app(db_session)
     user = await make_user(db_session)
-    org_a, org_b = uuid.uuid4(), uuid.uuid4()
+    org_a, org_b = (await make_org(db_session)).id, (await make_org(db_session)).id
     await assign(db_session, user, await make_role(db_session, app, "stoktok:r1"))
     await assign(db_session, user, await make_role(db_session, app, "stoktok:r2"), org_id=org_a)
     await assign(db_session, user, await make_role(db_session, app, "stoktok:r3"), org_id=org_b)
@@ -78,7 +86,7 @@ async def test_effective_roles_unknown_app_is_empty(db_session: AsyncSession) ->
 async def test_effective_roles_deduplicated_and_sorted(db_session: AsyncSession) -> None:
     app = await make_app(db_session)
     user = await make_user(db_session)
-    org_a = uuid.uuid4()
+    org_a = (await make_org(db_session)).id
     zeta = await make_role(db_session, app, "stoktok:zeta")
     alpha = await make_role(db_session, app, "stoktok:alpha")
     await assign(db_session, user, zeta)
