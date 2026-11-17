@@ -39,8 +39,10 @@ without changing this service's code. The admin API itself needs staff permissio
 
 ## Consequences
 - Adding an app is data, not code: register the app, push its catalog, assign roles.
-- Tokens stay small. Role changes take effect at the next access-token refresh (≤ access-token TTL,
-  ~15 min); immediate cut-off = revoke the user's refresh tokens (USR-03).
+- Tokens stay small. Role changes take effect at the next access-token refresh (≤ access-token TTL:
+  `ACCESS_TOKEN_TTL_SECONDS`, default 15 min, 12 h in production since USR-13). There are no
+  refresh tokens (D7): immediate cut-off is only a server-side check (admin, ADR-0008 §3) or an
+  emergency key rotation.
 - Apps must verify `aud` and must not trust permissions from another app's token.
 - The admin API is the first client: its endpoints require `admin:*` permissions (ADM-002).
 

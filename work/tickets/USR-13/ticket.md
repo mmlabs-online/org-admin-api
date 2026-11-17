@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | architecture, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/46 |
 
 ## Goal
 Access tokens can live 12 hours (`ACCESS_TOKEN_TTL_SECONDS=43200`), so developers and apps do not have to re-mint a

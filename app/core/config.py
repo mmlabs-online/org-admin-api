@@ -83,7 +83,8 @@ class Settings(BaseSettings):
     # JSON list of base64 public PEMs published in the JWKS during a rotation (not secret).
     jwt_public_keys_extra: list[str] = []
     jwt_issuer: str = "http://localhost:8000"
-    access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    # ADR-0005 §6 (USR-13): production 43200; above needs a new decision
+    access_token_ttl_seconds: int = Field(default=900, ge=60, le=43200)
 
     # Device sessions (ADR-0004): idle timeout (= cookie Max-Age) and absolute lifetime.
     device_session_idle_days: int = Field(default=30, ge=1)

@@ -50,6 +50,11 @@ def test_expired_rejected() -> None:
     assert _reason(mint(SUB, iat=now - 1000, exp=now - 31)) == "expired"
 
 
+def test_long_lived_token_accepted() -> None:
+    now = int(time.time())
+    assert _verify(mint(SUB, iat=now - 43000, exp=now + 200))["sub"] == SUB
+
+
 def test_expiry_within_leeway_accepted() -> None:
     now = int(time.time())
     assert _verify(mint(SUB, iat=now - 1000, exp=now - 10))["sub"] == SUB

@@ -16,7 +16,7 @@ architect recommended ES256, the identity and security consults EdDSA (Ed25519).
      WebCrypto in every browser. Ed25519 arrived in WebCrypto only recently.
    - RFC 9864 deprecates the polymorphic `EdDSA` name in favour of `Ed25519`; libraries will go
      through a renaming period while every consumer pins the name. `ES256` does not change.
-   - Security is equivalent for a 15-minute token. ECDSA nonce generation is done by
+   - Security is equivalent at the allowed lifetimes (up to 12 h, §6 amendment). ECDSA nonce generation is done by
      `cryptography` (OpenSSL), not by our code.
    - Rejected: EdDSA (naming churn above), RS256 (large keys and tokens, no benefit).
    - Verifiers pin `algorithms=["ES256"]`; every JWKS key carries `alg: "ES256"`, `use: "sig"`.
@@ -42,7 +42,7 @@ architect recommended ES256, the identity and security consults EdDSA (Ed25519).
 6. **Lifetime:** `ACCESS_TOKEN_TTL_SECONDS` = 900 (bounds 60–3600). No refresh token, no
    revocation list, no `jti` denylist: a disabled user, a removed role or a logout keeps a live
    token for at most the TTL (accepted under D7). A leaked key is fixed only by rotation
-   (`docs/deploy.md`).
+   (`docs/deploy.md`). *(Amended by USR-13, 2026-11-17: bounds 60–43200, see below.)*
 7. **JWKS:** `GET /.well-known/jwks.json`, public, per-IP limit, body built once at startup
    (`{"keys": [signer, *extras]}`, public members only), strong `ETag` / 304,
    `Cache-Control: public, max-age=300`, `Access-Control-Allow-Origin: *` without credentials (the
@@ -66,3 +66,34 @@ architect recommended ES256, the identity and security consults EdDSA (Ed25519).
   contains USR-03c (`docs/deploy.md`).
 - Consumers follow the checklist in `docs/consumers.md`.
 - Until USR-04 ships no real account has a verified email, so nobody can get a token (D16).
+
+## Amendment — 12-hour access tokens (USR-13, 2026-11-17)
+
+**Decision (owner, 2026-11-17, TuDoCuaTui D46; the softer options were declined).**
+`ACCESS_TOKEN_TTL_SECONDS` bounds become 60–43200; the default stays 900. Production sets
+`ACCESS_TOKEN_TTL_SECONDS=43200` in `mmlabs-online/deployment` after merge. Above 43200 needs a new
+decision. Why: developers and apps no longer re-mint a token every 15 minutes.
+
+**Unchanged:** no refresh token, no revocation list, no `jti` denylist, no introspection; the
+verifier leeway stays 30 s (consumers at most 60 s).
+
+**Accepted risks:**
+1. The setting is global: every audience, `admin` included.
+2. Consumer apps: disable, role removal, org suspension, assignment expiry, email change, logout and
+   password reset reach a live token only at `exp` (at most TTL + leeway). The claims `roles`,
+   `org_roles`, `email` and `org` are frozen for that long. A token minted just before an
+   assignment expires keeps that role until its `exp`.
+3. A leaked token works for up to 12 h on its audience, from any client. An XSS on an app origin now
+   yields 12 h tokens.
+4. **Admin nuance:** the per-request reload (ADR-0008 §3) keeps disable, role revoke and assignment
+   expiry immediate for `aud=admin`. But logout, password reset, staff session revoke,
+   disable-then-re-enable within TTL + leeway (counted from the disable/revoke time) and `set-admin-origins --clear` do **not** end a stolen
+   admin token. Cutting one means keeping the user disabled or the role revoked for at least
+   TTL + leeway, or an emergency key rotation.
+5. Key rotation must keep the old public key for TTL + leeway + JWKS `max-age` (about 12 h 06 min;
+   wait 12.5 h) after the last old-key signer stopped. Emergency rotation is the only global kill
+   switch, bounded by consumer JWKS caches (at most 1 h unless flushed).
+
+**Follow-ups (not in this ticket):** a per-audience admin TTL; a `tokens_valid_after` or `sid`
+check in the admin reload; capping `exp` at the earliest assignment expiry; verifying consumer
+libraries and apps (`mmlabs-auth`, admin-pan, ricotdin, TuDoCuaTui) before production is set to 43200.

@@ -99,6 +99,6 @@ mmlabs site already sends from, which changes D3's "dedicated account".
   the ops workflow; see `docs/deploy.md` ("Email retention cleanup").
 - Every app that offers "forgot password" must serve `/reset-password` (USR-04b).
 - Accepted risks (USR-04b): forgot still differs slightly in timing for known users (the token
-  insert and the enqueue); access tokens issued before a reset stay valid ≤ 15 min; data an
+  insert and the enqueue); access tokens issued before a reset stay valid ≤ `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production, USR-13); data an
   attacker created under a pre-registered email (e.g. memberships) stays after the owner resets
   the password.

@@ -203,6 +203,18 @@ async def test_role_revoked_after_issue_403(client: AsyncClient, db_session: Asy
     assert (await client.get(ORGS, headers=headers)).status_code == 403
 
 
+async def test_long_lived_token_role_revoked_403(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    staff = await make_staff(db_session, "admin:organizations:read")
+    now = int(time.time())
+    headers = bearer(mint(staff, iat=now - 21600, exp=now + 21600))
+    assert (await client.get(ORGS, headers=headers)).status_code == 200
+    await db_session.execute(delete(RoleAssignment).where(RoleAssignment.user_id == staff.id))
+    await db_session.flush()
+    assert (await client.get(ORGS, headers=headers)).status_code == 403
+
+
 async def test_expired_assignment_403(client: AsyncClient, db_session: AsyncSession) -> None:
     staff = await make_staff(
         db_session, "admin:*", expires_at=datetime.now(UTC) - timedelta(minutes=1)
@@ -213,6 +225,16 @@ async def test_expired_assignment_403(client: AsyncClient, db_session: AsyncSess
 async def test_disabled_after_issue_401(client: AsyncClient, db_session: AsyncSession) -> None:
     staff = await make_staff(db_session, "admin:*")
     headers = bearer(mint(staff))
+    assert (await client.get(ORGS, headers=headers)).status_code == 200
+    staff.status = "disabled"
+    await db_session.flush()
+    _assert_401(await client.get(ORGS, headers=headers))
+
+
+async def test_long_lived_token_disabled_401(client: AsyncClient, db_session: AsyncSession) -> None:
+    staff = await make_staff(db_session, "admin:*")
+    now = int(time.time())
+    headers = bearer(mint(staff, iat=now - 21600, exp=now + 21600))
     assert (await client.get(ORGS, headers=headers)).status_code == 200
     staff.status = "disabled"
     await db_session.flush()
