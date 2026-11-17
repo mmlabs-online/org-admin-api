@@ -37,3 +37,34 @@ No violations found. R1: router only maps the view to schemas; service has no HT
 - `admin:stats:read` is granted to no role: only `admin:*` holders see the dashboard until a super-admin adds it to a staff role (tell the admin-pan side; plan owner decision 2).
 - `users.created_at` has no index; fine at current size, revisit if the users table grows large (§6 p95).
 - `docs/spec-v1.md` §8 OQ7 is answered in `work/tickets/USR-10/ticket.md` but still unticked in the spec; tick it with USR-10.
+
+## Attempt 2
+Verdict: PASS
+
+Scope of this review: the attempt-2 delta only (`git diff HEAD~1 -- app docs migrations`, commit e651a63), a docs-only rework of security-review.md Attempt 1 finding 1 (owner accepted, ticket.md last note, 2026-11-17). Attempt 1 already PASSed.
+
+### Checks (run by reviewer)
+- make check (`env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`): ruff "All checks passed!", ruff format "309 files already formatted", mypy "Success: no issues found in 144 source files", pytest "2270 passed, 1 warning in 200.62s" (known flake `test_purge_batches_share_cutoff` did not fail this run; no rerun needed). Matches impl-log Attempt 2 (its 1 failure was the known flake).
+- alembic check (after `alembic upgrade head`): "No new upgrade operations detected."
+
+### Acceptance criteria (attempt-2 rework: document finding 1)
+- [x] Endpoint description states the app list exposure — evidence: `app/modules/stats/router.py:26-27` (`members_per_app` reveals every app's key and name incl. disabled and `admin`; `admin:stats:read` exposes it without `admin:apps:read`).
+- [x] identity-architecture §4 row updated — evidence: `docs/identity-architecture.md:158`.
+- [x] D26 updated, citing owner acceptance (appsec finding 1) — evidence: `docs/identity-architecture.md:307`.
+- [x] Migration change is description text only — evidence: `migrations/versions/20261117_e2b7a94d1c58_adm015_stats_permission.py:26-28`; key `admin:stats:read`, `is_admin=true`, `ON CONFLICT DO NOTHING`, and `downgrade()` unchanged. Migration is unmerged, so editing in place is acceptable. No test asserts the old description text (grep of tests); `tests/test_stats_migration.py` passes.
+- [x] Acceptance criteria from Attempt 1 unaffected — no behaviour change in the delta; full suite green.
+
+### Scope
+Changed files (app/docs/migrations): `app/modules/stats/router.py`, `docs/identity-architecture.md`, the ADM-015 migration — all listed in impl-log Attempt 2 "Files touched". Other changes are workflow files (`work/backlog.md`, ticket.md, impl-log.md). No unjustified out-of-plan change.
+
+### Issues
+None.
+
+### Rules R1–R11
+No violations found. (R2: description-only change to an unmerged data migration; downgrade intact, `alembic check` clean. R7: change limited to the accepted finding.)
+
+### Nits (do not block)
+- None.
+
+### Follow-ups (out of scope)
+- None new (Attempt 1 follow-ups still stand).
