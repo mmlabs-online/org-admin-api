@@ -21,6 +21,7 @@ from app.modules.auth.repository import EmailTokenRepository
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.users.models import User
+from tests.app_credential_factories import make_credential
 from tests.auth_factories import (
     LOGIN,
     PASSWORD,
@@ -152,6 +153,16 @@ async def _role_permissions(s: AsyncSession) -> Call:
     return f"{V1}/apps/{app.key}/roles/{role.id}/permissions", {"permission_keys": [perm.key]}
 
 
+async def _cred_issue(s: AsyncSession) -> Call:
+    return f"{V1}/apps/{(await _app(s)).key}/credentials", None
+
+
+async def _cred_revoke(s: AsyncSession) -> Call:
+    app = await _app(s)
+    cred, _ = await make_credential(s, app)
+    return f"{V1}/apps/{app.key}/credentials/{cred.id}", None
+
+
 # --- failure scenarios (404 unknown id/key, 409 duplicate) -------------------
 
 
@@ -227,6 +238,14 @@ async def _role_unknown_permissions(s: AsyncSession) -> Call:
     return f"{V1}/apps/{app.key}/roles/{uuid.uuid4()}/permissions", {"permission_keys": []}
 
 
+async def _cred_issue_unknown(s: AsyncSession) -> Call:
+    return f"{V1}/apps/nope-{uuid.uuid4().hex[:6]}/credentials", None
+
+
+async def _cred_revoke_unknown(s: AsyncSession) -> Call:
+    return f"{V1}/apps/{(await _app(s)).key}/credentials/{uuid.uuid4()}", None
+
+
 ORG, ORG_ID = f"{V1}/organizations", f"{V1}/organizations/{{org_id}}"
 USER, ASSIGN = f"{V1}/users/{{user_id}}", f"{V1}/users/{{user_id}}/role-assignments"
 APP, PERMS, ROLES = (
@@ -234,6 +253,7 @@ APP, PERMS, ROLES = (
     f"{V1}/apps/{{key}}/permissions",
     f"{V1}/apps/{{key}}/roles",
 )
+CREDS = f"{V1}/apps/{{key}}/credentials"
 
 # route -> (allowed actions, success scenario, failure scenario, failure status)
 AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
@@ -278,6 +298,13 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _role_unknown_permissions,
         404,
     ),
+    ("POST", CREDS): ({"app_credential.issued"}, _cred_issue, _cred_issue_unknown, 404),
+    ("DELETE", f"{CREDS}/{{credential_id}}"): (
+        {"app_credential.revoked"},
+        _cred_revoke,
+        _cred_revoke_unknown,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
 
@@ -302,7 +329,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 16
+    assert len(AUDITED) == 18
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")

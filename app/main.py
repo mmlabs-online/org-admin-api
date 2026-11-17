@@ -16,6 +16,7 @@ from app.core.request_id import RequestIdMiddleware
 from app.db.session import SessionLocal
 from app.modules.admin_auth.me_router import router as me_router
 from app.modules.admin_auth.route_classes import BearerRouteMatcher
+from app.modules.app_credentials.router import router as app_credentials_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.auth.throttle import EmailHasher
@@ -105,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_router, prefix=settings.api_prefix)
     app.include_router(users_router, prefix=settings.api_prefix)
     app.include_router(rbac_router, prefix=settings.api_prefix)
+    app.include_router(app_credentials_router, prefix=settings.api_prefix)
     app.include_router(assignments_router, prefix=settings.api_prefix)
     app.include_router(audit_router, prefix=settings.api_prefix)
     app.include_router(me_router, prefix=settings.api_prefix)

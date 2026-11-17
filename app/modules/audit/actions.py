@@ -24,6 +24,7 @@ class AuditTarget(StrEnum):
     ROLE_ASSIGNMENT = "role_assignment"
     DEVICE_SESSION = "device_session"
     INVITATION = "invitation"
+    APP_CREDENTIAL = "app_credential"
 
 
 class AuditAction(StrEnum):
@@ -42,6 +43,8 @@ class AuditAction(StrEnum):
     APP_REGISTERED = "app.registered"
     APP_ADMIN_ORIGINS_SET = "app.admin_origins_set"
     APP_JOINED = "app.joined"
+    APP_CREDENTIAL_ISSUED = "app_credential.issued"
+    APP_CREDENTIAL_REVOKED = "app_credential.revoked"
     PERMISSION_CREATED = "permission.created"
     PERMISSION_UPDATED = "permission.updated"
     PERMISSION_DELETED = "permission.deleted"
