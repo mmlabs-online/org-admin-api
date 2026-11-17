@@ -350,7 +350,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
   interval or on the next app open; do not poll faster than the join rate limit. After a rejection
   the user cannot ask again for a cooldown (default 7 days): join answers 403 `join_rejected` with
   no reason, and `not_member.details.join_available` is false until it ends.
-- `not_member.details.join_available` is true for `approval` apps with a default role.
+- `not_member.details.join_available` is true for `approval` apps with a default role, unless a rejection is inside the cooldown.
 
 | Status / code | Meaning |
 |---|---|

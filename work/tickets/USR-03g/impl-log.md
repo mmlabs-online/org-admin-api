@@ -45,3 +45,13 @@ As listed in `plan.md` (cancelled status on disable, retention purge, pending ca
 
 ### Scope self-check
 Every file above is in the plan's file list. No refactors beyond extracting `usable_default_role`. Nothing committed.
+
+## Attempt 2 (REWORK: security-review Attempt 1)
+
+Files touched:
+- `app/modules/join_requests/router.py` — approve and reject set `Cache-Control: no-store` (S1); required because bodies carry emails.
+- `tests/test_join_requests_api.py` — assert the header in approve and reject happy-path tests (S1).
+- `docs/consumers.md` — `join_available` sentence adds "unless a rejection is inside the cooldown" (N4).
+
+Check: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check` -> 2180 passed, 1 warning (ruff/format/mypy clean).
+Out-of-plan files: none. Follow-ups: none. Scope self-check: only the two listed issues fixed. Not committed.

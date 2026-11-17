@@ -115,6 +115,7 @@ async def test_approve_grants_default_role(
     async with make_client(admin_permissions=STAFF, admin_user=staff) as staff_client:
         resp = await staff_client.post(_act(app, row.id, "approve"))
     assert resp.status_code == 200, resp.text
+    assert resp.headers["cache-control"] == "no-store"
     body = resp.json()
     assert (body["status"], body["decided_by"]) == ("approved", str(staff.id))
     assert body["decided_at"] is not None
@@ -274,6 +275,7 @@ async def test_reject_records_decision(
     async with make_client(admin_permissions=STAFF, admin_user=staff) as client:
         resp = await client.post(_act(app, row.id, "reject"))
     assert resp.status_code == 200, resp.text
+    assert resp.headers["cache-control"] == "no-store"
     body = resp.json()
     assert (body["status"], body["decided_by"]) == ("rejected", str(staff.id))
     assert body["decided_at"] is not None

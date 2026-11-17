@@ -52,11 +52,14 @@ async def approve_join_request(
     session: SessionDep,
     principal: AdminDep,
     ctx: AuditContextDep,
+    response: Response,
     key: str,
     request_id: uuid.UUID,
 ) -> JoinRequestRead:
     """Grants the app's current default role at app scope."""
-    return await JoinRequestService(session).approve(key, request_id, actor=principal, ctx=ctx)
+    result = await JoinRequestService(session).approve(key, request_id, actor=principal, ctx=ctx)
+    response.headers["Cache-Control"] = "no-store"  # body carries an email
+    return result
 
 
 @router.post(
@@ -68,7 +71,10 @@ async def reject_join_request(
     session: SessionDep,
     principal: AdminDep,
     ctx: AuditContextDep,
+    response: Response,
     key: str,
     request_id: uuid.UUID,
 ) -> JoinRequestRead:
-    return await JoinRequestService(session).reject(key, request_id, actor=principal, ctx=ctx)
+    result = await JoinRequestService(session).reject(key, request_id, actor=principal, ctx=ctx)
+    response.headers["Cache-Control"] = "no-store"  # body carries an email
+    return result
