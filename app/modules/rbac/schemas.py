@@ -77,7 +77,7 @@ class AppUpdate(BaseModel):
         return self
 
 
-class AppRead(BaseModel):
+class AppFields(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -91,6 +91,16 @@ class AppRead(BaseModel):
     org_owner_role_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class AppRead(AppFields):
+    member_count: int = Field(
+        ge=0,
+        description=(
+            "Distinct active users with at least one non-expired role assignment on the app "
+            "(app scope or any org); unverified email counts; `admin` = staff (OQ5)."
+        ),
+    )
 
 
 PermissionKey = Annotated[str, Field(pattern=PERMISSION_KEY_RE, max_length=160)]

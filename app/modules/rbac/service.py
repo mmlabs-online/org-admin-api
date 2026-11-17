@@ -1,5 +1,6 @@
 import re
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -331,6 +332,9 @@ class AppService:
 
     async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
         return await self.repo.list_apps(limit=limit, offset=offset)
+
+    async def member_counts(self, apps: Sequence[App]) -> dict[uuid.UUID, int]:
+        return await self.repo.member_counts([a.id for a in apps])
 
     async def get(self, key: str) -> App:
         app = await self.repo.get_app_by_key(key)
