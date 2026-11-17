@@ -376,6 +376,62 @@ async def test_token_with_org_has_org_claim_and_union_roles(
     claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
     assert claims["org"] == str(org.id)
     assert claims["roles"] == ["calechip:member", "calechip:org-owner"]  # other org's role absent
+    assert claims["org_roles"] == ["calechip:org-owner"]
+
+
+async def _org_claims(client: AsyncClient, raw: str, account_id: Any, org: Any) -> dict[str, Any]:
+    resp = await client.post(
+        TOKEN,
+        json=_body(account_id, "calechip", org_id=str(org.id)),
+        headers=_cal_headers(raw),
+    )
+    assert resp.status_code == 200, resp.text
+    claims: dict[str, Any] = jwt.decode(
+        resp.json()["access_token"], options={"verify_signature": False}
+    )
+    return claims
+
+
+async def test_org_roles_excludes_app_scope_only_role(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, member = await _calechip(db_session)
+    editor = await make_role(db_session, app, "calechip:editor")
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    org = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, editor)  # staff-granted, app scope
+    await assign(db_session, user, owner, org_id=org.id)
+    claims = await _org_claims(client, raw, account.id, org)
+    assert claims["roles"] == ["calechip:editor", "calechip:member", "calechip:org-owner"]
+    assert claims["org_roles"] == ["calechip:org-owner"]
+
+
+async def test_org_roles_role_in_both_scopes_in_both_claims(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, member = await _calechip(db_session)
+    org = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, member, org_id=org.id)
+    claims = await _org_claims(client, raw, account.id, org)
+    assert claims["roles"] == ["calechip:member"]
+    assert claims["org_roles"] == ["calechip:member"]
+
+
+async def test_org_roles_excludes_other_org_role(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, member = await _calechip(db_session)
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    viewer = await make_role(db_session, app, "calechip:org-viewer")
+    org_a = await make_org(db_session)
+    org_b = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, viewer, org_id=org_a.id)
+    await assign(db_session, user, owner, org_id=org_b.id)
+    claims = await _org_claims(client, raw, account.id, org_a)
+    assert claims["org_roles"] == ["calechip:org-viewer"]
 
 
 async def test_token_without_org_app_scope_only(
@@ -389,7 +445,7 @@ async def test_token_without_org_app_scope_only(
     resp = await client.post(TOKEN, json=_body(account.id, "calechip"), headers=_cal_headers(raw))
     assert resp.status_code == 200, resp.text
     claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
-    assert "org" not in claims
+    assert "org" not in claims and "org_roles" not in claims
     assert claims["roles"] == ["calechip:member"]
 
 

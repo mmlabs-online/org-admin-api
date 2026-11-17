@@ -296,3 +296,47 @@ async def test_delete_user_cascades_and_nulls_granted_by(db_session: AsyncSessio
         )
     )
     assert rows.all() == [(user_ra.id, None)]
+
+
+async def test_permissions_scope_check_rejects_unknown(db_session: AsyncSession) -> None:
+    app = await make_app(db_session)
+    with pytest.raises(IntegrityError, match="ck_permissions_scope_valid"):
+        async with db_session.begin_nested():
+            await make_permission(db_session, app, "stoktok:a:b", scope="team")
+
+
+async def test_apps_default_not_owner_check_rejects_equal(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, org_mode="required")
+    role = await make_role(db_session, app, "stoktok:both")
+    with pytest.raises(IntegrityError, match="ck_apps_default_role_not_org_owner"):
+        async with db_session.begin_nested():
+            app.default_role_id = role.id
+            app.org_owner_role_id = role.id
+            await db_session.flush()
+
+
+async def test_apps_default_not_owner_check_allows_nulls(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, org_mode="required")
+    role = await make_role(db_session, app, "stoktok:one")
+    other = await make_role(db_session, app, "stoktok:two")
+    app.default_role_id = role.id  # owner NULL
+    await db_session.flush()
+    app.default_role_id = None
+    app.org_owner_role_id = role.id  # default NULL
+    await db_session.flush()
+    app.default_role_id = other.id  # distinct
+    await db_session.flush()
+
+
+async def test_check_texts(db_session: AsyncSession) -> None:
+    rows = await db_session.execute(
+        text(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conname IN ('ck_permissions_scope_valid', 'ck_apps_default_role_not_org_owner')"
+        )
+    )
+    defs = dict(rows.all())
+    assert "scope" in defs["ck_permissions_scope_valid"]
+    assert "'app'" in defs["ck_permissions_scope_valid"]
+    owner = defs["ck_apps_default_role_not_org_owner"]
+    assert "default_role_id <> org_owner_role_id" in owner and "IS NULL" in owner

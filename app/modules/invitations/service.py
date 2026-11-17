@@ -44,7 +44,7 @@ from app.modules.invitations.errors import (
 )
 from app.modules.invitations.models import OrgInvitation
 from app.modules.invitations.repository import InvitationRepository
-from app.modules.invitations.rules import is_subset, roles_overlap, safe_org_name
+from app.modules.invitations.rules import is_subset, safe_org_name
 from app.modules.invitations.schemas import InvitationAccepted, InvitationCreate, InvitationCreated
 from app.modules.membership.service import join_default_role
 from app.modules.organizations.auth_service import _org_not_supported
@@ -122,8 +122,8 @@ class InvitationService:
         return app
 
     async def _guard(self, app: App) -> None:
-        """S1 guard (ADR-0014): invitations work only while the default role and the org owner
-        role share no permission except `<app>:org:create`, so the invitee's app-scope default
+        """S1 guard, defense in depth (ADR-0014 §11, ADR-0015): invitations work only while the
+        default role holds no `scope = 'org'` permission, so the invitee's app-scope default
         role cannot widen a narrower invited role in the org token. Fails closed."""
         reason = await self._unavailable_reason(app)
         if reason is not None:
@@ -143,10 +143,8 @@ class InvitationService:
             return "roles_missing"
         if await self.rbac.role_has_admin_permission(default.id):
             return "default_role_admin"
-        default_keys = (await self.rbac.role_permission_keys(default.id)).values()
-        owner_keys = (await self.rbac.role_permission_keys(owner.id)).values()
-        if roles_overlap(app.key, default_keys, owner_keys):
-            return "roles_overlap"
+        if await self.rbac.role_has_org_permission(default.id):
+            return "default_role_org_permission"
         return None
 
     async def create(

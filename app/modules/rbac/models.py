@@ -51,6 +51,11 @@ class OrgMode(StrEnum):
     REQUIRED = "required"
 
 
+class PermissionScope(StrEnum):
+    APP = "app"
+    ORG = "org"
+
+
 class App(UUIDPkMixin, TimestampMixin, Base):
     """A registered mmlabs app (the admin API itself is app `admin`)."""
 
@@ -76,6 +81,11 @@ class App(UUIDPkMixin, TimestampMixin, Base):
         CheckConstraint(
             "org_owner_role_id IS NULL OR org_mode = 'required'",
             name="org_owner_requires_org_mode",
+        ),
+        CheckConstraint(
+            "default_role_id IS NULL OR org_owner_role_id IS NULL "
+            "OR default_role_id <> org_owner_role_id",
+            name="default_role_not_org_owner",
         ),
     )
 
@@ -116,6 +126,7 @@ class Permission(UUIDPkMixin, TimestampMixin, Base):
         UniqueConstraint("id", "app_id", name="uq_permissions_id_app_id"),
         CheckConstraint(f"key ~ '{PERMISSION_KEY_RE}'", name="key_format"),
         CheckConstraint("is_admin OR key NOT LIKE '%:*'", name="wildcard_is_admin"),
+        CheckConstraint("scope IN ('app', 'org')", name="scope_valid"),
     )
 
     app_id: Mapped[uuid.UUID] = mapped_column(
@@ -125,6 +136,13 @@ class Permission(UUIDPkMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text)
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    # Classification data (ADR-0015): the default role of an org app only takes `app` permissions.
+    scope: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default=PermissionScope.APP.value,
+        server_default=PermissionScope.APP.value,
     )
 
 

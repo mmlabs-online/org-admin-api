@@ -11,13 +11,6 @@ _ORG_NAME_MAX = 100
 _DOMAIN_LIKE = re.compile(r"\w\.[a-z]{2,}", re.IGNORECASE)
 
 
-def roles_overlap(app_key: str, default_keys: Collection[str], owner_keys: Collection[str]) -> bool:
-    """True if the default role and the org owner role share a permission other than
-    `<app>:org:create` (the S1 guard: an app-scope default role must not carry org-level
-    permissions into every org token)."""
-    return bool((set(default_keys) & set(owner_keys)) - {f"{app_key}:org:create"})
-
-
 def is_subset(role_keys: Collection[str], granted: AbstractSet[str] | Sequence[str]) -> bool:
     """Every permission of the role is held (exactly, or via the `<app>:*` wildcard)."""
     return all(permits(granted, key) for key in role_keys)

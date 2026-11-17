@@ -1,8 +1,20 @@
 import uuid
 from collections.abc import Iterable
 from datetime import datetime
+from typing import Any, cast
 
-from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, or_, select, update
+from sqlalchemy import (
+    ColumnElement,
+    CursorResult,
+    Select,
+    and_,
+    delete,
+    exists,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +24,7 @@ from app.modules.rbac.models import (
     App,
     AppStatus,
     Permission,
+    PermissionScope,
     Role,
     RoleAssignment,
     RolePermission,
@@ -98,14 +111,22 @@ class RbacRepository:
         )
         return bool(await self.session.scalar(stmt))
 
-    async def set_default_role_if_null(self, app_id: uuid.UUID, role_id: uuid.UUID) -> None:
-        """Conditional update: never overwrites a default set concurrently (no lost update)."""
-        await self.session.execute(
+    async def set_default_role_if_null(self, app_id: uuid.UUID, role_id: uuid.UUID) -> bool:
+        """Conditional update: never overwrites a default set concurrently (no lost update).
+
+        Also never makes the default role the org owner role (ADR-0015). Returns whether it wrote.
+        """
+        result = await self.session.execute(
             update(App)
-            .where(App.id == app_id, App.default_role_id.is_(None))
+            .where(
+                App.id == app_id,
+                App.default_role_id.is_(None),
+                App.org_owner_role_id.is_distinct_from(role_id),
+            )
             .values(default_role_id=role_id)
             .execution_options(synchronize_session=False)
         )
+        return int(cast(CursorResult[Any], result).rowcount) == 1
 
     async def catalog_rows(self, app_id: uuid.UUID) -> list[tuple[str, str, bool, str | None]]:
         """(role key, name, is_system, permission key or None) for every role of the app.
@@ -134,6 +155,14 @@ class RbacRepository:
             exists()
             .where(RolePermission.permission_id == Permission.id)
             .where(RolePermission.role_id == role_id, Permission.is_admin.is_(True))
+        )
+        return bool(await self.session.scalar(stmt))
+
+    async def role_has_org_permission(self, role_id: uuid.UUID) -> bool:
+        stmt = select(
+            exists()
+            .where(RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role_id, Permission.scope == PermissionScope.ORG.value)
         )
         return bool(await self.session.scalar(stmt))
 
@@ -227,11 +256,13 @@ class RbacRepository:
         return bool(await self.session.scalar(stmt))
 
     async def list_permissions(
-        self, app_id: uuid.UUID, *, is_admin: bool | None = None
+        self, app_id: uuid.UUID, *, is_admin: bool | None = None, scope: str | None = None
     ) -> list[Permission]:
         stmt = select(Permission).where(Permission.app_id == app_id).order_by(Permission.key)
         if is_admin is not None:
             stmt = stmt.where(Permission.is_admin.is_(is_admin))
+        if scope is not None:
+            stmt = stmt.where(Permission.scope == scope)
         return list(await self.session.scalars(stmt))
 
     async def role_permission_keys(self, role_id: uuid.UUID) -> dict[uuid.UUID, str]:

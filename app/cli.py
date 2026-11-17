@@ -55,7 +55,8 @@ CHECK_LINE = (
 REGISTER_USAGE = (
     "usage: python -m app.cli register-app --key <key> --name <name> --origin <origin>"
     " [--origin <origin> ...] [--join-policy open|approval|closed] [--org-mode none|required]"
-    " [--permission <key>:<resource>:<action> ...] [--dry-run]"
+    " [--permission <key>:<resource>:<action> ...]"
+    " [--org-permission <key>:<resource>:<action> ...] [--dry-run]"
 )
 MSG_ADMIN_APP = "error: the admin app cannot be registered or changed from the CLI"
 MSG_BAD_KEY = "error: --key must be 2-32 characters: a-z first, then a-z, 0-9 or -"
@@ -71,6 +72,16 @@ MSG_BAD_PERMISSION = (
 MSG_ADMIN_PERMISSION = (
     "error: a --permission is an is_admin permission; the CLI never grants those to the member role"
 )
+MSG_RESERVED_SCOPE = (
+    "error: <key>:org:create is always a --permission and <key>:org:invite always an"
+    " --org-permission"
+)
+MSG_SCOPE_CONFLICT = "error: a permission cannot be in both --permission and --org-permission"
+MSG_ORG_MODE_REQUIRED = "error: --org-permission needs an app with org_mode required"
+MSG_SCOPE_MISMATCH = (
+    "error: a permission is already stored with the other scope; change it through the admin API"
+)
+MSG_MEMBER_IS_OWNER = "error: the member role is the org owner role; nothing was saved"
 MSG_ORIGIN_TAKEN = "error: an origin is already registered to another app; nothing was saved"
 MSG_ORG_MODE = (
     "error: org_mode of an existing app cannot be changed from the CLI; nothing was saved"
@@ -424,6 +435,11 @@ _REASONS = {
     "prefix_mismatch": (MSG_BAD_PERMISSION, EXIT_USAGE),
     "wildcard_not_allowed": (MSG_BAD_PERMISSION, EXIT_USAGE),
     "is_admin_permission": (MSG_ADMIN_PERMISSION, EXIT_FAILURE),
+    "reserved_scope": (MSG_RESERVED_SCOPE, EXIT_USAGE),
+    "scope_conflict": (MSG_SCOPE_CONFLICT, EXIT_USAGE),
+    "org_mode_required": (MSG_ORG_MODE_REQUIRED, EXIT_USAGE),
+    "scope_mismatch": (MSG_SCOPE_MISMATCH, EXIT_FAILURE),
+    "member_is_org_owner": (MSG_MEMBER_IS_OWNER, EXIT_FAILURE),
     "origin_taken": (MSG_ORIGIN_TAKEN, EXIT_FAILURE),
     "org_mode_change": (MSG_ORG_MODE, EXIT_FAILURE),
     "app_disabled": (MSG_APP_DISABLED, EXIT_DISABLED),
@@ -433,6 +449,7 @@ _FIELD_MESSAGES = {
     "name": MSG_BAD_NAME,
     "origins": MSG_BAD_ORIGIN,
     "permissions": MSG_BAD_PERMISSION,
+    "org_permissions": MSG_BAD_PERMISSION,
 }
 
 
@@ -448,6 +465,7 @@ def _parse_register(argv: Sequence[str]) -> tuple["AppRegister", bool]:
     parser.add_argument("--join-policy", choices=["open", "approval", "closed"], default=None)
     parser.add_argument("--org-mode", choices=["none", "required"], default=None)
     parser.add_argument("--permission", action="append", default=[])
+    parser.add_argument("--org-permission", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.key == "admin":
@@ -461,6 +479,7 @@ def _parse_register(argv: Sequence[str]) -> tuple["AppRegister", bool]:
                 "join_policy": args.join_policy,
                 "org_mode": args.org_mode,
                 "permissions": args.permission,
+                "org_permissions": args.org_permission,
             }
         )
     except ValidationError as exc:
@@ -492,6 +511,7 @@ def _print_result(result: "RegisterResult") -> None:
         *(f"+ origin {o}" for o in result.origins_added),
         *(f"- origin {o}" for o in result.origins_removed),
         *(f"+ permission {p}" for p in result.permissions_added),
+        *(f"+ org permission {p}" for p in result.org_permissions_added),
         *(f"+ member {p}" for p in result.member_added),
         *(f"- member {p}" for p in result.member_removed),
     ]

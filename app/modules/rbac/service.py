@@ -30,6 +30,7 @@ from app.modules.rbac.models import (
     JoinPolicy,
     OrgMode,
     Permission,
+    PermissionScope,
     Role,
     RoleAssignment,
 )
@@ -51,6 +52,7 @@ from app.modules.rbac.schemas import (
     RoleRead,
     RoleUpdate,
 )
+from app.modules.rbac.scopes import default_scope, reserved_scope
 from app.modules.users.models import UserStatus
 from app.modules.users.repository import UserRepository
 
@@ -97,6 +99,7 @@ class RegisterResult:
     origins_removed: tuple[str, ...]
     changes: tuple[tuple[str, str, str], ...]  # (field, old, new) for name / join_policy
     permissions_added: tuple[str, ...]
+    org_permissions_added: tuple[str, ...]
     member_role: str | None  # None: the member role is missing (not rebuilt)
     member_permissions: tuple[str, ...]
     member_added: tuple[str, ...]
@@ -202,6 +205,18 @@ def _prefix_mismatch() -> UnprocessableError:
     )
 
 
+def _violates_reserved(app_key: str, key: str, scope: PermissionScope) -> bool:
+    reserved = reserved_scope(app_key, key)
+    return reserved is not None and reserved != scope
+
+
+def _reserved_scope() -> UnprocessableError:
+    return UnprocessableError(
+        "This key has a fixed scope",
+        details=[{"field": "scope", "reason": "reserved_scope"}],
+    )
+
+
 def _wildcard_must_be_admin() -> UnprocessableError:
     return UnprocessableError(
         "The app wildcard permission must be is_admin",
@@ -252,6 +267,8 @@ class RoleCatalogService:
     async def build_default_role(self, app_key: str) -> DefaultRoleResult:
         """Create or update `<app>:member` = every permission of the app with `is_admin = false`.
 
+        For `org_mode = required` apps also only `scope = 'app'` permissions (ADR-0015).
+
         Runs only when called (seed, app creation, USR-05 manifest), never automatically on
         permission changes: that would silently widen or undo manual tightening (D9: role
         content is data). `<app>:*` is never included (the CHECK forces it to `is_admin`). Sets
@@ -279,7 +296,18 @@ class RoleCatalogService:
             except IntegrityError as exc:
                 raise ConflictError("Member role was created concurrently") from exc
 
-        target = {p.id: p.key for p in await self.repo.list_permissions(app.id, is_admin=False)}
+        org_app = app.org_mode == OrgMode.REQUIRED.value
+        if org_app and app.org_owner_role_id == role.id:  # a rebuild would strip the owner role
+            raise ConflictError(
+                "The member role is the app's org owner role",
+                details=[{"field": "org_owner_role_id", "reason": "member_is_org_owner"}],
+            )
+        # Org apps: org-level permissions never reach the member role (ADR-0015).
+        scope = PermissionScope.APP.value if org_app else None
+        target = {
+            p.id: p.key
+            for p in await self.repo.list_permissions(app.id, is_admin=False, scope=scope)
+        }
         added, removed = await _set_role_permissions(self.repo, role, target)
 
         if set_default:
@@ -433,6 +461,16 @@ class AppService:
                 "The org owner role must differ from the default role",
                 details=[{"field": "org_owner_role_id", "reason": "same_as_default_role"}],
             )
+        if (
+            changes.get("org_mode", app.org_mode) == OrgMode.REQUIRED.value
+            and default_role_id is not None
+            and ("default_role_id" in changes or "org_mode" in changes)
+            and await self.repo.role_has_org_permission(default_role_id)
+        ):
+            raise UnprocessableError(
+                "A default role of an org app must not hold org-level permissions",
+                details=[{"field": "default_role_id", "reason": "role_has_org_permissions"}],
+            )
 
         if "origins" in changes:
             origins = list(data.origins or [])
@@ -499,24 +537,43 @@ class AppService:
                 "loopback_not_allowed",
             )
         requested = list(dict.fromkeys(data.permissions))
-        for perm_key in requested:
-            if perm_key.split(":", 1)[0] != data.key:
-                raise _register_refusal(
-                    UnprocessableError,
-                    "Key prefix must be the app key",
-                    "permissions",
-                    "prefix_mismatch",
-                )
-            if perm_key == f"{data.key}:*":
-                raise _register_refusal(
-                    UnprocessableError,
-                    "The app wildcard permission cannot be registered",
-                    "permissions",
-                    "wildcard_not_allowed",
-                )
+        org_requested = list(dict.fromkeys(data.org_permissions))
+        for field, keys in (("permissions", requested), ("org_permissions", org_requested)):
+            for perm_key in keys:
+                if perm_key.split(":", 1)[0] != data.key:
+                    raise _register_refusal(
+                        UnprocessableError,
+                        "Key prefix must be the app key",
+                        field,
+                        "prefix_mismatch",
+                    )
+                if perm_key == f"{data.key}:*":
+                    raise _register_refusal(
+                        UnprocessableError,
+                        "The app wildcard permission cannot be registered",
+                        field,
+                        "wildcard_not_allowed",
+                    )
+        if set(requested) & set(org_requested):
+            raise _register_refusal(
+                UnprocessableError,
+                "A permission cannot be both app and org scope",
+                "org_permissions",
+                "scope_conflict",
+            )
+        if any(_violates_reserved(data.key, k, PermissionScope.ORG) for k in org_requested) or any(
+            _violates_reserved(data.key, k, PermissionScope.APP) for k in requested
+        ):
+            raise _register_refusal(
+                UnprocessableError,
+                "This key has a fixed scope",
+                "org_permissions",
+                "reserved_scope",
+            )
 
         app = await self.repo.lock_app(data.key)
         existing: set[str] = set()
+        org_existing: set[str] = set()
         if app is not None:
             if app.status == AppStatus.DISABLED:
                 raise _register_refusal(ConflictError, "The app is disabled", "key", "app_disabled")
@@ -527,7 +584,17 @@ class AppService:
                     "org_mode",
                     "org_mode_change",
                 )
-            perms = await self.repo.permissions_by_keys(app.id, requested)
+        resulting_mode = app.org_mode if app is not None else (data.org_mode or OrgMode.NONE).value
+        org_app = resulting_mode == OrgMode.REQUIRED.value
+        if org_requested and not org_app:
+            raise _register_refusal(
+                UnprocessableError,
+                "org_permissions need org_mode required",
+                "org_permissions",
+                "org_mode_required",
+            )
+        if app is not None:
+            perms = await self.repo.permissions_by_keys(app.id, [*requested, *org_requested])
             if any(p.is_admin for p in perms):
                 raise _register_refusal(
                     ConflictError,
@@ -535,7 +602,17 @@ class AppService:
                     "permissions",
                     "is_admin_permission",
                 )
-            existing = {p.key for p in perms}
+            if org_app and any(
+                (p.key in org_requested) != (p.scope == PermissionScope.ORG.value) for p in perms
+            ):
+                raise _register_refusal(
+                    ConflictError,
+                    "The stored scope differs from the requested one",
+                    "permissions",
+                    "scope_mismatch",
+                )
+            existing = {p.key for p in perms if p.key in requested}
+            org_existing = {p.key for p in perms if p.key in org_requested}
 
         claimed = [o for o in data.origins if not is_loopback_origin(o)]
         if await self.repo.app_keys_holding_origins(claimed, data.key):
@@ -572,15 +649,19 @@ class AppService:
             origins_removed = sorted(set(old_origins) - set(app.origins))
 
         added = [k for k in requested if k not in existing]
+        org_added = [k for k in org_requested if k not in org_existing]
         permission_service = PermissionService(self.repo.session)
-        for perm_key in added:
-            await permission_service._create(
-                data.key, PermissionCreate(key=perm_key, is_admin=False), actor=SYSTEM_CLI
-            )
+        for scope, keys in ((PermissionScope.APP, added), (PermissionScope.ORG, org_added)):
+            for perm_key in keys:
+                await permission_service._create(
+                    data.key,
+                    PermissionCreate(key=perm_key, is_admin=False, scope=scope),
+                    actor=SYSTEM_CLI,
+                )
 
         member_added: list[str] = []
         member_removed: list[str] = []
-        if added:
+        if added or org_added:
             # A new app got its default in `create()`; an existing app's default is staff data.
             built = await self.catalog._build_for_app(app, set_default=False)
             member_added, member_removed = built.added, built.removed
@@ -593,7 +674,15 @@ class AppService:
 
         if created:
             outcome = RegisterOutcome.CREATED
-        elif changes or origins_added or origins_removed or added or member_added or member_removed:
+        elif (
+            changes
+            or origins_added
+            or origins_removed
+            or added
+            or org_added
+            or member_added
+            or member_removed
+        ):
             outcome = RegisterOutcome.UPDATED
         else:
             outcome = RegisterOutcome.UNCHANGED
@@ -607,6 +696,8 @@ class AppService:
                     audit["origins"] = diff.change(origins_removed, origins_added)
             if added:
                 audit["permissions_added"] = diff.change([], sorted(added))
+            if org_added:
+                audit["org_permissions_added"] = diff.change([], sorted(org_added))
             if member_added or member_removed:
                 audit["member_permissions"] = diff.change(member_removed, member_added)
             await self.audit.record(
@@ -628,6 +719,7 @@ class AppService:
             origins_removed=tuple(origins_removed),
             changes=tuple(changes),
             permissions_added=tuple(sorted(added)),
+            org_permissions_added=tuple(sorted(org_added)),
             member_role=None if role is None else member_key,
             member_permissions=tuple(member_permissions),
             member_added=tuple(member_added),
@@ -751,12 +843,19 @@ class PermissionService:
             is_admin = bool(data.is_admin)
         if app.key == ADMIN_APP_KEY or is_admin:  # is_admin includes <app>:*
             require_super(actor)
+        if data.scope is not None and _violates_reserved(app.key, data.key, data.scope):
+            raise _reserved_scope()
+        scope = data.scope or default_scope(app.key, app.org_mode, data.key)
         if await self.repo.get_permission_by_key(app.id, data.key) is not None:
             raise ConflictError("Permission key is already taken")
         try:
             return await self.repo.add_permission(
                 Permission(
-                    app_id=app.id, key=data.key, description=data.description, is_admin=is_admin
+                    app_id=app.id,
+                    key=data.key,
+                    description=data.description,
+                    is_admin=is_admin,
+                    scope=scope.value,
                 )
             )
         except IntegrityError as exc:  # concurrent insert with the same key
@@ -780,11 +879,22 @@ class PermissionService:
             raise _wildcard_must_be_admin()
         if "is_admin" in fields and data.is_admin is False and app.key == ADMIN_APP_KEY:
             raise _admin_app_permission_must_be_admin()
-        changes = {f: getattr(data, f) for f in fields if getattr(perm, f) != getattr(data, f)}
+        if data.scope is not None and _violates_reserved(app.key, perm.key, data.scope):
+            raise _reserved_scope()
+        changes: dict[str, Any] = {
+            f: getattr(data, f) for f in fields if getattr(perm, f) != getattr(data, f)
+        }
+        if "scope" in changes:
+            changes["scope"] = PermissionScope(changes["scope"]).value
+        org_app = app.org_mode == OrgMode.REQUIRED.value
         # true -> false makes a permission eligible for the default role; false -> true can
         # move it out of members' reach (both directions cross the is_admin boundary).
         try:
-            if (app.key == ADMIN_APP_KEY and changes) or "is_admin" in changes:
+            if (
+                (app.key == ADMIN_APP_KEY and changes)
+                or "is_admin" in changes
+                or (changes.get("scope") == PermissionScope.APP.value and org_app)
+            ):  # org -> app makes it eligible for the member role of an org app
                 require_super(actor)
         except DENIED_ERRORS as exc:
             await self.audit.record_denied(
@@ -812,6 +922,13 @@ class PermissionService:
             and await self.repo.role_holds_permission(app.org_owner_role_id, perm.id)
         ):
             raise ConflictError("The app's org owner role holds this permission")
+        if (
+            changes.get("scope") == PermissionScope.ORG.value
+            and org_app
+            and app.default_role_id is not None
+            and await self.repo.role_holds_permission(app.default_role_id, perm.id)
+        ):
+            raise ConflictError("The app's default role holds this permission")
         if changes.get("is_admin") is True and await self.repo.permission_held_by_assigned_role(
             perm.id
         ):  # G3 (USR-02d): members would silently gain an admin permission
@@ -1066,6 +1183,12 @@ class RoleService:
             raise ConflictError("A default role must not hold admin permissions")
         if role.id == app.org_owner_role_id and any(p.is_admin for p in found.values()):
             raise ConflictError("An org owner role must not hold admin permissions")
+        if (
+            role.id == app.default_role_id
+            and app.org_mode == OrgMode.REQUIRED.value
+            and any(p.scope == PermissionScope.ORG.value for p in found.values())
+        ):
+            raise ConflictError("A default role of an org app must not hold org-level permissions")
         if (
             app.key == ADMIN_APP_KEY
             and role.key == SUPER_ADMIN_ROLE

@@ -567,3 +567,52 @@ async def test_flip_permission_is_admin_held_by_org_owner_role_409(
     assert resp.status_code == 409
     await db_session.refresh(perm)
     assert perm.is_admin is False
+
+
+# --- default role of an org app (USR-06c, ADR-0015) ----------------------------------
+
+
+async def _org_default(db_session: AsyncSession, *, org_mode: str) -> tuple[App, Role]:
+    app = await make_app(db_session, "calechip", org_mode=org_mode)
+    role = await make_role(db_session, app, "calechip:member")
+    await make_permission(db_session, app, "calechip:a:b", scope="org")
+    app.default_role_id = role.id
+    await db_session.flush()
+    return app, role
+
+
+async def test_put_org_permission_on_org_app_default_role_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _org_default(db_session, org_mode="required")
+    resp = await rbac_client.put(
+        f"{BASE}/calechip/roles/{role.id}/permissions", json={"permission_keys": ["calechip:a:b"]}
+    )
+    assert resp.status_code == 409
+    held = await db_session.scalar(
+        select(func.count()).select_from(RolePermission).where(RolePermission.role_id == role.id)
+    )
+    assert held == 0
+
+
+async def test_put_org_permission_on_none_app_default_role_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _org_default(db_session, org_mode="none")
+    resp = await rbac_client.put(
+        f"{BASE}/calechip/roles/{role.id}/permissions", json={"permission_keys": ["calechip:a:b"]}
+    )
+    assert resp.status_code == 200
+
+
+async def test_put_org_permission_on_owner_role_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, _ = await _org_default(db_session, org_mode="required")
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    app.org_owner_role_id = owner.id
+    await db_session.flush()
+    resp = await rbac_client.put(
+        f"{BASE}/calechip/roles/{owner.id}/permissions", json={"permission_keys": ["calechip:a:b"]}
+    )
+    assert resp.status_code == 200

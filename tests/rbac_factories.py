@@ -34,9 +34,9 @@ async def make_org(session: AsyncSession, **kwargs: object) -> Organization:
 
 
 async def make_permission(
-    session: AsyncSession, app: App, key: str, *, is_admin: bool = False
+    session: AsyncSession, app: App, key: str, *, is_admin: bool = False, scope: str = "app"
 ) -> Permission:
-    perm = Permission(app_id=app.id, key=key, is_admin=is_admin)
+    perm = Permission(app_id=app.id, key=key, is_admin=is_admin, scope=scope)
     session.add(perm)
     await session.flush()
     return perm

@@ -582,3 +582,36 @@ async def test_patch_org_owner_role_is_audited(
     assert resp.status_code == 200
     row = (await db_session.scalars(select(AuditLog).where(AuditLog.action == "app.updated"))).one()
     assert row.changes == {"org_owner_role_id": {"from": None, "to": str(owner.id)}}
+
+
+# --- org-level permissions never reach a default role (USR-06c, ADR-0015) --------
+
+
+async def test_patch_default_role_with_org_permission_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, _ = await _org_app(db_session)
+    role = await make_role(db_session, app, "calechip:member")
+    await grant(
+        db_session, role, await make_permission(db_session, app, "calechip:a:b", scope="org")
+    )
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"default_role_id": str(role.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "role_has_org_permissions"
+    await db_session.refresh(app)
+    assert app.default_role_id is None
+
+
+async def test_patch_org_mode_required_default_holds_org_permission_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip")
+    role = await make_role(db_session, app, "calechip:member")
+    await grant(
+        db_session, role, await make_permission(db_session, app, "calechip:a:b", scope="org")
+    )
+    app.default_role_id = role.id
+    await db_session.flush()
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "required"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "role_has_org_permissions"

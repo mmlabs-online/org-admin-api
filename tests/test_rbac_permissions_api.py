@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.rbac.repository import RbacRepository
 from tests.conftest import MakeClient
@@ -15,7 +16,7 @@ from tests.rbac_factories import grant, make_app, make_permission, make_role
 BASE = "/api/v1/apps"
 URL = f"{BASE}/stoktok/permissions"
 ADMIN_URL = f"{BASE}/admin/permissions"
-PERMISSION_READ_KEYS = {"id", "key", "description", "is_admin"}
+PERMISSION_READ_KEYS = {"id", "key", "description", "is_admin", "scope"}
 
 
 @pytest.fixture
@@ -413,3 +414,131 @@ async def test_delete_permission_404(rbac_client: AsyncClient, db_session: Async
     assert (await rbac_client.delete(f"{URL}/{uuid.uuid4()}")).status_code == 404
     assert (await rbac_client.delete(f"{URL}/{foreign.id}")).status_code == 404
     assert await _perm(db_session, "calechip:x:read") is not None
+
+
+# --- scope (USR-06c, ADR-0015) -------------------------------------------------
+
+
+async def _org_app_url(db_session: AsyncSession) -> str:
+    await make_app(db_session, "calechip", org_mode="required")
+    return f"{BASE}/calechip/permissions"
+
+
+async def test_create_scope_default_org_on_org_app(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    url = await _org_app_url(db_session)
+    resp = await rbac_client.post(url, json={"key": "calechip:projects:read"})
+    assert resp.status_code == 201 and resp.json()["scope"] == "org"
+    resp = await rbac_client.post(url, json={"key": "calechip:x:y", "scope": "app"})
+    assert resp.json()["scope"] == "app"
+
+
+async def test_create_scope_default_app_on_none_app(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await make_app(db_session, "stoktok")
+    resp = await rbac_client.post(URL, json={"key": "stoktok:a:read"})
+    assert resp.status_code == 201 and resp.json()["scope"] == "app"
+
+
+async def test_create_reserved_keys_scope_derived(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    url = await _org_app_url(db_session)
+    create = await rbac_client.post(url, json={"key": "calechip:org:create"})
+    invite = await rbac_client.post(url, json={"key": "calechip:org:invite"})
+    assert (create.json()["scope"], invite.json()["scope"]) == ("app", "org")
+
+
+async def test_create_reserved_scope_violation_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    url = await _org_app_url(db_session)
+    resp = await rbac_client.post(url, json={"key": "calechip:org:create", "scope": "org"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "reserved_scope"
+    resp = await rbac_client.post(url, json={"key": "calechip:org:invite", "scope": "app"})
+    assert resp.status_code == 422
+    assert await _perm(db_session, "calechip:org:create") is None
+
+
+async def test_patch_scope_reserved_violation_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    perm = await make_permission(db_session, app, "calechip:org:invite", scope="org")
+    resp = await rbac_client.patch(f"{BASE}/calechip/permissions/{perm.id}", json={"scope": "app"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "reserved_scope"
+
+
+async def test_patch_scope_to_org_held_by_default_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    perm = await make_permission(db_session, app, "calechip:projects:read", scope="app")
+    member = await make_role(db_session, app, "calechip:member")
+    await grant(db_session, member, perm)
+    app.default_role_id = member.id
+    await db_session.flush()
+    resp = await rbac_client.patch(f"{BASE}/calechip/permissions/{perm.id}", json={"scope": "org"})
+    assert resp.status_code == 409
+    refreshed = await _perm(db_session, "calechip:projects:read")
+    assert refreshed is not None and refreshed.scope == "app"
+
+
+async def test_patch_scope_to_org_none_app_held_by_default_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "stoktok")
+    perm = await make_permission(db_session, app, "stoktok:a:read")
+    member = await make_role(db_session, app, "stoktok:member")
+    await grant(db_session, member, perm)
+    app.default_role_id = member.id
+    await db_session.flush()
+    resp = await rbac_client.patch(f"{URL}/{perm.id}", json={"scope": "org"})
+    assert resp.status_code == 200 and resp.json()["scope"] == "org"
+
+
+async def test_patch_scope_to_app_on_org_app_requires_super(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    perm = await make_permission(db_session, app, "calechip:projects:read", scope="org")
+    url = f"{BASE}/calechip/permissions/{perm.id}"
+    async with make_client(admin_permissions=["admin:roles:manage"]) as leaf:
+        resp = await leaf.patch(url, json={"scope": "app"})
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "admin_wildcard_required"
+
+
+async def test_patch_scope_to_app_on_org_app_super_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip", org_mode="required")
+    perm = await make_permission(db_session, app, "calechip:projects:read", scope="org")
+    resp = await rbac_client.patch(f"{BASE}/calechip/permissions/{perm.id}", json={"scope": "app"})
+    assert resp.status_code == 200 and resp.json()["scope"] == "app"
+
+
+async def test_patch_scope_null_422(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "stoktok")
+    perm = await make_permission(db_session, app, "stoktok:a:read")
+    resp = await rbac_client.patch(f"{URL}/{perm.id}", json={"scope": None})
+    assert resp.status_code == 422
+
+
+async def test_read_includes_scope(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "stoktok")
+    await make_permission(db_session, app, "stoktok:a:read", scope="org")
+    resp = await rbac_client.get(URL)
+    assert resp.json()["items"][0]["scope"] == "org"
+
+
+async def test_patch_scope_audited(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "stoktok")
+    perm = await make_permission(db_session, app, "stoktok:a:read")
+    assert (await rbac_client.patch(f"{URL}/{perm.id}", json={"scope": "org"})).status_code == 200
+    row = await db_session.scalar(select(AuditLog).where(AuditLog.action == "permission.updated"))
+    assert row is not None and "scope" in row.changes
