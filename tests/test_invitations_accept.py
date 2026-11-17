@@ -19,6 +19,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, RoleAssignment
+from app.modules.rbac.service import RoleCatalogService
 from app.modules.sessions.models import AccountSession, DeviceSession
 from app.modules.users.models import User
 from tests.auth_factories import ORIGIN, auth_headers, make_device, make_login_app
@@ -399,6 +400,33 @@ async def test_accept_unavailable_when_default_widened_not_consumed(
     assert resp.status_code == 403 and _error(resp)["code"] == "org_invite_unavailable"
     assert not await _consumed(db_session)
     assert await _audit(db_session, invitee, *ACCEPT_ACTIONS) == []
+
+
+async def test_invite_accept_token_after_build_default_role(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    fake_email: FakeEmailSender,
+    email_dispatcher: EmailDispatcher,
+) -> None:
+    env = await setup_calechip(db_session)
+    await grant(db_session, env.member, env.perms["data:read"])  # widened by hand
+    await RoleCatalogService(db_session).build_default_role("calechip")
+    token = await _send(client, env, email_dispatcher, fake_email)
+    invitee = await _invitee(db_session)
+    assert (await _accept(client, invitee, token)).status_code == 200
+    resp = await client.post(
+        TOKEN_URL,
+        json={
+            "audience": "calechip",
+            "account_id": str(invitee.account.id),
+            "org_id": str(env.org.id),
+        },
+        headers=invitee.headers(),
+    )
+    assert resp.status_code == 200, resp.text
+    claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
+    assert claims["org_roles"] == ["calechip:org-viewer"]
+    assert "calechip:member" in claims["roles"]  # app scope: in the union only
 
 
 async def test_accept_closed_app_refused_not_consumed(

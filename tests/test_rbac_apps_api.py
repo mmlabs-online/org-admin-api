@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.audit.models import AuditLog
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.rbac.repository import RbacRepository
+from app.modules.rbac.service import RoleCatalogService
 from tests.conftest import MakeClient
 from tests.rbac_factories import assign, grant, make_app, make_permission, make_role, make_user
 
@@ -161,6 +162,30 @@ async def test_create_app_builds_member_role(
     assert body["default_role_id"] == str(role.id)
     held = await RbacRepository(db_session).role_permission_keys(role.id)
     assert held == {}
+
+
+async def test_app_create_org_mode_required_builds_scoped_member(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    resp = await rbac_client.post(
+        BASE, json={"key": "calechip", "name": "Calechip", "org_mode": "required"}
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["org_mode"] == "required" and body["default_role_id"] is not None
+    perms = f"{BASE}/calechip/permissions"
+    for key, scope, is_admin in (
+        ("calechip:a:read", "app", False),
+        ("calechip:b:read", "org", False),
+        ("calechip:c:manage", "app", True),
+    ):
+        created = await rbac_client.post(
+            perms, json={"key": key, "scope": scope, "is_admin": is_admin}
+        )
+        assert created.status_code == 201
+    await RoleCatalogService(db_session).build_default_role("calechip")
+    held = await RbacRepository(db_session).role_permission_keys(uuid.UUID(body["default_role_id"]))
+    assert set(held.values()) == {"calechip:a:read"}
 
 
 async def test_create_app_duplicate_key_409(rbac_client: AsyncClient) -> None:
@@ -582,3 +607,36 @@ async def test_patch_org_owner_role_is_audited(
     assert resp.status_code == 200
     row = (await db_session.scalars(select(AuditLog).where(AuditLog.action == "app.updated"))).one()
     assert row.changes == {"org_owner_role_id": {"from": None, "to": str(owner.id)}}
+
+
+# --- org-level permissions never reach a default role (USR-06c, ADR-0015) --------
+
+
+async def test_patch_default_role_with_org_permission_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, _ = await _org_app(db_session)
+    role = await make_role(db_session, app, "calechip:member")
+    await grant(
+        db_session, role, await make_permission(db_session, app, "calechip:a:b", scope="org")
+    )
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"default_role_id": str(role.id)})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "role_has_org_permissions"
+    await db_session.refresh(app)
+    assert app.default_role_id is None
+
+
+async def test_patch_org_mode_required_default_holds_org_permission_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip")
+    role = await make_role(db_session, app, "calechip:member")
+    await grant(
+        db_session, role, await make_permission(db_session, app, "calechip:a:b", scope="org")
+    )
+    app.default_role_id = role.id
+    await db_session.flush()
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "required"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "role_has_org_permissions"

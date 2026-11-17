@@ -24,9 +24,14 @@ from app.cli import (
     MSG_DB_ECHO,
     MSG_DRY_RUN,
     MSG_LOOPBACK,
+    MSG_MEMBER_IS_OWNER,
     MSG_ORG_MODE,
+    MSG_ORG_MODE_REQUIRED,
     MSG_ORIGIN_TAKEN,
     MSG_REGISTER_UNEXPECTED,
+    MSG_RESERVED_SCOPE,
+    MSG_SCOPE_CONFLICT,
+    MSG_SCOPE_MISMATCH,
     REGISTER_USAGE,
     amain,
 )
@@ -672,3 +677,94 @@ async def test_register_audit_dry_run_none(db_session: AsyncSession) -> None:
     )
     assert code == 0
     assert await _audit_rows(db_session) == []
+
+
+# --- --org-permission (USR-06c, ADR-0015) ----------------------------------------------
+
+
+async def test_register_org_app_does_not_widen_member(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = _ricotdin(
+        "--org-mode",
+        "required",
+        "--permission",
+        "ricotdin:org:create",
+        "--org-permission",
+        "ricotdin:org:invite",
+        "--org-permission",
+        "ricotdin:projects:delete",
+    )
+    assert await _run(db_session, *args) == 0
+    out, err = capsys.readouterr()
+    assert "+ org permission ricotdin:org:invite" in out.splitlines()
+    assert "+ member ricotdin:org:invite" not in out
+    app = await _app(db_session)
+    assert app is not None
+    assert await _member_keys(db_session, app) == ["ricotdin:org:create"]
+    assert await _run(db_session, *args) == 0  # a re-run adds nothing
+    assert await _member_keys(db_session, app) == ["ricotdin:org:create"]
+    _assert_no_leak(out, err)
+
+
+async def test_register_org_permission_flag_creates_org_scope(db_session: AsyncSession) -> None:
+    args = _ricotdin(
+        "--org-mode", "required", "--permission", "ricotdin:a:b", "--org-permission", "ricotdin:c:d"
+    )
+    assert await _run(db_session, *args) == 0
+    scopes = dict((await db_session.execute(select(Permission.key, Permission.scope))).all())
+    assert scopes["ricotdin:a:b"] == "app" and scopes["ricotdin:c:d"] == "org"
+    # The audit row names the org permissions.
+    row = await db_session.scalar(select(AuditLog).where(AuditLog.action == "app.registered"))
+    assert row is not None and row.changes is not None and "org_permissions_added" in row.changes
+
+
+async def test_org_permission_on_none_app_refused(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await _run(db_session, *_ricotdin("--org-permission", "ricotdin:a:b")) == 64
+    assert capsys.readouterr().err == MSG_ORG_MODE_REQUIRED + "\n"
+    assert await _app(db_session) is None
+
+
+async def test_same_key_in_both_flags_refused(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = _ricotdin(
+        "--org-mode", "required", "--permission", "ricotdin:a:b", "--org-permission", "ricotdin:a:b"
+    )
+    assert await _run(db_session, *args) == 64
+    assert capsys.readouterr().err == MSG_SCOPE_CONFLICT + "\n"
+    assert await _app(db_session) is None
+
+
+@pytest.mark.parametrize(
+    "flag,key",
+    [("--org-permission", "ricotdin:org:create"), ("--permission", "ricotdin:org:invite")],
+)
+async def test_reserved_scope_refused(
+    flag: str, key: str, db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await _run(db_session, *_ricotdin("--org-mode", "required", flag, key)) == 64
+    assert capsys.readouterr().err == MSG_RESERVED_SCOPE + "\n"
+    assert await _app(db_session) is None
+
+
+async def test_existing_scope_mismatch_refused(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app = await make_app(db_session, "ricotdin", org_mode="required", origins=[PROD])
+    await make_permission(db_session, app, "ricotdin:a:b", scope="org")
+    assert await _run(db_session, *_ricotdin("--permission", "ricotdin:a:b")) == 1
+    assert capsys.readouterr().err == MSG_SCOPE_MISMATCH + "\n"
+
+
+async def test_member_is_owner_refused(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app = await make_app(db_session, "ricotdin", org_mode="required", origins=[PROD])
+    member = await make_role(db_session, app, "ricotdin:member")
+    app.org_owner_role_id = member.id
+    await db_session.flush()
+    assert await _run(db_session, *_ricotdin("--permission", "ricotdin:a:b")) == 1
+    assert capsys.readouterr().err == MSG_MEMBER_IS_OWNER + "\n"

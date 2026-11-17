@@ -21,6 +21,7 @@ from app.modules.rbac.models import (
     AppStatus,
     JoinPolicy,
     OrgMode,
+    PermissionScope,
 )
 from app.modules.rbac.origins import MAX_ORIGINS, normalize_origins
 
@@ -118,6 +119,8 @@ class AppRegister(BaseModel):
     join_policy: JoinPolicy | None = None
     org_mode: OrgMode | None = None
     permissions: list[PermissionKey] = Field(default_factory=list, max_length=50)
+    # `scope = org` permissions (org apps only); `permissions` are `scope = app` (ADR-0015).
+    org_permissions: list[PermissionKey] = Field(default_factory=list, max_length=50)
 
     @field_validator("origins")
     @classmethod
@@ -140,13 +143,15 @@ class AdminOriginsSet(BaseModel):
 
 class PermissionCreate(BaseModel):
     """`is_admin` absent or null: false, except `<app>:*` and admin-app permissions, which are
-    always stored `true`."""
+    always stored `true`. `scope` absent or null: the reserved key decides, else `org` on
+    `org_mode = required` apps and `app` otherwise (ADR-0015)."""
 
     model_config = ConfigDict(extra="forbid")
 
     key: PermissionKey
     description: Description | None = None
     is_admin: bool | None = None
+    scope: PermissionScope | None = None
 
 
 class PermissionUpdate(BaseModel):
@@ -156,11 +161,13 @@ class PermissionUpdate(BaseModel):
 
     description: Description | None = None
     is_admin: bool | None = None
+    scope: PermissionScope | None = None
 
     @model_validator(mode="after")
     def _non_null(self) -> Self:
-        if "is_admin" in self.model_fields_set and self.is_admin is None:
-            raise ValueError("is_admin must not be null")
+        for name in ("is_admin", "scope"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} must not be null")
         return self
 
 
@@ -171,6 +178,7 @@ class PermissionRead(BaseModel):
     key: str
     description: str | None
     is_admin: bool
+    scope: PermissionScope
 
 
 class RoleCreate(BaseModel):

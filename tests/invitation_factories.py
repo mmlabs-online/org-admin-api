@@ -56,7 +56,12 @@ async def person(
 async def setup_calechip(db_session: AsyncSession) -> Env:
     app = await make_login_app(db_session, "calechip", org_mode="required")
     keys = ["org:create", "org:invite", "org:edit", "data:read"]
-    perms = {k: await make_permission(db_session, app, f"calechip:{k}") for k in keys}
+    perms = {
+        k: await make_permission(
+            db_session, app, f"calechip:{k}", scope="app" if k == "org:create" else "org"
+        )
+        for k in keys
+    }
     member = await make_role(db_session, app, "calechip:member")
     await grant(db_session, member, perms["org:create"])
     owner = await make_role(db_session, app, "calechip:org-owner")

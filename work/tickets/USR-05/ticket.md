@@ -31,3 +31,4 @@ USR-02, USR-03b.
 
 ## Notes / answers from owner
 - 2026-11-11: until this lands, app permissions are seeded by staff through USR-02 endpoints.
+- 2026-11-17 (USR-06c plan note, no scope change): the manifest must declare `scope` (`app` | `org`) per permission (on `org_mode = required` apps a missing scope should be 422) and must go through `_build_for_app`. Test: pushing the manifest twice never adds a `scope = org` permission to `<app>:member`. See ADR-0015.

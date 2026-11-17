@@ -85,10 +85,12 @@ class TokenService:
         if data.org_id is not None:
             # Org-exact: the app-scope role above must not make an unknown, suspended or
             # foreign org look usable. One answer for all three (no existence oracle).
-            if not await self.authz.org_role_keys(user.id, app.key, data.org_id):
+            org_roles = await self.authz.org_role_keys(user.id, app.key, data.org_id)
+            if not org_roles:
                 raise OrgAccessDeniedError("No access to this organization", details={})
             roles = await self.authz.effective_roles(user.id, app.key, data.org_id)
             claims["org"] = str(data.org_id)
+            claims["org_roles"] = org_roles  # org-exact only (ADR-0015); `roles` stays the union
 
         now = int(self.clock())
         jti = str(uuid.uuid4())

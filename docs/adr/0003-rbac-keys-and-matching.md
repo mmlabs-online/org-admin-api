@@ -56,7 +56,7 @@ library apps use (USR-03b).
 6. **`effective_*` is RBAC only.** It does not check user status, email verification, or app
    status/join policy; callers check those and return their own errors.
 7. **Default role is data, rebuilt only when asked.** `build_default_role(app)` makes `<app>:member`
-   hold exactly the app's non-`is_admin` permissions, sets `default_role_id` only when it is NULL, is
+   hold exactly the app's non-`is_admin` permissions (for `org_mode = required` apps also only `scope = 'app'`, ADR-0015), sets `default_role_id` only when it is NULL, is
    idempotent and returns the diff. It never runs automatically on permission changes, so a staff
    tightening is not silently undone. `default_role_id` is set by a conditional
    `UPDATE … WHERE default_role_id IS NULL` (a concurrent change is never overwritten); the

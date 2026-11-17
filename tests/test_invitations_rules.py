@@ -1,31 +1,8 @@
-"""Pure invitation rules (USR-06b): the S1 guard overlap, the subset rule, safe org names."""
+"""Pure invitation rules (USR-06b): the subset rule, safe org names."""
 
 import pytest
 
-from app.modules.invitations.rules import is_subset, roles_overlap, safe_org_name
-
-CREATE = "calechip:org:create"
-
-
-def test_roles_overlap_none() -> None:
-    assert not roles_overlap("calechip", {CREATE}, {"calechip:org:edit"})
-
-
-def test_roles_overlap_only_org_create_allowed() -> None:
-    assert not roles_overlap("calechip", {CREATE}, {CREATE, "calechip:org:edit"})
-
-
-def test_roles_overlap_shared_perm_overlaps() -> None:
-    assert roles_overlap("calechip", {CREATE, "calechip:data:read"}, {"calechip:data:read"})
-
-
-def test_roles_overlap_empty_sets() -> None:
-    assert not roles_overlap("calechip", set(), set())
-    assert not roles_overlap("calechip", {CREATE}, set())
-
-
-def test_roles_overlap_org_create_of_another_app_is_not_exempt() -> None:
-    assert roles_overlap("calechip", {"other:org:create"}, {"other:org:create"})
+from app.modules.invitations.rules import is_subset, safe_org_name
 
 
 def test_is_subset_exact() -> None:

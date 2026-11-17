@@ -96,13 +96,14 @@ login_failures     (email_hmac bytea PK = HMAC-SHA256(IDENTITY_HMAC_KEY, normali
 
 apps               (id, key unique, name, status,
                     join_policy  open|approval|closed   default 'open'   (admin = 'closed'),
-                    default_role_id → roles NULL,
+                    default_role_id → roles NULL  (CHECK: never equal to org_owner_role_id; USR-06c),
                     org_owner_role_id → roles NULL  (same-app FK; only when org_mode = required; never
                                        a role with is_admin permissions; USR-06a),
                     org_mode     none|required          default 'none'   (calechip = 'required'),
                     origins      text[]                 (allowed browser origins, CORS/CSRF),
                     created_at, updated_at)
-permissions        (id, app_id, key, description, is_admin bool default false)   unique (app_id, key)
+permissions        (id, app_id, key, description, is_admin bool default false,
+                    scope app|org default 'app'  (USR-06c, ADR-0015))              unique (app_id, key)
 roles              (id, app_id, key, name, is_system)                            unique (app_id, key)
 role_permissions   (role_id, permission_id)
 role_assignments   (id, user_id, role_id, org_id → organizations NULL, granted_by NULL,
@@ -124,7 +125,7 @@ Notes
   new "revoke refresh token"; revoking a device session logs out every account on that browser.
 - The 60 s grace (D6) needs the previous hash: `prev_token_hash` + `prev_valid_until`.
 - Default role content is data: `<app>:member` = all permissions of the app with `is_admin = false`
-  (D9). Tightening later = editing `role_permissions` / `apps.join_policy`, no code change.
+  (for `org_mode = required` apps also `scope = 'app'`, ADR-0015) (D9). Tightening later = editing `role_permissions` / `apps.join_policy`, no code change.
 - `organizations` was created by ADM-001. D15 "moves to the Identity module" means **ownership**: the
   code stays in `app/modules/organizations/` (the reference module, no rename); USR-06a added
   `created_by` (nullable, `ON DELETE SET NULL`; NULL for existing and staff-created rows), kept
@@ -181,7 +182,7 @@ or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_su
 Token (D7): JWT, ES256 (P-256, ADR-0005), ~15 min, header `kid` + `typ: at+jwt`.
 Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,
 `email`, `email_verified`, `roles` (app-scope roles + roles in the selected org), `org` (only when
-`org_id` given, USR-06), `iat`, `exp`, `jti`.
+`org_id` given, USR-06), `org_roles` (only with `org`: roles held in that org only, ADR-0015), `iat`, `exp`, `jti`.
 
 ## 5. Security rules (complements R11 in CLAUDE.md)
 
@@ -256,10 +257,10 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 | D4 | Each app keeps its own login page (no central SSO page); accounts are shared. Apps use `@mmlabs/auth-client` (TS, framework-agnostic, Angular/React wrappers) posting credentials straight to the API. Backends use `mmlabs-auth` (Python): JWKS verification, role-catalog cache with ETag, `require_permission()`. |
 | D5 | Multi-account browser sessions: cookie `mm_device` (opaque, HttpOnly, Secure, SameSite=Lax, Path=/auth, host-only, stored hashed); tables `device_sessions`, `account_sessions`; each app keeps `mm_account_id` in localStorage; logging into another account in app B does not affect app A. |
 | D6 | Rotate `mm_device` on login and at most every ~24 h, with a 60 s grace for the previous value; reuse after the grace revokes the device session. |
-| D7 | `POST /auth/token {audience, account_id, org_id?}` → JWT (~15 min): iss, aud, sub, email, email_verified, roles, org?, iat, exp; asymmetric signing, keys from env, `kid`. |
+| D7 | `POST /auth/token {audience, account_id, org_id?}` → JWT (~15 min): iss, aud, sub, email, email_verified, roles, org?, org_roles?, iat, exp; asymmetric signing, keys from env, `kid`. |
 | D8 | Non-member → `403 {error:"not_member", join_available}`; `POST /auth/apps/{key}/join {account_id}` applies `join_policy` (open/approval/closed), assigns the default role at app scope, writes audit. "Continue as <account>" = consent. |
-| D9 | Default join_policy `open`, except `admin` = `closed`. Default role `<app>:member` = all app permissions except `is_admin` ones (e.g. `<app>:roles:manage`). Policy and role content are data. |
-| D10 | Org usage per app: `apps.org_mode` (`none` default, `required` for calechip). No org = `org_id NULL`. `organizations` lives in the Identity module. Org-scoped apps: join gives an app-scope role (e.g. with `calechip:org:create`); org roles from creating an org (owner) or invitation (ADR-0014); token `roles` = app-scope + selected-org roles. |
+| D9 | Default join_policy `open`, except `admin` = `closed`. Default role `<app>:member` = all app permissions except `is_admin` ones (e.g. `<app>:roles:manage`); on `org_mode = required` apps also except `scope = org` ones (ADR-0015). Policy and role content are data. |
+| D10 | Org usage per app: `apps.org_mode` (`none` default, `required` for calechip). No org = `org_id NULL`. `organizations` lives in the Identity module. Org-scoped apps: join gives an app-scope role (e.g. with `calechip:org:create`); org roles from creating an org (owner) or invitation (ADR-0014); token `roles` = app-scope + selected-org roles; `org_roles` = selected-org roles only (ADR-0015). |
 | D11 | No hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP ~20/min, Turnstile after 3 failures; identical error for wrong email or password. |
 | D12 | CORS echoes only `apps.origins` with credentials; every cookie-authenticated POST checks Origin and requires `X-MM-App: <key>`. |
 

@@ -162,7 +162,11 @@ async def test_build_permission_fk_race_is_409(
     ghost = Permission(id=uuid.uuid4(), app_id=app.id, key="stoktok:x:y")
 
     async def _ghost(
-        self: RbacRepository, app_id: uuid.UUID, *, is_admin: bool | None = None
+        self: RbacRepository,
+        app_id: uuid.UUID,
+        *,
+        is_admin: bool | None = None,
+        scope: str | None = None,
     ) -> list[Permission]:
         return [ghost]
 
@@ -177,3 +181,69 @@ def test_build_default_role_has_no_actor_param() -> None:
     # ADM-002d: the unused `actor` parameter is gone (mypy guards the callers).
     params = inspect.signature(RoleCatalogService.build_default_role).parameters
     assert list(params) == ["self", "app_key"]
+
+
+async def _org_app(session: AsyncSession) -> App:
+    app = await make_app(session, "calechip", org_mode="required")
+    await make_permission(session, app, "calechip:org:create", scope="app")
+    await make_permission(session, app, "calechip:org:invite", scope="org")
+    await make_permission(session, app, "calechip:projects:read", scope="app")
+    await make_permission(session, app, "calechip:projects:delete", scope="org")
+    return app
+
+
+async def test_org_app_build_excludes_org_scope(db_session: AsyncSession) -> None:
+    await _org_app(db_session)
+    result = await RoleCatalogService(db_session).build_default_role("calechip")
+    assert result.added == ["calechip:org:create", "calechip:projects:read"]
+    assert await _held(db_session, "calechip:member") == {
+        "calechip:org:create",
+        "calechip:projects:read",
+    }
+
+
+async def test_org_app_rebuild_removes_org_scope_from_member(db_session: AsyncSession) -> None:
+    app = await _org_app(db_session)
+    service = RoleCatalogService(db_session)
+    await service.build_default_role("calechip")
+    member = await db_session.scalar(select(Role).where(Role.key == "calechip:member"))
+    org_perm = await db_session.scalar(
+        select(Permission).where(Permission.key == "calechip:projects:delete")
+    )
+    assert member is not None and org_perm is not None and app.org_mode == "required"
+    db_session.add(RolePermission(role_id=member.id, permission_id=org_perm.id, app_id=app.id))
+    await db_session.flush()
+    result = await service.build_default_role("calechip")
+    assert result.removed == ["calechip:projects:delete"]
+
+
+async def test_none_app_build_unchanged_with_org_scope_present(db_session: AsyncSession) -> None:
+    app = await make_app(db_session)
+    await make_permission(db_session, app, "stoktok:portfolio:read", scope="org")
+    result = await RoleCatalogService(db_session).build_default_role("stoktok")
+    assert result.added == ["stoktok:portfolio:read"]
+
+
+async def test_org_app_build_refused_when_member_is_owner(db_session: AsyncSession) -> None:
+    app = await _org_app(db_session)
+    member = await make_role(db_session, app, "calechip:member")
+    app.org_owner_role_id = member.id
+    await db_session.flush()
+    with pytest.raises(ConflictError):
+        await RoleCatalogService(db_session).build_default_role("calechip")
+    assert await _held(db_session, "calechip:member") == set()
+    await db_session.refresh(app)
+    assert app.default_role_id is None
+
+
+async def test_set_default_role_if_null_skips_org_owner(db_session: AsyncSession) -> None:
+    app = await _org_app(db_session)
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    app.org_owner_role_id = owner.id
+    await db_session.flush()
+    repo = RbacRepository(db_session)
+    assert await repo.set_default_role_if_null(app.id, owner.id) is False
+    await db_session.refresh(app)
+    assert app.default_role_id is None
+    other = await make_role(db_session, app, "calechip:other")
+    assert await repo.set_default_role_if_null(app.id, other.id) is True

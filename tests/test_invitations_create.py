@@ -15,6 +15,7 @@ from app.modules.auth.models import EmailSendLog
 from app.modules.auth.throttle import EmailHasher
 from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.rbac.models import App
+from app.modules.rbac.service import RoleCatalogService
 from tests.auth_factories import HMAC_KEY, ORIGIN, auth_headers, make_login_app, sha256
 from tests.conftest import MakeClient
 from tests.fakes import FakeEmailSender
@@ -346,7 +347,7 @@ async def test_create_org_less_app_422(client: AsyncClient, db_session: AsyncSes
 # --- S1 guard ----------------------------------------------------------------------------
 
 
-async def test_create_unavailable_when_default_overlaps_owner(
+async def test_create_unavailable_when_default_holds_org_permission(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     env = await setup_calechip(db_session)
@@ -354,6 +355,29 @@ async def test_create_unavailable_when_default_overlaps_owner(
     resp = await _invite(client, env)
     assert resp.status_code == 403 and _error(resp)["code"] == "org_invite_unavailable"
     assert await invitations(db_session) == []
+
+
+async def test_create_ok_when_default_shares_app_scope_permission_with_owner(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    env = await setup_calechip(db_session)
+    shared = await make_permission(db_session, env.app, "calechip:projects:read", scope="app")
+    await grant(db_session, env.member, shared)
+    await grant(db_session, env.owner, shared)
+    resp = await _invite(client, env)
+    assert resp.status_code == 201, resp.text
+
+
+async def test_create_ok_after_build_default_role(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    env = await setup_calechip(db_session)
+    await make_permission(db_session, env.app, "calechip:projects:read", scope="app")
+    await grant(db_session, env.member, env.perms["data:read"])  # widened by hand
+    built = await RoleCatalogService(db_session).build_default_role("calechip")
+    assert "calechip:data:read" in built.removed
+    resp = await _invite(client, env)
+    assert resp.status_code == 201, resp.text
 
 
 async def test_create_unavailable_when_join_not_open(
