@@ -97,6 +97,8 @@ login_failures     (email_hmac bytea PK = HMAC-SHA256(IDENTITY_HMAC_KEY, normali
 apps               (id, key unique, name, status,
                     join_policy  open|approval|closed   default 'open'   (admin = 'closed'),
                     default_role_id → roles NULL,
+                    org_owner_role_id → roles NULL  (same-app FK; only when org_mode = required; never
+                                       a role with is_admin permissions; USR-06a),
                     org_mode     none|required          default 'none'   (calechip = 'required'),
                     origins      text[]                 (allowed browser origins, CORS/CSRF),
                     created_at, updated_at)
@@ -123,8 +125,11 @@ Notes
 - The 60 s grace (D6) needs the previous hash: `prev_token_hash` + `prev_valid_until`.
 - Default role content is data: `<app>:member` = all permissions of the app with `is_admin = false`
   (D9). Tightening later = editing `role_permissions` / `apps.join_policy`, no code change.
-- `organizations` already exists in the Admin module (ADM-001); USR-06 moves it to the Identity module and
-  adds `created_by` (nullable for existing rows), keeping `description` and `status` (D15).
+- `organizations` was created by ADM-001. D15 "moves to the Identity module" means **ownership**: the
+  code stays in `app/modules/organizations/` (the reference module, no rename); USR-06a added
+  `created_by` (nullable, `ON DELETE SET NULL`; NULL for existing and staff-created rows), kept
+  `description` and `status`, and added the FK `role_assignments.org_id → organizations.id`
+  `ON DELETE RESTRICT` (admin delete of an org with any assignment answers 409 `org_has_assignments`).
 - OQ1: organizations are platform-wide for now; adding `organizations.app_key` later is additive.
 
 ## 4. API surface
@@ -146,9 +151,10 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `GET /.well-known/jwks.json` | public | signing public keys (`kid`) | USR-03c |
 | `GET /api/v1/apps/{key}/roles` (ETag / 304) | public (D17), per-IP limit | role → permissions catalog | USR-02e |
 | `PUT /api/v1/apps/{key}/manifest` | app credential | app pushes its permissions + default role | USR-05 |
-| `POST /api/v1/auth/orgs` `{account_id, name, slug}` | cookie; needs `<app>:org:create` | create org, creator gets the app's org owner role | USR-06 |
-| `GET /api/v1/auth/orgs?account_id=&app=` | cookie | the account's orgs for an org-scoped app | USR-06 |
-| `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06 |
+| `POST /api/v1/auth/orgs` `{account_id, name, slug, description?}` | cookie; needs the app-scope permission `<app>:org:create` (ADR-0013) | create org, creator gets `apps.org_owner_role_id` in it; 201 | USR-06a |
+| `GET /api/v1/auth/orgs?account_id=` | cookie | the account's orgs where it holds an org-exact role of the calling app (`X-MM-App`; no `app=` parameter), `Page[…]` with the caller's roles | USR-06a |
+| `POST /api/v1/auth/token` with `org_id` | cookie | adds `org` claim; 403 `org_access_denied` (unknown, suspended or not-a-member org, one answer); 422 `org_not_supported` for `org_mode = none` apps | USR-06a |
+| `POST /api/v1/auth/orgs/{id}/invitations` `{email, role}` · `POST /api/v1/auth/invitations/{token}/accept` | cookie | invite / accept into an org | USR-06b |
 | Admin: `/api/v1/organizations` (CRUD) | Bearer `aud=admin` + `require_permission` (`admin:organizations:read\|write`) | organizations | ADM-001, ADM-002 |
 | Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`; `admin:*` for privileged users) | staff user management | USR-01, ADM-002 |
 | Admin (self-scoped): `GET /api/v1/me/permissions` | Bearer `aud=admin`, self-scoped, no permission (ADR-0008 USR-11 amendment) | caller's own `user_id`, admin role keys, effective admin permissions | USR-11 |
