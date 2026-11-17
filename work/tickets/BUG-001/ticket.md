@@ -28,10 +28,11 @@ Owner/orchestrator, 2026-11-17: `tests/test_cli_audit_purge.py::test_purge_batch
 - The 5 seeded rows aged 400 days are deleted in batches of 2/2/1; three `audit_log.purged` summary rows with `deleted` = [1, 2, 2] and one shared cutoff; the test passes every run.
 
 ## Actual
-- Intermittent assertion failure in this test (exact failing assertion not captured yet; the planner should capture it with a loop of the full suite or `pytest -p randomly`-style ordering).
+- Intermittent assertion failure. Captured in CI on PR #54 (run 44134412773, 2026-11-17): `assert [5] == [1, 2, 2]` at `tests/test_cli_audit_purge.py:171` — one batch deleted all 5 rows although `batch_size=2`, so only one summary row (`deleted: 5`) was written.
 
 ## Root cause
-**Suspected**, not reproduced in isolation. The purge works on the *whole* `audit_log` table (`app/modules/audit/purge.py:59-71`, `_purgeable(cutoff)`), and the test asserts exact counts (`tests/test_cli_audit_purge.py:165-172`). Candidates:
+**Suspected**, not reproduced in isolation. The purge works on the *whole* `audit_log` table (`app/modules/audit/purge.py:59-71`, `_purgeable(cutoff)`), and the test asserts exact counts (`tests/test_cli_audit_purge.py:165-172`). Candidates (the CI capture points to the first one being a **product** issue: the batch limit was not respected):
+- `DELETE … WHERE id IN (SELECT id … ORDER BY … LIMIT :batch FOR UPDATE SKIP LOCKED)` (`purge.py:61-70`): Postgres may re-evaluate or plan the `IN (subquery … LIMIT … FOR UPDATE)` so that more rows than `LIMIT` match (a known pitfall with `LIMIT` + locking subqueries in `DELETE`), which deletes more than one batch at once; the usual fix is a CTE that selects and locks the ids first (`WITH batch AS (SELECT id … LIMIT n FOR UPDATE SKIP LOCKED) DELETE … USING batch`);
 - rows **committed** by other tests outside the per-test rollback (e.g. `record_denied` commits the denied row alone; ADM-004d backdate fixture; earlier purge/CLI tests that commit) leave purgeable or `audit_log.purged` rows in the shared test DB, so `deleted`, the batch split or `_summaries` (`tests/test_cli_audit_purge.py:85-92`, filters only on `occurred_at >= now() - 1 day`) see extra rows;
 - `FOR UPDATE SKIP LOCKED` (`purge.py:66`) skipping rows held by another open connection from an earlier test, which ends the run early with a short batch.
 
@@ -55,3 +56,4 @@ None.
 
 ## Notes / answers from owner
 - 2026-11-17 (owner): record as a bug (chosen from the follow-ups list).
+- 2026-11-17 (orchestrator): failure reproduced in CI (PR #54, board-only change): `deleted` summaries `[5]` instead of `[1, 2, 2]`. If the root cause is the batch limit not holding, the purge deletes in larger batches than configured (lock time on a big table) — planner to confirm and decide whether severity should be S2.
