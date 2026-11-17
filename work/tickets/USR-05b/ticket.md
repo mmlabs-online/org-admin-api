@@ -7,7 +7,7 @@
 | Areas | api, auth, security |
 | Attempts | 1 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/48 |
 
 ## Goal
 Second slice of USR-05: apps push their permission manifest with their app credential (`PUT /api/v1/apps/{key}/manifest`), so adding or changing an app's permissions is a deploy of that app.
