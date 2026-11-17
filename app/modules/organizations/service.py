@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, OrgHasAssignmentsError
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
@@ -57,7 +57,18 @@ class OrganizationService:
     async def delete(self, org_id: uuid.UUID, *, actor: Actor, ctx: AuditContext) -> None:
         org = await self.get(org_id)
         before = diff.snapshot(org, diff.ORG)
-        await self.repo.delete(org)
+        if await self.repo.has_role_assignments(org_id):
+            raise OrgHasAssignmentsError(
+                "Organization has role assignments; revoke them first",
+                details=[{"field": "org_id", "reason": "org_has_assignments"}],
+            )
+        try:
+            await self.repo.delete(org)
+        except IntegrityError as exc:  # an assignment was added concurrently
+            raise OrgHasAssignmentsError(
+                "Organization has role assignments; revoke them first",
+                details=[{"field": "org_id", "reason": "org_has_assignments"}],
+            ) from exc
         await self.audit.record(
             AuditAction.ORGANIZATION_DELETED,
             actor=actor,

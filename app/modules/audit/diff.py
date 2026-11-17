@@ -9,8 +9,17 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-ORG = ("slug", "name", "description", "status")
-APP = ("key", "name", "status", "join_policy", "org_mode", "origins", "default_role_id")
+ORG = ("slug", "name", "description", "status", "created_by")
+APP = (
+    "key",
+    "name",
+    "status",
+    "join_policy",
+    "org_mode",
+    "origins",
+    "default_role_id",
+    "org_owner_role_id",
+)
 PERMISSION = ("key", "description", "is_admin")
 ROLE = ("key", "name", "is_system")
 USER = ("status",)

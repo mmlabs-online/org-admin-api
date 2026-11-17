@@ -30,3 +30,34 @@ class OrganizationRead(BaseModel):
     status: OrganizationStatus
     created_at: datetime
     updated_at: datetime
+    created_by: uuid.UUID | None = None  # additive (USR-06a); NULL for staff-created orgs
+
+
+class AuthOrgCreate(BaseModel):
+    """End-user org creation (`POST /api/v1/auth/orgs`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: uuid.UUID
+    slug: str = Field(pattern=SLUG_PATTERN, max_length=63)
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=5000)
+
+
+class AuthOrgRead(BaseModel):
+    id: uuid.UUID
+    slug: str
+    name: str
+    description: str | None
+    status: OrganizationStatus
+    created_at: datetime
+    updated_at: datetime
+    roles: list[str]  # the caller's role keys in this org
+
+
+class MyOrgRead(BaseModel):
+    id: uuid.UUID
+    slug: str
+    name: str
+    status: OrganizationStatus
+    roles: list[str]  # the caller's role keys in this org

@@ -402,6 +402,29 @@ class AppService:
                     details=[{"field": "default_role_id", "reason": "role_has_admin_permissions"}],
                 )
 
+        owner_role_id = (
+            data.org_owner_role_id if "org_owner_role_id" in fields else app.org_owner_role_id
+        )
+        if owner_role_id is not None:
+            if "org_owner_role_id" in fields:
+                if await self.repo.get_role(app.id, owner_role_id) is None:
+                    raise UnprocessableError(
+                        "Unknown role for this app",
+                        details=[{"field": "org_owner_role_id", "reason": "unknown_role"}],
+                    )
+                if await self.repo.role_has_admin_permission(owner_role_id):
+                    raise UnprocessableError(
+                        "An org owner role must not hold admin permissions",
+                        details=[
+                            {"field": "org_owner_role_id", "reason": "role_has_admin_permissions"}
+                        ],
+                    )
+            if changes.get("org_mode", app.org_mode) != OrgMode.REQUIRED.value:
+                raise UnprocessableError(
+                    "An org owner role needs org_mode required",
+                    details=[{"field": "org_owner_role_id", "reason": "org_mode_required"}],
+                )
+
         if "origins" in changes:
             origins = list(data.origins or [])
             if app.key == ADMIN_APP_KEY:
@@ -772,6 +795,14 @@ class PermissionService:
             and await self.repo.role_holds_permission(app.default_role_id, perm.id)
         ):
             raise ConflictError("The app's default role holds this permission")
+        if (
+            "is_admin" in fields
+            and data.is_admin is True
+            and not perm.is_admin
+            and app.org_owner_role_id is not None
+            and await self.repo.role_holds_permission(app.org_owner_role_id, perm.id)
+        ):
+            raise ConflictError("The app's org owner role holds this permission")
         if changes.get("is_admin") is True and await self.repo.permission_held_by_assigned_role(
             perm.id
         ):  # G3 (USR-02d): members would silently gain an admin permission
@@ -950,6 +981,8 @@ class RoleService:
             raise ConflictError("System roles cannot be deleted")
         if role.id == app.default_role_id:
             raise ConflictError("The app's default role cannot be deleted")
+        if role.id == app.org_owner_role_id:
+            raise ConflictError("The app's org owner role cannot be deleted")
         if await self.repo.role_has_assignments(role.id):
             raise ConflictError("Role has assignments")
         before = diff.snapshot(role, diff.ROLE)
@@ -1022,6 +1055,8 @@ class RoleService:
             raise
         if role.id == app.default_role_id and any(p.is_admin for p in found.values()):
             raise ConflictError("A default role must not hold admin permissions")
+        if role.id == app.org_owner_role_id and any(p.is_admin for p in found.values()):
+            raise ConflictError("An org owner role must not hold admin permissions")
         if (
             app.key == ADMIN_APP_KEY
             and role.key == SUPER_ADMIN_ROLE
