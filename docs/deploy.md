@@ -256,7 +256,10 @@ failed request per active client. Never keep a leaked public key in the JWKS.
 - **Compromised staff account:** revoke the admin role or disable the user. This takes effect on
   the next admin request. Do **not** re-enable or re-grant within TTL + 60 s, because the stolen
   token would work again. Logout, password reset, staff session revoke and `--clear` do not end an
-  issued admin token.
+  issued admin token. Before re-enabling or re-granting, reset the password (forgot/reset flow, which
+  ends every account session) and confirm the email inbox is not compromised. If the user holds
+  several admin roles, revoke all of them (any remaining `admin:*` permission keeps the stolen token
+  working).
 - **Scope:** use `user_id` and `jti` from the `token_issued` log lines.
 
 **TTL change (owner, after the USR-13 merge):** set `ACCESS_TOKEN_TTL_SECONDS=43200` in
@@ -601,7 +604,7 @@ owner decision.
 One-off clean-up: run
 `set-admin-origins --origin https://admin-portal.mmlabs.online` (replace semantics) as a dry run
 first, always. If it shows the `- origin https://admin.mmlabs.online` line, run it for real, then
-wait 60 s. Admin tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (12 h in production; see `--clear` above).
+wait 60 s. Admin tokens already issued stay valid up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production; see `--clear` above).
 
 ## Register an app (USR-07)
 

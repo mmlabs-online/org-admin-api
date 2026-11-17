@@ -151,7 +151,7 @@ caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_
   keeps app-level permissions plus `<app>:org:create` (ADR-0015).
 - Create errors: 403 `org_create_forbidden` (no `<app>:org:create`), `org_limit_reached`, 409
   `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
-- A role change in an org reaches tokens within the token TTL (up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production)).
+- A role change in an org reaches tokens within the token TTL (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).
 
 ### Invitations (USR-06b, ADR-0014)
 
@@ -297,7 +297,7 @@ link replaces older ones. The `/reset-password` page:
 **Effects.** A reset ends **every signed-in session of the account** on every device (other
 accounts signed in on the same device stay); the next `/token` for it answers 401
 `session_invalid`, so sign in again. Access tokens already issued stay valid until they expire
-(up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production)). A reset also marks the email verified (the user proved
+(up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production). A reset also marks the email verified (the user proved
 they receive mail there) and clears the login backoff for the email.
 
 ## Accounts and joining an app
@@ -372,7 +372,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
    for `strict_aud`).
 10. Set a `User-Agent` on the JWKS fetch: Cloudflare may block the urllib default.
 11. Revocation lag: a logout, a disabled user, a removed role or org role, a suspended org and an
-    expired assignment reach a token only at its `exp` (up to `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production)).
+    expired assignment reach a token only at its `exp` (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).
     Apps that need faster revocation check server-side, as the admin API does, or keep an
     app-local deny list by `sub`.
 12. Never cache an authorization decision beyond the request. Map `roles` through the catalog per

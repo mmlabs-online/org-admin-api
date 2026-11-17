@@ -31,3 +31,9 @@ None.
 ### Scope self-check
 - Could the diff be smaller? No; docs edits are the plan's list.
 - Diff size: see `git diff --shortstat` of the commit.
+
+## Should-fix (after PASS review)
+Docs only. Fixed: S1 (deploy.md incident runbook: reset password, check inbox, revoke all admin roles before re-enable), S2 (spec OQ8 line: "admin gap: ADR-0005 amendment risk 4"), N1 (spec §5.8 "per-app access JWT"), N2 (consumers.md nested parentheses, 3 places), N3 (ADR-0005 item 4 "TTL + leeway, counted from the disable/revoke time"), reviewer nit (deploy.md "default 15 min").
+Files: docs/deploy.md, docs/spec-v1.md, docs/consumers.md, docs/adr/0005-access-token-signing.md.
+Out-of-plan files: none. Follow-ups: none.
+Checks: make check exit 0; 1997 passed, 1 warning.

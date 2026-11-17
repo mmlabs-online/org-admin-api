@@ -87,7 +87,7 @@ verifier leeway stays 30 s (consumers at most 60 s).
    yields 12 h tokens.
 4. **Admin nuance:** the per-request reload (ADR-0008 §3) keeps disable, role revoke and assignment
    expiry immediate for `aud=admin`. But logout, password reset, staff session revoke,
-   disable-then-re-enable within the TTL and `set-admin-origins --clear` do **not** end a stolen
+   disable-then-re-enable within TTL + leeway (counted from the disable/revoke time) and `set-admin-origins --clear` do **not** end a stolen
    admin token. Cutting one means keeping the user disabled or the role revoked for at least
    TTL + leeway, or an emergency key rotation.
 5. Key rotation must keep the old public key for TTL + leeway + JWKS `max-age` (about 12 h 06 min;
