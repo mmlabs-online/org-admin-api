@@ -53,3 +53,4 @@ Files touched:
 Checks: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: 1941 passed (ruff, format, mypy clean). One earlier full run had a flaky `test_cli_audit_purge::test_purge_batches_share_cutoff` that passes alone and on rerun.
 
 Out-of-plan files: none beyond the listed should-fix items. Follow-ups: N-1, N-3, N-5 unchanged.
+- R-1: `service.py` create now checks the global cap (`daily_cap_refusal` -> 429) before the per-target limit (supersede + silent 201); lock order stays email advisory lock then `lock_global`. Test `test_exhausted_cap_answers_429_even_for_target_limited_address` (`email_daily_cap=5`). `make check`: 1942 passed (the flaky `test_cli_audit_purge::test_purge_batches_share_cutoff` failed on two earlier full runs, passes alone and on rerun).

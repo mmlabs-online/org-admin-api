@@ -503,6 +503,16 @@ async def test_global_cap_counts_invites_and_answers_429(
     assert len(await invitations(db_session)) == 1
 
 
+async def test_exhausted_cap_answers_429_even_for_target_limited_address(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    env = await setup_calechip(db_session)
+    async with make_client(email_daily_cap=5) as client:  # invite share: 1
+        assert (await _invite(client, env, "a@example.com")).status_code == 201
+        resp = await _invite(client, env, "a@example.com")  # within 60 s and cap used up
+    assert resp.status_code == 429 and _error(resp)["code"] == "rate_limited"
+
+
 # --- audit -------------------------------------------------------------------------------
 
 

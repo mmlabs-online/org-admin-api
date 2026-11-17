@@ -193,6 +193,12 @@ class InvitationService:
         email_hmac = self.email_hasher.hmac(normalize_email(email))
         # Serializes every invite to this address across orgs (also the partial-unique race).
         await self.sends.lock(email_hmac, INVITE)
+        # The global cap first: with the cap exhausted every target answers 429, so 201 vs 429
+        # does not show that this address was invited recently (R-1). Lock order: email, global.
+        reason = await daily_cap_refusal(self.tokens, self.sends, INVITE, self.daily_cap)
+        if reason is not None:  # says nothing about the target: not silent (S-2)
+            logger.warning("invitation_not_sent reason=%s org_id=%s", reason, org_id)
+            raise DailyCapReachedError(DAILY_CAP_RETRY_SECONDS, reason)
         window = await self.sends.window(email_hmac, INVITE)
         actor = EndUser(user.id)
         if (
@@ -205,11 +211,6 @@ class InvitationService:
             # with a role the 201 no longer describes (S-1): supersede this org's own.
             await self._supersede(org_id, app, email_hmac, actor, ctx)
             return await self._silent(org_id, role, "target_limit"), None
-        reason = await daily_cap_refusal(self.tokens, self.sends, INVITE, self.daily_cap)
-        if reason is not None:  # says nothing about the target: not silent (S-2)
-            logger.warning("invitation_not_sent reason=%s org_id=%s", reason, org_id)
-            raise DailyCapReachedError(DAILY_CAP_RETRY_SECONDS, reason)
-
         await self._supersede(org_id, app, email_hmac, actor, ctx)
         token = secrets.token_urlsafe(32)
         invitation = await self.repo.add(
