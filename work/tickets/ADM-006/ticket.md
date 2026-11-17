@@ -7,7 +7,7 @@
 | Areas | architecture, db, api |
 | Attempts | 0 |
 | Created | 2026-11-10 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/50 |
 
 ## Goal
 Admins can enable/disable a product for an org with a plan and limits; mmlabs services can read an org's entitlements.
