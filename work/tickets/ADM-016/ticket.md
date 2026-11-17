@@ -7,7 +7,7 @@
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/52 |
 
 ## Goal
 The Apps screen in `admin-pan` can show a "Members" column, through an additive field that breaks nothing.
