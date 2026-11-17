@@ -41,3 +41,29 @@ No violations found.
 
 ### Follow-ups (out of scope)
 - As in plan.md: a `cancelled` status on user disable, retention purge of decided requests, expiry of stale pending requests, a per-app pending cap, a deny-list, a staff-only reject reason, `details.join_pending`, `role_has_org_permission` defense in depth in `usable_default_role`, `get_for_share` on the open-join user read, and a per-account join rate limit.
+
+## Attempt 2 — 2026-11-17
+Verdict: PASS
+
+Scope: narrow rework of security-review.md "Attempt 1" S1 and N4 only. Attempt 1 already PASSed. Reviewed delta: `git diff HEAD~1 -- app tests docs` (commit 1cdfe45).
+
+### Checks (run by reviewer)
+- `service postgresql start`, then `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: ruff, format check and mypy are clean; pytest gives **2180 passed, 1 warning** (pty forkpty DeprecationWarning, already known) in 198.54 s. The known flake `test_purge_batches_share_cutoff` passed on the first run, so no rerun was needed. This matches impl-log Attempt 2 (2180 passed).
+- alembic check: not applicable (no schema change in this delta).
+
+### Acceptance criteria (rework items)
+- [x] S1: approve and reject now send `Cache-Control: no-store`. Evidence: `app/modules/join_requests/router.py` approve handler (new `response: Response` param, header set before return, around :55-62) and reject handler (around :74-80). This matches the existing list route (:31/:39). `Response` was already imported (:6). Tests: `tests/test_join_requests_api.py` `test_approve_grants_default_role` (:118) and `test_reject_records_decision` (:278) assert `resp.headers["cache-control"] == "no-store"`. Both pass.
+- [x] N4: the sentence at `docs/consumers.md:353` now reads "...with a default role, unless a rejection is inside the cooldown." This is consistent with the paragraph above it.
+
+### Issues
+None.
+
+### Rules R1–R11
+No violations found. The header is set in the router, which is the HTTP-only layer (R1). There is no schema change (R2). Auth class and permissions are unchanged (R3). No secrets are involved (R5/R11). Scope is limited to the S1/N4 fixes. The only other changes are ticket.md and backlog.md state bookkeeping (R7).
+
+### Nits (do not block)
+- impl-log Attempt 2 says "Not committed", but the changes are in commit 1cdfe45 (made by the orchestrator). This is wording only.
+- On an error path (for example a 404/409 raised by the service), the header is not set. This is fine because error bodies do not carry the email.
+
+### Follow-ups (out of scope)
+- Unchanged from Attempt 1 and security-review Attempt 1 (N5 index on `decided_by`, pending caps/expiry, retention purge that keeps the newest rejection).
