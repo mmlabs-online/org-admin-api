@@ -328,6 +328,34 @@ class RbacRepository:
         )
         return list(await self.session.scalars(stmt))
 
+    async def org_permission_keys(
+        self, user_id: uuid.UUID, app_key: str, org_id: uuid.UUID
+    ) -> list[str]:
+        """Permission keys of the roles held in exactly `org_id` (never the app-scope union),
+        with the same rules as `org_role_keys`."""
+        stmt = (
+            select(Permission.key)
+            .distinct()
+            .select_from(RoleAssignment)
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(App, App.id == Role.app_id)
+            .join(Organization, Organization.id == RoleAssignment.org_id)
+            .join(RolePermission, RolePermission.role_id == Role.id)
+            .join(
+                Permission,
+                and_(Permission.id == RolePermission.permission_id, Permission.app_id == App.id),
+            )
+            .where(
+                RoleAssignment.user_id == user_id,
+                RoleAssignment.org_id == org_id,
+                App.key == app_key,
+                Organization.status == OrganizationStatus.ACTIVE.value,
+                or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
+            )
+            .order_by(Permission.key)
+        )
+        return list(await self.session.scalars(stmt))
+
     async def effective_permission_keys(
         self, user_id: uuid.UUID, app_key: str, org_id: uuid.UUID | None
     ) -> list[str]:

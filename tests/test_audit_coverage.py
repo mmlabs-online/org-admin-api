@@ -515,9 +515,12 @@ IDENTITY_NOT_AUDITED = {
     ("POST", f"{AUTH}/password/forgot"),
 }
 # Audited with several rows, which the one-row harness above cannot express: `POST /auth/orgs`
-# writes organization.created + role_assignment.granted (covered by tests/test_auth_orgs.py).
+# writes organization.created + role_assignment.granted (covered by tests/test_auth_orgs.py);
+# the two invitation routes (covered by tests/test_invitations_*.py).
 IDENTITY_MULTI_ROW_AUDITED = {
     ("POST", f"{AUTH}/orgs"),
+    ("POST", f"{AUTH}/orgs/{{org_id}}/invitations"),
+    ("POST", f"{AUTH}/invitations/accept"),
 }
 
 

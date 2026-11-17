@@ -11,7 +11,7 @@ creating an org needs one convention that does.
 ## Decision
 1. **Reserved permission key `<app>:org:create`.** `POST /api/v1/auth/orgs` requires it, checked
    against **app-scope** permissions only (`org_id` NULL), never the app+org union: a permission
-   held inside some org must not allow creating new orgs. A later `<app>:org:invite` (USR-06b)
+   held inside some org must not allow creating new orgs. `<app>:org:invite` (USR-06b, ADR-0014)
    is checked in the org, org-exact.
 2. **Org owner role is data:** `apps.org_owner_role_id` (nullable, same-app composite FK, only
    when `org_mode = required`, never on `admin`, never a role holding `is_admin` permissions),

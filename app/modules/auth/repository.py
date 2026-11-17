@@ -237,6 +237,17 @@ class EmailSendLogRepository:
         now, last, count, oldest = row
         return SendWindow(now, last, int(count), oldest)
 
+    async def count_purpose_24h(self, purpose: str) -> int:
+        """Send-log rows of `purpose` in the last 24 h. For `invite` every row is a real send
+        (rows are inserted only when the mail is queued)."""
+        count = await self.session.scalar(
+            select(func.count()).where(
+                EmailSendLog.purpose == purpose,
+                EmailSendLog.sent_at > func.now() - timedelta(hours=24),
+            )
+        )
+        return int(count or 0)
+
     async def lock_global(self) -> None:
         """Serialize the global daily-cap check across all emails until the transaction ends."""
         await self.session.execute(

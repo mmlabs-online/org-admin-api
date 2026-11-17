@@ -23,12 +23,16 @@ class AuditTarget(StrEnum):
     ROLE = "role"
     ROLE_ASSIGNMENT = "role_assignment"
     DEVICE_SESSION = "device_session"
+    INVITATION = "invitation"
 
 
 class AuditAction(StrEnum):
     ORGANIZATION_CREATED = "organization.created"
     ORGANIZATION_UPDATED = "organization.updated"
     ORGANIZATION_DELETED = "organization.deleted"
+    ORGANIZATION_INVITATION_CREATED = "organization.invitation_created"
+    ORGANIZATION_INVITATION_ACCEPTED = "organization.invitation_accepted"
+    ORGANIZATION_INVITATION_REVOKED = "organization.invitation_revoked"
     USER_CREATED = "user.created"
     USER_DISABLED = "user.disabled"
     USER_ENABLED = "user.enabled"

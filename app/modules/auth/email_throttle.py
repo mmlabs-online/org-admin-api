@@ -8,12 +8,18 @@ MIN_INTERVAL = timedelta(seconds=60)
 DAILY_WINDOW = timedelta(hours=24)
 DAILY_LIMIT = 5
 DAILY_CAP_RETRY_SECONDS = 3600  # global cap reached: retry later
-VERIFY_CAP_PERCENT = 80  # verification may use at most this share of the daily cap
-RESET_CAP_PERCENT = 50  # password reset may use at most this share of the daily cap
+INVITE_DAILY_LIMIT = 3  # org invitations per target email per 24 h, across all orgs (USR-06b)
+VERIFY_CAP_PERCENT = 70  # verification may use at most this share of the daily cap
+RESET_CAP_PERCENT = 40  # password reset may use at most this share of the daily cap
+INVITE_CAP_PERCENT = 10  # org invitations may use at most this share of the daily cap
 
 
 def resend_retry_after(
-    now: datetime, last: datetime | None, count_24h: int, oldest_24h: datetime | None
+    now: datetime,
+    last: datetime | None,
+    count_24h: int,
+    oldest_24h: datetime | None,
+    daily_limit: int = DAILY_LIMIT,
 ) -> int | None:
     """None when a send is allowed, else seconds until it is (at least 1).
 
@@ -24,26 +30,31 @@ def resend_retry_after(
     wait = (last + MIN_INTERVAL - now).total_seconds()
     if wait > 0:
         return max(1, math.ceil(wait))
-    if count_24h >= DAILY_LIMIT and oldest_24h is not None:
+    if count_24h >= daily_limit and oldest_24h is not None:
         return max(1, math.ceil((oldest_24h + DAILY_WINDOW - now).total_seconds()))
     return None
 
 
-def cap_refusal(purpose: str, *, total_24h: int, verify_24h: int, daily_cap: int) -> str | None:
+def cap_refusal(
+    purpose: str, *, total_24h: int, verify_24h: int, invite_24h: int, daily_cap: int
+) -> str | None:
     """None when one more send of `purpose` fits the global daily cap, else the reason:
     `"daily_cap"` (the total cap) or `"purpose_cap"` (the purpose's share).
 
     Each purpose may use at most its share of the cap (at least 1): verify
-    `VERIFY_CAP_PERCENT`, reset `RESET_CAP_PERCENT`. So neither can starve the other: verify
-    always keeps at least 50 % of the cap, reset at least 20 %. Constants, not settings: they
-    are safety invariants of the split (ADR-0007, USR-04d).
+    `VERIFY_CAP_PERCENT`, reset `RESET_CAP_PERCENT`, invite `INVITE_CAP_PERCENT`. So none can
+    starve the others: verify always keeps at least 100 - 40 - 10 = 50 % of the cap, reset at
+    least 100 - 70 - 10 = 20 %. `total_24h` counts all three. Constants, not settings: they are
+    safety invariants of the split (ADR-0007, USR-04d, USR-06b).
     """
     if total_24h >= daily_cap:
         return "daily_cap"
     if purpose == "verify":
         used, percent = verify_24h, VERIFY_CAP_PERCENT
+    elif purpose == "invite":
+        used, percent = invite_24h, INVITE_CAP_PERCENT
     else:
-        used, percent = total_24h - verify_24h, RESET_CAP_PERCENT
+        used, percent = total_24h - verify_24h - invite_24h, RESET_CAP_PERCENT
     if used >= max(1, daily_cap * percent // 100):
         return "purpose_cap"
     return None

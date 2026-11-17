@@ -181,8 +181,9 @@ docker compose -p org-admin-api logs --since 24h org-admin-api | grep -E 'email_
 | `email_quota_exceeded` | Gmail answered `550 5.4.5`; sending paused 1 h | Gmail account's sent volume, the site's own mail | **Same day.** See "Gmail limits" above |
 | `email_auth_failed` | App Password revoked or wrong; sending paused 1 h | GitHub secret and the App Password on the Gmail account | **Same day.** Rotate per "Gmail limits" above |
 | `email_not_sent reason=daily_cap` | Our total `EMAIL_DAILY_CAP` is reached | Sign-up spikes, forgot floods (per-IP 429s) | Find the source; consider `EMAIL_DAILY_CAP` |
-| `email_not_sent reason=purpose_cap purpose=reset` | Reset used its 50 % share | Per-IP 429s and Turnstile failures on forgot | Repeated: likely forgot abuse; verification keeps its share |
-| `email_not_sent reason=purpose_cap purpose=verify` | Verification used its 80 % share | Sign-up volume | Repeated: sign-up spam; reset keeps its share |
+| `email_not_sent reason=purpose_cap purpose=reset` | Reset used its 40 % share | Per-IP 429s and Turnstile failures on forgot | Repeated: likely forgot abuse; verification keeps its share |
+| `email_not_sent reason=purpose_cap purpose=verify` | Verification used its 70 % share | Sign-up volume | Repeated: sign-up spam; reset keeps its share |
+| `invitation_not_sent reason=purpose_cap` (or `daily_cap`, `target_limit`) | Invitations used their 10 % share or the global cap (answered 429), or the per-target limit (silent 201) | Heavy invite use | Repeated: invite abuse; verify and reset keep their floors |
 | `email_dropped reason=paused\|queue_full\|shutdown` | Mail dropped while paused, with a full queue, or at a stop | The event before it (quota/auth), traffic, deploy time | Users resend; investigate repeated `queue_full` |
 
 Alert rule: any `email_quota_exceeded` or `email_auth_failed` → act the same day;

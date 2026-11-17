@@ -447,7 +447,7 @@ async def test_verify_share_exhausted_reset_still_sent(
     logs: pytest.LogCaptureFixture,
 ) -> None:
     user = await make_login_user(db_session)
-    async with make_client(email_daily_cap=5) as c:  # verify share: 4
+    async with make_client(email_daily_cap=5) as c:  # verify share: 3 (70 %)
         for i in range(5):
             resp = await c.post(
                 SIGNUP,
@@ -460,10 +460,10 @@ async def test_verify_share_exhausted_reset_still_sent(
             )
             assert resp.status_code == 201
         await email_dispatcher.join()
-        assert [e.purpose for e in fake_email.sent] == ["verify"] * 4
+        assert [e.purpose for e in fake_email.sent] == ["verify"] * 3
         assert "email_not_sent reason=purpose_cap purpose=verify" in logs.text
         assert (await _forgot(c, email_dispatcher, user.email)).status_code == 202
-    assert [e.purpose for e in fake_email.sent] == ["verify"] * 4 + ["reset"]
+    assert [e.purpose for e in fake_email.sent] == ["verify"] * 3 + ["reset"]
     assert fake_email.sent[-1].to == user.email
 
 
@@ -503,7 +503,7 @@ async def test_forgot_purpose_cap_logs_and_verify_still_sends(
     fake_email: FakeEmailSender,
     logs: pytest.LogCaptureFixture,
 ) -> None:
-    """USR-04d S2: reset may use at most 50 % of the cap, so it cannot starve verification."""
+    """USR-04d S2: reset may use at most 40 % of the cap, so it cannot starve verification."""
     first = await make_login_user(db_session)
     second = await make_login_user(db_session, email="second.reset@example.com")
     async with make_client(email_daily_cap=2) as c:  # reset share: max(1, 1) = 1

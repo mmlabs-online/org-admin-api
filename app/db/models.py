@@ -3,6 +3,7 @@
 from app.db.base import Base
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import EmailSendLog, EmailToken, LoginFailure
+from app.modules.invitations.models import OrgInvitation
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
 from app.modules.sessions.models import AccountSession, DeviceSession
@@ -17,6 +18,7 @@ __all__ = [
     "EmailSendLog",
     "EmailToken",
     "LoginFailure",
+    "OrgInvitation",
     "Organization",
     "Permission",
     "Role",

@@ -48,6 +48,14 @@ class AuthzService:
         prefix = f"{app_key}:"
         return [k for k in keys if k.startswith(prefix)]
 
+    async def org_permissions(
+        self, user_id: uuid.UUID, app_key: str, org_id: uuid.UUID
+    ) -> list[str]:
+        """Sorted permission keys held in exactly this org (org-exact, unexpired, org `active`)."""
+        keys = await self.repo.org_permission_keys(user_id, app_key, org_id)
+        prefix = f"{app_key}:"
+        return [k for k in keys if k.startswith(prefix)]
+
     async def effective_permissions(
         self, user_id: uuid.UUID, app_key: str, org_id: uuid.UUID | None = None
     ) -> list[str]:
