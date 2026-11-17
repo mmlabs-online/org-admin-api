@@ -7,7 +7,7 @@
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-16 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/53 |
 
 ## Goal
 Support staff can sign a user out on one device or everywhere without disabling the account.
