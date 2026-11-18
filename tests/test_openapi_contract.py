@@ -55,6 +55,7 @@ def test_every_error_response_references_envelope() -> None:
     assert "/api/v1/auth/password/forgot" in checked
     assert "/api/v1/apps/{key}/roles" in checked
     assert "/api/v1/me/permissions" in checked
+    assert "/api/v1/apps/{key}/role-definitions" in checked
 
 
 def test_me_permissions_operation() -> None:
@@ -68,6 +69,26 @@ def test_me_permissions_operation() -> None:
     component = schema["components"]["schemas"]["MePermissions"]
     assert set(component["properties"]) == {"user_id", "roles", "permissions"}
     assert set(component["required"]) == {"user_id", "roles", "permissions"}
+
+
+def test_role_definitions_operations() -> None:
+    schema = _schema()
+    base = "/api/v1/apps/{key}/role-definitions"
+    expected = {
+        base: "#/components/schemas/Page_RoleDefinitionRead_",
+        f"{base}/{{role_id}}": "#/components/schemas/RoleDefinitionRead",
+    }
+    for path, ref in expected.items():
+        op = schema["paths"][path]["get"]
+        assert op["responses"]["200"]["content"]["application/json"]["schema"] == {"$ref": ref}
+        assert op["x-permission"] == "admin:apps:read"
+        for code in ("401", "403"):
+            assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
+    component = schema["components"]["schemas"]["RoleDefinitionRead"]
+    assert set(component["required"]) == {
+        "id", "app", "key", "name", "is_system", "is_default", "privileged",
+        "permissions", "created_at", "updated_at",
+    }  # fmt: skip
 
 
 def test_no_5xx_documented() -> None:

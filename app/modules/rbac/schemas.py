@@ -222,6 +222,30 @@ class RoleRead(BaseModel):
     permissions: list[str]  # sorted permission keys
 
 
+class RoleDefinitionRead(BaseModel):
+    """Staff read model of a role (USR-16): any app, `admin` and disabled ones included."""
+
+    id: uuid.UUID
+    app: str
+    key: str
+    name: str
+    is_system: bool
+    is_default: bool = Field(
+        description="This role is the app's default role (apps.default_role_id)."
+    )
+    privileged: bool = Field(
+        description=(
+            "App is `admin`, or the role holds a permission with is_admin. Granting or revoking "
+            "it needs admin:* (ADR-0008 G4). UI hint; the server enforces on every write."
+        )
+    )
+    permissions: list[str]  # sorted permission keys
+    created_at: datetime
+    updated_at: datetime = Field(
+        description="Last change to the role row (e.g. name); permission changes do not bump it."
+    )
+
+
 class RolePermissionsReplace(BaseModel):
     """The role's full permission set; duplicates are ignored, `[]` empties the role."""
 

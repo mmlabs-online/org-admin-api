@@ -204,6 +204,34 @@ class RbacRepository:
         )
         return list(result), total or 0
 
+    async def page_roles(
+        self, app_id: uuid.UUID, *, limit: int, offset: int
+    ) -> tuple[list[Role], int]:
+        total = await self.session.scalar(
+            select(func.count()).select_from(Role).where(Role.app_id == app_id)
+        )
+        result = await self.session.scalars(
+            select(Role)
+            .where(Role.app_id == app_id)
+            .order_by(Role.key, Role.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result), total or 0
+
+    async def role_permission_rows(
+        self, role_ids: Sequence[uuid.UUID]
+    ) -> list[tuple[uuid.UUID, str, bool]]:
+        """(role id, permission key, is_admin) for all given roles in one query."""
+        if not role_ids:
+            return []
+        result = await self.session.execute(
+            select(RolePermission.role_id, Permission.key, Permission.is_admin)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(RolePermission.role_id.in_(role_ids))
+        )
+        return [(rid, key, is_admin) for rid, key, is_admin in result.all()]
+
     async def get_permission(
         self, app_id: uuid.UUID, permission_id: uuid.UUID
     ) -> Permission | None:
