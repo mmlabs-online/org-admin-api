@@ -7,7 +7,7 @@
 | Areas | api |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/65 |
 
 ## Goal
 Staff can search and filter apps on the admin-pan Apps screen (PAN-015); `GET /api/v1/apps` today accepts only `limit`/`offset`.
