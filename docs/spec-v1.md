@@ -1,6 +1,6 @@
 # org-admin-api — Product spec v1
 
-Status: **Draft** — written while bootstrapping the repo (2026-11-10); §5.9–§5.11 and OQ4–OQ18 added 2026-11-16 for the admin UI `admin-pan`. Everything below is a proposal for the owner to confirm, cut or change, especially §8 Open questions.
+Status: **Draft** — written while bootstrapping the repo (2026-11-10); §5.9–§5.11 and OQ4–OQ18 added 2026-11-16 for the admin UI `admin-pan`; §5.12 and OQ19–OQ28 (usage limits / "token/billing" idea, scope not decided) added 2026-11-18. Everything below is a proposal for the owner to confirm, cut or change, especially §8 Open questions.
 Source of truth for scope: if `CLAUDE.md`, a ticket and this spec disagree on scope, **this spec wins** — flag the conflict.
 
 ## §1 Problem
@@ -20,6 +20,7 @@ mmlabs runs several products/services. Admin tasks (managing customer orgs, user
 - Social login (Google, Apple…), acting as a full OIDC/OAuth2 provider, and a hosted login UI — not in v1 of §5.8. Each app keeps its own login page (2026-11-11, D1/D4).
 - Migrating users from Supabase Auth (working assumption OQ2: existing users re-register).
 - Billing / payments.
+  > 2026-11-18: the owner raised a "token/billing management" idea (§5.12, draft). This non-goal **still stands**. Whether to narrow it (e.g. keep payments, pricing and invoices out, allow usage quotas/credits) is an owner decision still open (§8 OQ25). Until then §5.12 covers non-monetary usage limits only.
 - Replacing each product's own internal data model.
 
 ## §4 Actors
@@ -62,6 +63,7 @@ Which org can use which product, with plan and limits; enable/disable per org. R
 
 > 2026-11-18 (ADM-019): `PATCH /api/v1/apps/{key}` changing `org_mode` from `required` to `none` is refused with 409 `org_mode_in_use` while the app has org entitlements or org-scoped role assignments (owner, 2026-11-17).
 > 2026-11-18 (ADM-020): staff list filters `status`, `q` (name or slug, trimmed 1..100, empty → 422) and `sort` (allow-list, default `-created_at`, `id` tie-breaker).
+> 2026-11-18: per-user (not per-org) usage limits and credits are a separate draft idea, §5.12; it does not change this section.
 
 ### §5.8 mmlabs Identity — ecosystem users and authentication (owner, 2026-11-11)
 One account per person across all mmlabs apps, **fully self-hosted here** (D1): email + password only, no external IdP, no social login, not an OIDC provider. Architecture, data model, API and decision log D1–D12: [`identity-architecture.md`](identity-architecture.md).
@@ -126,6 +128,31 @@ Facts the decision should weigh (not decisions):
 
 No §3 non-goal conflicts with §5.9–§5.11 (no billing, no social login / OIDC provider / hosted login UI involved).
 
+### §5.12 Usage limits and credits per user and app (owner idea, 2026-11-18; draft, **scope not decided**)
+Owner idea (2026-11-18, translated from Vietnamese): "I want to add a token/billing management feature. The idea is that billing, or the token limits of users on each app, are managed centrally in the admin API." ("từng làm" in the original is read as "từng app", i.e. per app; confirm in OQ19.)
+
+**Working assumption (not a decision):** "token" means **usage credits / quotas** that a user consumes in an app (for example AI tokens, generations, API calls), **not** the auth access tokens of §5.8. To be confirmed in §8 OQ19. Nothing in this section is in scope until the owner answers OQ19–OQ28; no ticket may implement it before then.
+
+**Split of the idea** — the parts below are deliberately separated so they can be decided one by one:
+
+| Part | What it means | Relation to existing scope |
+|---|---|---|
+| A. Centrally configured limits | Staff set, per **user** and app (and/or per org and app), a set of named limits such as `ai_tokens_per_month: 100000`. Each app enforces them and counts usage itself. | Close to §5.6 org entitlements (`plan` + `limits` `{str: int}`, ADM-006) and the `ent` claim (ADM-018, ADR-0017). No §3 conflict. |
+| B. Central usage metering / balance | Apps report consumption to this API; this API keeps a ledger and a remaining balance per user (and app, period); staff can view usage and grant or adjust credits by hand. | New: a service-to-service write path and a real-time read path. No §3 conflict as long as credits are not bought with money. |
+| C. Billing / payments | Prices, paid plans, buying credits, payment providers, invoices, receipts, tax, refunds. | **Conflicts with §3 Non-goals ("Billing / payments")**, a hard limit under R10. Out of scope unless the owner explicitly removes or narrows that non-goal (OQ25). |
+
+Facts the decision should weigh (not decisions):
+- **Org vs. user.** §5.6 entitlements exist per **org + app** and only for apps with `org_mode = required`; the `ent` claim is present only when the token carries `org` (ADR-0017). Apps with `org_mode = none` (or tokens without `org`) have no channel for limits today. Per-user limits are therefore new data, not an extension of an existing field. Whether limits are per user, per org (shared pool), or both is OQ21.
+- **Delivery.** Static limits (Part A) could reuse the token-claim pattern of Q4/ADR-0017 (12 h staleness accepted there). A remaining **balance** (Part B) changes with every use; a token claim would be up to 12 h stale, so apps would need to call this API — today no service-to-service call path exists apart from the manifest key (R3 class 4, ADR-0016: manifest-only). Widening it is an owner and security decision (OQ24).
+- **Availability coupling.** If apps must ask this API before each metered action, an outage or slow response here blocks usage in every app; §6 p95 < 200 ms targets reads at admin load, not per-action calls from all apps.
+- **Visibility.** Claim values are readable by the user and the app's browser code (ADR-0017 §8). Limits are fine there; confidential commercial terms are not.
+- **Missing limit** in `ent` already means "the app's own default, never unlimited" (ADR-0017 §10); per-user limits should keep one rule for both.
+- **Audit.** Any staff change to limits or credits is a mutating admin action (R4). Usage reports from apps, if any, are high-volume and must not go to the audit log as one row per use.
+- **Periods.** Quotas "per month" need a reset rule and a time zone (OQ6 chose `Asia/Ho_Chi_Minh` for the dashboard; not decided here).
+- **Admin UI.** admin-pan would need screens for this; none are mocked yet (unknown — OQ20).
+
+Not decided and not to be assumed by tickets: table names, endpoint paths, claim names, permission names, whether Part B exists at all.
+
 ### §5.7 Later (not v1)
 Org members view, per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
 
@@ -175,5 +202,17 @@ Admin UI `admin-pan` (added 2026-11-16, §5.9–§5.11):
 - [ ] OQ16. Reports — storage and retention of generated files (DB, volume, none — regenerate on download), and how long they are kept.
 - [ ] OQ17. Reports — PII: may exports contain full emails, IPs or user agents? Who may run and download each type (`admin:*` only, as for the audit log?), and is each run/download audited?
 - [ ] OQ18. Reports — time zone and date boundaries for date-based reports (same answer as OQ6?).
+
+Usage limits / credits — "token/billing" idea (added 2026-11-18, §5.12):
+- [ ] OQ19. What does "token" mean: usage credits/quotas consumed in an app (e.g. AI tokens) — working assumption — or something about auth access tokens (§5.8)? And does "từng làm" mean "each app"?
+- [ ] OQ20. The problem: which apps need limits now, what goes wrong today without central management (each app hard-codes limits? no way for staff to raise one user's limit?), and who changes them (staff by hand, a plan, the user)?
+- [ ] OQ21. Subject of a limit: per user + app, per org + app (shared pool, as §5.6 today), or both? If both, which wins? Must it work for `org_mode = none` apps?
+- [ ] OQ22. Static limits only (Part A: this API stores the numbers, each app counts usage) or central metering with a balance (Part B: apps report usage here, staff see and adjust balances)?
+- [ ] OQ23. Limit shape: named integer limits like `ent.limits`, reset per period (day / month — which time zone?) or one-off credit grants that are used up? Do plans/templates with default limits exist, with per-user overrides?
+- [ ] OQ24. How do apps get limits (and balance, if Part B): a token claim like `ent` (≤ 12 h stale), a pull endpoint, or app→API usage reports? The last two need a service-to-service credential beyond today's manifest-only key (R3 class 4, ADR-0016) — acceptable?
+- [ ] OQ25. §3 non-goal "Billing / payments" (R10 hard limit): keep it as is, or narrow it? If narrowed, which parts enter scope — prices/paid plans, buying credits, a payment provider, invoices — and is this v1 or later? Until answered, §5.12 Part C stays out.
+- [ ] OQ26. Staff actions and permissions: who may set limits or grant credits (new `admin:` permission vs. `admin:*`), and is a reason required on manual adjustments (audited, R4)?
+- [ ] OQ27. End users: may a user see their own limits and remaining usage through this API (a self-scoped read like `GET /api/v1/me/permissions`), or only inside each app?
+- [ ] OQ28. On exceeding a limit: purely the app's decision (block, degrade, warn), or should this API enforce anything (e.g. refuse a token)? ADR-0017 §5 today: token issuance is never gated on entitlements.
 
 Answers go here with date, and into the relevant ticket's "Notes / answers from owner".
