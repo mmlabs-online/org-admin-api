@@ -31,7 +31,7 @@ make check
 |---|---|---|
 | GET | `/healthz` | liveness |
 | GET | `/readyz` | readiness (checks DB) |
-| GET/POST | `/api/v1/organizations` | list (paginated) / create |
+| GET/POST | `/api/v1/organizations` | list (paginated; filters `status`, `q`; `sort`) / create |
 | GET/PATCH/DELETE | `/api/v1/organizations/{id}` | read / update / delete |
 
 > ⚠️ No authentication yet (ADM-002). Deployed without an access gate by owner decision (2026-11-10) — treat all data as exposed until auth ships.
