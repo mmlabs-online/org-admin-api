@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P3 |
 | Areas | api, security |
 | Attempts | 0 |
