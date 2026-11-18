@@ -415,7 +415,7 @@ held in the `org` org). Authorize org-scoped data and actions **only** from `org
 through the role catalog, and scope all data by the `org` claim. Use `roles` of a token **without**
 `org_id` for app-level actions (create or pick an org). Never authorize org data from the `roles`
 of an org token. If `org` is present and `org_roles` is absent, reject the token. When staff change
-`org_mode` from `none` to `required`, they mark org-level permissions `scope = org` first (ADR-0015).
+`org_mode` from `none` to `required`, they mark org-level permissions `scope = org` first (ADR-0015). A flip back to `none` is refused (409 `org_mode_in_use`) while the app has org entitlements or org-scoped role assignments.
 
 ### Entitlements (`ent`)
 

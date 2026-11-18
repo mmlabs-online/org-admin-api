@@ -83,7 +83,9 @@ async def get_app(session: SessionDep, key: str) -> AppRead:
 @router.patch(
     "/{key}",
     response_model=AppRead,
-    **_with_409("admin:apps:write", "Admin app invariant or origin already taken"),
+    **_with_409(
+        "admin:apps:write", "Admin app invariant, origin already taken, or org_mode in use"
+    ),
 )
 async def update_app(
     session: SessionDep,

@@ -58,6 +58,8 @@ Which org can use which product, with plan and limits; enable/disable per org. R
 
 > 2026-11-17 (ADM-006): staff Bearer endpoints under /api/v1/organizations/{org_id}/entitlements (admin:entitlements:read|write). Active = enabled AND org active AND app active (?active=true). Only non-admin, active, org_mode=required apps can be granted. ADM-018: services read it through the `ent` claim (Q4, ADR-0017).
 
+> 2026-11-18 (ADM-019): `PATCH /api/v1/apps/{key}` changing `org_mode` from `required` to `none` is refused with 409 `org_mode_in_use` while the app has org entitlements or org-scoped role assignments (owner, 2026-11-17).
+
 ### §5.8 mmlabs Identity — ecosystem users and authentication (owner, 2026-11-11)
 One account per person across all mmlabs apps, **fully self-hosted here** (D1): email + password only, no external IdP, no social login, not an OIDC provider. Architecture, data model, API and decision log D1–D12: [`identity-architecture.md`](identity-architecture.md).
 

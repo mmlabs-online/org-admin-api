@@ -483,6 +483,20 @@ class AppService:
                 details=[{"field": "default_role_id", "reason": "role_has_org_permissions"}],
             )
 
+        if (
+            changes.get("org_mode") == OrgMode.NONE.value
+            and app.org_mode == OrgMode.REQUIRED.value
+            and (
+                await self.repo.app_has_entitlements(app.id)
+                or await self.repo.app_has_org_assignments(app.id)
+            )
+        ):
+            raise ConflictError(
+                "App has organization data (entitlements or org role assignments); "
+                "revoke them before switching org_mode to none",
+                details=[{"field": "org_mode", "reason": "org_mode_in_use"}],
+            )
+
         if "origins" in changes:
             origins = list(data.origins or [])
             if app.key == ADMIN_APP_KEY:

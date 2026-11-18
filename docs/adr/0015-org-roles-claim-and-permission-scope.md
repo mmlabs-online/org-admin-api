@@ -52,7 +52,8 @@ Date: 2026-11-17
 - The next member-role build narrows org apps' member roles; calechip has to be told.
 - Residual risk: consumers still authorizing from `roles`; a staff-granted app-scope role that
   holds `org` permissions; an `org_mode` none to required flip does not reclassify permissions
-  (staff mark them `org`).
+  (staff mark them `org`); the reverse flip required to none is refused with 409 `org_mode_in_use`
+  while org data exists (ADM-019).
 - Follow-ups: `mmlabs-auth` support for `org_roles`; refuse app-scope grants of roles that hold
   `org` permissions on org apps; retire the guard; the deployment workflow input for
   `--org-permission`.
