@@ -74,3 +74,47 @@ R8 is not met only because of Issue 1.
 - Rows written via `record_in_savepoint` (hard-coded `org_id=None`) and identity-side rows that record the org only in `changes` are invisible to the org filter (plan owner question 3).
 - `CONCURRENTLY` index builds for audit DDL once production `audit_log` is large (plan owner question 1).
 - The EXPLAIN-based tests (`test_login_count_uses_action_index`, `test_outcome_partial_index_used`, `test_org_filter_uses_indexes`) depend on planner statistics. Consider a shared fixture that runs `ANALYZE` or pins the stats, so future index migrations cannot flip them.
+
+## Attempt 2 — 2026-11-18
+Verdict: PASS
+
+### Checks (run by reviewer)
+- make check (ruff, format, mypy, pytest): two full back-to-back runs at HEAD `d000fba`. The Postgres at localhost:5432 had no other sessions, and no other process was running tests.
+  - RUN1: `All checks passed!` / `327 files already formatted` / `Success: no issues found in 148 source files` / `2551 passed, 1 warning in 360.69s`, exit 0.
+  - RUN2: `All checks passed!` / `327 files already formatted` / `Success: no issues found in 148 source files` / `2551 passed, 1 warning in 360.93s`, exit 0.
+  - These agree with the impl-log's three runs (2551 passed each). No mismatch.
+  - In Attempt 1, the same unmodified-HEAD setup failed `test_login_count_uses_action_index` in 2 of 3 runs.
+- No `adm021_*` databases are left over after the runs, so the `DROP DATABASE ... WITH (FORCE)` cleanup works. The working tree is clean.
+- alembic: `alembic heads` → `d9e4b2a61f73 (head)`. After `alembic upgrade head`, `alembic check` → `No new upgrade operations detected.`
+
+### Acceptance criteria
+- [x] AC1 `org_id` filter (target OR column, combined with the other filters).
+  - Code: `app/modules/audit/repository.py:70-79`, `router.py:38-59`. Unchanged since Attempt 1.
+  - Tests: `test_filter_org_id_*`, `test_unknown_org_id_empty_page`, `test_422_validation[org]`. Green in both runs.
+- [x] AC2 single-entry read with 404.
+  - Tests: `test_get_audit_log_matches_list_item`, `test_get_audit_log_404`, `test_get_audit_log_422_malformed_id`. Green.
+- [x] AC3 index-backed.
+  - `ix_audit_log_org_id` is in the model and in migration `d9e4b2a61f73`. `test_org_filter_uses_indexes` passes.
+  - The down/up migration test (`tests/test_audit_org_index_migration.py`) now runs in an isolated throwaway DB: upgrade head → downgrade → assert absent → upgrade → assert partial predicate. Green.
+- [x] AC4 tests. 401/403 on both routes, and the route is in the auth-class map (`tests/test_route_auth_classes.py`). Green.
+- [x] R8 / green `make check`: met (Issue 1 from Attempt 1 is resolved).
+
+### Attempt 1 Issue 1: resolved
+- `tests/test_audit_org_index_migration.py` no longer runs DDL against the shared `org_admin_test`. It creates a uniquely named DB on an AUTOCOMMIT connection to `postgres` and runs the migration there. In `finally` it drops the DB with `FORCE`. This matches the preferred fix.
+- **Out-of-plan change to `tests/test_stats_repository.py:54-56` is justified.**
+  - The implementer reports that the throwaway DB alone did not stop the flake (4 failing runs). The reviewer's own Attempt 1 data already showed that `ANALYZE` was not enough.
+  - The change is the "make the EXPLAIN test independent of statistics" alternative from the Attempt 1 fix instruction. It is listed under `Out-of-plan files` with that justification.
+  - It is three lines inside the test's own rolled-back transaction: `DROP INDEX ix_audit_log_occurred_at_id`, rolled back by the `db_session` fixture. It changes no app code.
+  - Precedent: the `backdate_audit` marker already takes ACCESS EXCLUSIVE locks on `audit_log` in the same fixture. The suite runs serially (no xdist in `pyproject.toml`, `Makefile` or `ci.yml`), so the lock is harmless.
+  - The assertion still proves what ADM-015 needs: the login-count query can be served by `ix_audit_log_action`, with no seq scan. With the time-only competitor gone, the other remaining `audit_log` indexes are partial or lead with other columns, so the assertion is deterministic.
+
+### Rules R1–R11
+No violations found. Attempt 2 changes only test files plus workflow files (`work/backlog.md`, ticket state, impl-log). The R1–R11 assessment from Attempt 1 stands.
+
+### Nits (do not block)
+- `test_login_count_uses_action_index` now checks that the action index is *usable*, not that the planner *prefers* it over `ix_audit_log_occurred_at_id`. On test-sized data that preference was never meaningful, so this is acceptable. The test comment could say this explicitly.
+- `_admin(f'CREATE DATABASE "{name}"')` interpolates a name into SQL. This is safe because the name is `adm021_` + uuid hex, but a short comment would stop someone copying the pattern with untrusted input.
+
+### Follow-ups (out of scope)
+- Carried from Attempt 1: `record_in_savepoint` rows with `org_id=None` and identity rows whose org appears only in `changes` are invisible to the org filter. Also carried: `CONCURRENTLY` builds for future audit DDL.
+- Other EXPLAIN-based tests (`test_outcome_partial_index_used`, `test_org_filter_uses_indexes`) can flip the same way. Consider a shared approach, such as a fixture that pins stats or drops competing indexes, or a reusable throwaway-DB fixture for migration down/up tests.
