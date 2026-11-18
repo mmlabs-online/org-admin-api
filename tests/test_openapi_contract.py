@@ -249,3 +249,37 @@ def test_organizations_list_422_is_envelope() -> None:
     response = _schema()["paths"]["/api/v1/organizations"]["get"]["responses"]["422"]
     assert response["content"]["application/json"]["schema"] == {"$ref": REF}
     assert "validation_error" in response["description"]
+
+
+def test_apps_list_query_params() -> None:
+    schema = _schema()
+    op = schema["paths"]["/api/v1/apps"]["get"]
+    names = ("status", "join_policy", "org_mode", "q", "sort")
+    for name in ("limit", "offset", *names):
+        param = _param(op, name)
+        assert param["in"] == "query"
+        assert not param.get("required")
+    for name in names:
+        assert _param(op, name)["description"]
+    expected = {
+        "status": ["active", "disabled"],
+        "join_policy": ["open", "approval", "closed"],
+        "org_mode": ["none", "required"],
+    }
+    for name, values in expected.items():
+        enum = _flat(_param(op, name)["schema"])
+        if "$ref" in enum:
+            enum = schema["components"]["schemas"][enum["$ref"].rsplit("/", 1)[-1]]
+        assert enum["enum"] == values
+    q = _flat(_param(op, "q")["schema"])
+    assert (q["minLength"], q["maxLength"]) == (1, 100)
+    assert "422" in _param(op, "q")["description"]
+    sort = _param(op, "sort")["schema"]
+    assert sort["enum"] == ["key", "-key", "name", "-name", "created_at", "-created_at"]
+    assert sort["default"] == "key"
+
+
+def test_apps_list_422_is_envelope() -> None:
+    response = _schema()["paths"]["/api/v1/apps"]["get"]["responses"]["422"]
+    assert response["content"]["application/json"]["schema"] == {"$ref": REF}
+    assert "validation_error" in response["description"]

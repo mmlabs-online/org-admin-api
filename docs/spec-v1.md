@@ -47,6 +47,8 @@ One model for every mmlabs app, the admin API included (app `admin`). Apps are r
 
 Membership (2026-11-11, D8–D10; details in [`identity-architecture.md`](identity-architecture.md)): each app has a `join_policy` (`open` | `approval` | `closed`; default `open`, `admin` = `closed`), a default role `<app>:member` holding all its permissions except those flagged `is_admin` (for `org_mode = required` apps also except org-level permissions, `permissions.scope = 'org'`; ADR-0015; owner, 2026-11-17), an `org_mode` (`none` | `required`; calechip = `required`) and its allowed browser `origins`. Joining assigns the default role at app scope (`org_id NULL`). Policy and role contents are data. The role catalog `GET /api/v1/apps/{key}/roles` is public (D17); app origins are limited to `mmlabs.online`, its subdomains and localhost (D19).
 
+> 2026-11-18 (USR-18): staff apps list filters `status`, `join_policy`, `org_mode`, `q` (key or name, trimmed 1..100, empty → 422) and `sort` (allow-list, default `key`, `id` tie-breaker).
+
 ### §5.4 Audit log
 Append-only record of every mutating admin action: actor, action, target type/id, before/after (or diff), timestamp, request id. Read-only, filterable listing for auditors.
 

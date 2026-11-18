@@ -19,19 +19,25 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.listing import ilike_any, sort_clauses
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
     App,
     AppStatus,
+    JoinPolicy,
+    OrgMode,
     Permission,
     PermissionScope,
     Role,
     RoleAssignment,
     RolePermission,
 )
+from app.modules.rbac.schemas import AppSort
 from app.modules.users.models import User, UserStatus
+
+_APP_SORT_COLUMNS = {"key": App.key, "name": App.name, "created_at": App.created_at}
 
 # (assignment, app key, role key, active) — `active` is computed with the database clock.
 AssignmentRow = tuple[RoleAssignment, str, str, bool]
@@ -83,10 +89,33 @@ class RbacRepository:
             .execution_options(populate_existing=True)
         )
 
-    async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
-        total = await self.session.scalar(select(func.count()).select_from(App))
+    async def list_apps(
+        self,
+        *,
+        status: AppStatus | None,
+        join_policy: JoinPolicy | None,
+        org_mode: OrgMode | None,
+        q: str | None,
+        sort: AppSort,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[App], int]:
+        conditions: list[ColumnElement[bool]] = []
+        if status is not None:
+            conditions.append(App.status == status.value)
+        if join_policy is not None:
+            conditions.append(App.join_policy == join_policy.value)
+        if org_mode is not None:
+            conditions.append(App.org_mode == org_mode.value)
+        if q is not None:
+            conditions.append(ilike_any(q, App.key, App.name))
+        total = await self.session.scalar(select(func.count()).select_from(App).where(*conditions))
         result = await self.session.scalars(
-            select(App).order_by(App.key).limit(limit).offset(offset)
+            select(App)
+            .where(*conditions)
+            .order_by(*sort_clauses(sort, _APP_SORT_COLUMNS, App.id))
+            .limit(limit)
+            .offset(offset)
         )
         return list(result), total or 0
 

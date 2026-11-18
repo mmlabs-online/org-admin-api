@@ -41,6 +41,7 @@ from app.modules.rbac.schemas import (
     AdminOriginsSet,
     AppCreate,
     AppRegister,
+    AppSort,
     AppUpdate,
     AssignmentCreate,
     AssignmentRead,
@@ -332,8 +333,26 @@ class AppService:
         self.catalog = RoleCatalogService(session)
         self.audit = AuditLogger(session)
 
-    async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
-        return await self.repo.list_apps(limit=limit, offset=offset)
+    async def list_apps(
+        self,
+        *,
+        status: AppStatus | None,
+        join_policy: JoinPolicy | None,
+        org_mode: OrgMode | None,
+        q: str | None,
+        sort: AppSort,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[App], int]:
+        return await self.repo.list_apps(
+            status=status,
+            join_policy=join_policy,
+            org_mode=org_mode,
+            q=q,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+        )
 
     async def member_counts(self, apps: Sequence[App]) -> dict[uuid.UUID, int]:
         return await self.repo.member_counts([a.id for a in apps])

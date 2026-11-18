@@ -65,7 +65,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-16 | Staff role listing with ids (admin Bearer), including the admin app and disabled apps | DONE | P1 | api, auth, security | 0 | 2026-11-18 |
 | USR-17 | Holders of a role: list assignments by role (admin Bearer) | DONE | P1 | api, auth, security, db | 0 | 2026-11-18 |
 | ADM-020 | Filters and sort for the staff organizations list | DONE | P1 | api, db | 0 | 2026-11-18 |
-| USR-18 | Filters and sort for the staff apps list | IN_PROGRESS | P1 | api | 0 | 2026-11-17 |
+| USR-18 | Filters and sort for the staff apps list | REVIEW | P1 | api | 0 | 2026-11-17 |
 | ADM-021 | Audit log: org filter and single-entry read | BACKLOG | P2 | api, db | 0 | 2026-11-17 |
 | ADM-023 | Declare 404/409 responses and admin:* requirements in OpenAPI | BACKLOG | P2 | api | 0 | 2026-11-17 |
 | ADM-025 | Grant admin:entitlements:* to a staff role (needs owner) | BACKLOG | P2 | db, auth, security | 0 | 2026-11-17 |

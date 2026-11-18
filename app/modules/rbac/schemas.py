@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -25,6 +25,9 @@ from app.modules.rbac.models import (
 )
 from app.modules.rbac.origins import MAX_ORIGINS, normalize_origins
 from app.modules.users.models import UserStatus
+
+AppSort = Literal["key", "-key", "name", "-name", "created_at", "-created_at"]
+DEFAULT_APP_SORT: AppSort = "key"
 
 # Display text (input only): NFC, then length, then Unicode category check (ADR-0003 §11).
 AppName = Annotated[
