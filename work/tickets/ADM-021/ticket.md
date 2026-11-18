@@ -7,7 +7,7 @@
 | Areas | api, db |
 | Attempts | 1 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/66 |
 
 ## Goal
 Staff can open an organization's history from admin-pan and deep-link to one audit entry without paging the list.
