@@ -63,7 +63,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | BUG-001 | `test_purge_batches_share_cutoff` fails intermittently in `make check` | DONE | P3 | db | 1 | 2026-11-18 |
 | BUG-002 | `test_changing_push_writes_one_row` fails intermittently | DONE | P3 | api | 0 | 2026-11-18 |
 | USR-16 | Staff role listing with ids (admin Bearer), including the admin app and disabled apps | DONE | P1 | api, auth, security | 0 | 2026-11-18 |
-| USR-17 | Holders of a role: list assignments by role (admin Bearer) | IN_PROGRESS | P1 | api, auth, security, db | 0 | 2026-11-17 |
+| USR-17 | Holders of a role: list assignments by role (admin Bearer) | REVIEW | P1 | api, auth, security, db | 0 | 2026-11-17 |
 | ADM-020 | Filters and sort for the staff organizations list | BACKLOG | P1 | api, db | 0 | 2026-11-17 |
 | USR-18 | Filters and sort for the staff apps list | BACKLOG | P1 | api | 0 | 2026-11-17 |
 | ADM-021 | Audit log: org filter and single-entry read | BACKLOG | P2 | api, db | 0 | 2026-11-17 |

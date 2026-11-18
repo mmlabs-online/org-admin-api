@@ -36,7 +36,7 @@ from app.modules.rbac.models import (
     RoleAssignment,
 )
 from app.modules.rbac.origins import is_loopback_origin
-from app.modules.rbac.repository import AssignmentRow, RbacRepository
+from app.modules.rbac.repository import AssignmentRow, RbacRepository, RoleHolderRow
 from app.modules.rbac.schemas import (
     AdminOriginsSet,
     AppCreate,
@@ -50,6 +50,7 @@ from app.modules.rbac.schemas import (
     RoleCatalogEntry,
     RoleCreate,
     RoleDefinitionRead,
+    RoleHolderRead,
     RolePermissionsReplace,
     RoleRead,
     RoleUpdate,
@@ -1106,6 +1107,23 @@ class RoleService:
         role = await self._get(app, role_id)
         return (await self._definitions(app, [role]))[0]
 
+    async def list_holders(
+        self,
+        key: str,
+        role_id: uuid.UUID,
+        *,
+        active: bool | None,
+        org_id: uuid.UUID | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[RoleHolderRead], int]:
+        app = await self._app(key)
+        role = await self._get(app, role_id)
+        rows, total = await self.repo.page_role_holders(
+            role.id, active=active, org_id=org_id, limit=limit, offset=offset
+        )
+        return [_role_holder_read(r) for r in rows], total
+
     async def create(
         self, key: str, data: RoleCreate, *, actor: Actor, ctx: AuditContext
     ) -> RoleRead:
@@ -1326,6 +1344,17 @@ def _assignment_read(row: AssignmentRow) -> AssignmentRead:
         expires_at=ra.expires_at,
         active=active,
         created_at=ra.created_at,
+    )
+
+
+def _role_holder_read(row: RoleHolderRow) -> RoleHolderRead:
+    ra, app_key, role_key, active, email, display_name, user_status = row
+    return RoleHolderRead(
+        **_assignment_read((ra, app_key, role_key, active)).model_dump(),
+        user_id=ra.user_id,
+        email=email,
+        display_name=display_name,
+        user_status=UserStatus(user_status),
     )
 
 
