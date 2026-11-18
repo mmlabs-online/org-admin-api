@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -11,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access_token import verify_access_token
 from app.core.jwt_keys import build_key_set
+from app.modules.entitlements.models import OrgEntitlement
+from app.modules.entitlements.schemas import LIMIT_KEY_PATTERN
 from app.modules.rbac.models import App, Role
 from app.modules.sessions.models import AccountSession, DeviceSession
 from app.modules.sessions.service import DeviceSessionService
@@ -468,6 +471,7 @@ async def test_token_without_org_app_scope_only(
     assert resp.status_code == 200, resp.text
     claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
     assert "org" not in claims and "org_roles" not in claims
+    assert "ent" not in claims
     assert claims["roles"] == ["calechip:member"]
 
 
@@ -588,6 +592,7 @@ async def test_token_admin_audience_org_id_422(
         {"audience": "stoktok", "account_id": "not-a-uuid"},
         {"audience": "stoktok"},
         {"account_id": str(uuid.uuid4())},
+        {"audience": "stoktok", "account_id": str(uuid.uuid4()), "ent": {"plan": "x"}},
     ],
 )
 async def test_token_body_validation_422(
@@ -747,3 +752,147 @@ async def test_token_logs_no_secrets(
     assert len(issued) == 1
     assert claims["jti"] in issued[0]
     assert kid in issued[0]
+
+
+async def _entitled_org(
+    db_session: AsyncSession, **ent_kwargs: Any
+) -> tuple[App, Any, str, AccountSession]:
+    """calechip, an org the member holds a role in, and an entitlement row for it."""
+    app, member = await _calechip(db_session)
+    owner = await make_role(db_session, app, "calechip:org-owner")
+    org = await make_org(db_session)
+    user, raw, account = await _member(db_session, member)
+    await assign(db_session, user, owner, org_id=org.id)
+    fields: dict[str, Any] = {"plan": "pro", "limits": {}, **ent_kwargs}
+    db_session.add(OrgEntitlement(org_id=org.id, app_id=app.id, **fields))
+    await db_session.flush()
+    return app, org, raw, account
+
+
+async def test_token_org_entitled_has_ent(client: AsyncClient, db_session: AsyncSession) -> None:
+    _, org, raw, account = await _entitled_org(
+        db_session, plan="pro", limits={"seats": 5, "projects": 3}
+    )
+    resp = await client.post(
+        TOKEN, json=_body(account.id, "calechip", org_id=str(org.id)), headers=_cal_headers(raw)
+    )
+    assert resp.status_code == 200, resp.text
+    jwks = (await client.get(JWKS)).json()
+    claims = verify_reference(
+        resp.json()["access_token"], jwks, audience="calechip", issuer=TEST_JWT_ISSUER
+    )
+    assert claims["ent"] == {"plan": "pro", "limits": {"seats": 5, "projects": 3}}
+    assert set(claims) == {
+        "iss", "aud", "sub", "email", "email_verified", "roles", "org", "org_roles", "ent",
+        "iat", "exp", "jti",
+    }  # fmt: skip
+
+
+async def test_token_org_entitled_empty_limits(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, org, raw, account = await _entitled_org(db_session, plan="pro", limits={})
+    claims = await _org_claims(client, raw, account.id, org)
+    assert claims["ent"] == {"plan": "pro", "limits": {}}
+
+
+@pytest.mark.parametrize("case", ["none", "disabled", "other_app_only"])
+async def test_token_org_not_entitled_ent_null(
+    client: AsyncClient, db_session: AsyncSession, case: str
+) -> None:
+    _, org, raw, account = await _entitled_org(db_session, enabled=case != "disabled")
+    if case == "none":
+        await db_session.execute(
+            OrgEntitlement.__table__.delete().where(OrgEntitlement.org_id == org.id)
+        )
+    if case == "other_app_only":
+        await db_session.execute(
+            OrgEntitlement.__table__.delete().where(OrgEntitlement.org_id == org.id)
+        )
+        other = await make_login_app(db_session, "secretapp", org_mode="required")
+        db_session.add(OrgEntitlement(org_id=org.id, app_id=other.id, plan="secret", limits={}))
+        await db_session.flush()
+    resp = await client.post(
+        TOKEN, json=_body(account.id, "calechip", org_id=str(org.id)), headers=_cal_headers(raw)
+    )
+    assert resp.status_code == 200, resp.text
+    claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
+    assert "ent" in claims and claims["ent"] is None
+    assert "secret" not in str(claims)
+
+
+async def test_token_without_org_has_no_ent(client: AsyncClient, db_session: AsyncSession) -> None:
+    _, _, raw, account = await _entitled_org(db_session)
+    resp = await client.post(TOKEN, json=_body(account.id, "calechip"), headers=_cal_headers(raw))
+    assert resp.status_code == 200, resp.text
+    claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
+    assert "ent" not in claims
+
+
+async def test_token_ent_reflects_update_on_next_mint(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, org, raw, account = await _entitled_org(db_session, plan="pro", limits={"seats": 5})
+    assert (await _org_claims(client, raw, account.id, org))["ent"] == {
+        "plan": "pro",
+        "limits": {"seats": 5},
+    }
+    await db_session.execute(
+        update(OrgEntitlement)
+        .where(OrgEntitlement.org_id == org.id)
+        .values(plan="basic", limits={"seats": 1})
+    )
+    assert (await _org_claims(client, raw, account.id, org))["ent"] == {
+        "plan": "basic",
+        "limits": {"seats": 1},
+    }
+    await db_session.execute(
+        update(OrgEntitlement).where(OrgEntitlement.org_id == org.id).values(enabled=False)
+    )
+    assert (await _org_claims(client, raw, account.id, org))["ent"] is None
+
+
+async def test_token_worst_case_ent_size(client: AsyncClient, db_session: AsyncSession) -> None:
+    limits = {("k" + str(i).zfill(2)).ljust(64, "x"): 2**53 - 1 for i in range(32)}
+    assert all(re.fullmatch(LIMIT_KEY_PATTERN, k) for k in limits)
+    plan = "p" * 63
+    _, org, raw, account = await _entitled_org(db_session, plan=plan, limits=limits)
+    resp = await client.post(
+        TOKEN, json=_body(account.id, "calechip", org_id=str(org.id)), headers=_cal_headers(raw)
+    )
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["access_token"]
+    claims = jwt.decode(token, options={"verify_signature": False})
+    assert claims["ent"] == {"plan": plan, "limits": limits}
+    assert len(token) < 8192
+
+
+async def test_token_org_body_unchanged(client: AsyncClient, db_session: AsyncSession) -> None:
+    _, org, raw, account = await _entitled_org(db_session)
+    resp = await client.post(
+        TOKEN, json=_body(account.id, "calechip", org_id=str(org.id)), headers=_cal_headers(raw)
+    )
+    assert set(resp.json()) == {"access_token", "token_type", "expires_in", "audience"}
+
+
+async def test_token_logs_no_entitlement_values(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("app.modules.tokens.service", "app.modules.sessions.service"):
+        monkeypatch.setattr(logging.getLogger(name), "disabled", False)
+    _, org, raw, account = await _entitled_org(
+        db_session, plan="zzplanmarker", limits={"zzlimitmarker": 7}
+    )
+    with caplog.at_level(logging.DEBUG):
+        resp = await client.post(
+            TOKEN,
+            json=_body(account.id, "calechip", org_id=str(org.id)),
+            headers=_cal_headers(raw),
+        )
+    assert resp.status_code == 200
+    assert "zzplanmarker" not in caplog.text
+    assert "zzlimitmarker" not in caplog.text
+    assert len([r for r in caplog.records if "token_issued" in r.getMessage()]) == 1

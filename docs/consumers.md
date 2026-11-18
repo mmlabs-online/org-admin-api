@@ -391,7 +391,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 9. Use `PyJWT[crypto]>=2.10.1` (2.10.0 has CVE-2024-53861, a partial `iss` match; also needed
    for `strict_aud`).
 10. Set a `User-Agent` on the JWKS fetch: Cloudflare may block the urllib default.
-11. Revocation lag: a logout, a disabled user, a removed role or org role, a suspended org and an
+11. Revocation lag: a logout, a disabled user, a removed role or org role, a suspended org, an entitlement disable, revoke, plan or limit change and an
     expired assignment reach a token only at its `exp` (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).
     Apps that need faster revocation check server-side, as the admin API does, or keep an
     app-local deny list by `sub`. Only `aud=admin` tokens are session-bound, and that check is
@@ -407,8 +407,8 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
-as a string), `org_roles` (only with `org`: the sorted role keys held in that org only), `iat`,
-`exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
+as a string), `org_roles` (only with `org`: the sorted role keys held in that org only), `ent`
+(only with `org`, see Entitlements below), `iat`, `exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
 
 For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles plus the roles
 held in the `org` org). Authorize org-scoped data and actions **only** from `org_roles`, mapped
@@ -417,7 +417,32 @@ through the role catalog, and scope all data by the `org` claim. Use `roles` of 
 of an org token. If `org` is present and `org_roles` is absent, reject the token. When staff change
 `org_mode` from `none` to `required`, they mark org-level permissions `scope = org` first (ADR-0015).
 
-Follow-up (not in this API): `mmlabs-auth` needs an `org_roles` accessor, a
+### Entitlements (`ent`)
+
+- `ent` is authoritative only after full verification (signature, `iss`, `aud` = your app, `exp`,
+  `typ`) and only together with `org`. It describes the `org` org for the `aud` app only, so
+  scope enforcement by `org`.
+- `ent: null` on an org token means not entitled (no row, disabled, or app disabled). Fail closed.
+  An org token with no `ent` key was minted before the ADM-018 release: treat it as not entitled
+  too, or re-mint.
+- Rollout: start enforcing at least TTL plus leeway (about 12.5 h) after the release, or only for
+  tokens with `iat` at or after the release time. Staff must grant entitlements (calechip has none
+  yet) before a product enforces anything.
+- Do not reject a token for `ent` being `null`. Identity and roles stay valid. `ent` grants
+  nothing alone: access still comes from `org_roles` through the catalog.
+- `limits` are ceilings. Enforce them server-side against your own usage counts on every request.
+  The browser may show plan or limits as a UI hint only; never trust values sent back by the
+  client.
+- A missing limit key means the app's own default (recommended 0 or deny), never unlimited.
+  Ignore unknown keys. Values are integers in 0..2^53-1 (JS-safe).
+- Staleness: disable, revoke, plan or limit changes reach a token only at `exp` (up to 12 h in
+  production). Use `iat` for the snapshot age and require a fresh token for quota-consuming or
+  high-value actions (item 13).
+- Do not cache `ent` beyond the request (item 12).
+- `plan` and `limits` are visible to every org member.
+- Token size is up to about 5 KB, so do not store the token in a cookie.
+
+Follow-up (not in this API): `mmlabs-auth` needs an `ent` accessor (None unless `org`), an `org_roles` accessor, a
 `require_org_permission(k)` that maps only `org_roles` through the catalog, rejection of a token
 with `org` and no `org_roles`, and a release before calechip relies on it.
 
