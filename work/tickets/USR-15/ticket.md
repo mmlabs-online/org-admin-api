@@ -7,7 +7,7 @@
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/57 |
 
 ## Goal
 Keep the join-request queue (USR-03g) clean and bounded.
