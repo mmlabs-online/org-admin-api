@@ -207,9 +207,12 @@ async def test_create_app_duplicate_key_409(rbac_client: AsyncClient) -> None:
     assert (await rbac_client.post(BASE, json={"key": "stoktok", "name": "S"})).status_code == 201
     resp = await rbac_client.post(BASE, json={"key": "stoktok", "name": "S"})
     assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["code"] == "app_key_taken"
+    assert resp.json()["error"]["details"] == [{"field": "key", "reason": "app_key_taken"}]
     resp = await rbac_client.post(BASE, json={"key": "admin", "name": "A"})
     assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "app_key_taken"
+    assert resp.json()["error"]["details"] == [{"field": "key", "reason": "app_key_taken"}]
 
 
 async def test_create_app_integrity_race_is_409(
@@ -223,7 +226,8 @@ async def test_create_app_integrity_race_is_409(
     monkeypatch.setattr(RbacRepository, "get_app_by_key", _missing)
     resp = await rbac_client.post(BASE, json={"key": "stoktok", "name": "S"})
     assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["code"] == "app_key_taken"
+    assert resp.json()["error"]["details"] == [{"field": "key", "reason": "app_key_taken"}]
     # The savepoint kept the session usable.
     assert await db_session.scalar(select(func.count()).select_from(App)) == 2
 

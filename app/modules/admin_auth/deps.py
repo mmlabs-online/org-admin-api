@@ -3,13 +3,15 @@
 Bearer from the `Authorization` header only: never the device cookie, never a query parameter.
 Routers add `dependencies=[Depends(current_admin)]`; every route adds
 `**require_permission("admin:<resource>:<action>")`, which both declares (`x-permission`) and
-enforces the permission.
+enforces the permission. `errors={404: "..."}` declares extra 4xx responses;
+`requires_super` marks operations that may also need `admin:*` (`x-requires-super`).
 """
 
 import logging
 import re
 import uuid
-from typing import Annotated, Any
+from collections.abc import Mapping
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -30,6 +32,8 @@ from app.modules.rbac.models import ADMIN_APP_KEY
 logger = logging.getLogger(__name__)
 
 PERMISSION_KEY = "x-permission"
+REQUIRES_SUPER_KEY = "x-requires-super"
+REQUIRES_SUPER_WHEN_KEY = "x-requires-super-when"
 _PERMISSION_RE = re.compile(r"^admin:([a-z][a-z0-9-]{0,47}:[a-z][a-z0-9-]{0,47}|\*)$")
 _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     401: {"description": "Missing or invalid Bearer token"},
@@ -109,12 +113,38 @@ class RequirePermission:
             raise PermissionDeniedError("Missing permission", details={"required": self.key})
 
 
-def require_permission(key: str) -> dict[str, Any]:
+def require_permission(
+    key: str,
+    *,
+    errors: Mapping[int, str] | None = None,
+    requires_super: Literal["always", "conditional"] | None = None,
+    super_when: str | None = None,
+) -> dict[str, Any]:
     """Route kwargs that declare and enforce `key`: `@router.get(..., **require_permission(k))`."""
     if not _PERMISSION_RE.fullmatch(key):
         raise ValueError(f"invalid admin permission key: {key!r}")
+    responses: dict[int | str, dict[str, Any]] = {c: dict(d) for c, d in _ERROR_RESPONSES.items()}
+    for code, description in (errors or {}).items():
+        if not 400 <= code < 500 or code in (401, 403):
+            raise ValueError(f"unsupported error code: {code!r}")
+        responses[code] = {"description": description}
+    openapi_extra: dict[str, Any] = {PERMISSION_KEY: key}
+    if requires_super is not None:
+        if key == "admin:*":
+            raise ValueError("requires_super is redundant for admin:*")
+        if (requires_super == "conditional") != (super_when is not None):
+            raise ValueError("super_when is required for, and only for, 'conditional'")
+        openapi_extra[REQUIRES_SUPER_KEY] = requires_super
+        if super_when is not None:
+            openapi_extra[REQUIRES_SUPER_WHEN_KEY] = super_when
+        responses[403] = {
+            "description": "Missing permission (permission_denied), "
+            "or admin:* required (admin_wildcard_required)"
+        }
+    elif super_when is not None:
+        raise ValueError("super_when requires requires_super='conditional'")
     return {
         "dependencies": [Depends(RequirePermission(key))],
-        "openapi_extra": {PERMISSION_KEY: key},
-        "responses": dict(_ERROR_RESPONSES),
+        "openapi_extra": openapi_extra,
+        "responses": responses,
     }

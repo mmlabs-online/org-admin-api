@@ -41,16 +41,25 @@ async def list_users(
     )
 
 
-@router.get("/{user_id}", response_model=UserRead, **require_permission("admin:users:read"))
+@router.get(
+    "/{user_id}",
+    response_model=UserRead,
+    **require_permission("admin:users:read", errors={404: "Unknown user"}),
+)
 async def get_user(session: SessionDep, user_id: uuid.UUID) -> UserRead:
     return UserRead.model_validate(await UserService(session).get(user_id))
 
 
-_WRITE = require_permission("admin:users:write")
-_WRITE["responses"][409] = {"description": "Last active super-admin"}
-
-
-@router.patch("/{user_id}", response_model=UserRead, **_WRITE)
+@router.patch(
+    "/{user_id}",
+    response_model=UserRead,
+    **require_permission(
+        "admin:users:write",
+        errors={404: "Unknown user", 409: "Last active super-admin"},
+        requires_super="conditional",
+        super_when="Target user holds a privileged role assignment",
+    ),
+)
 async def update_user_status(
     session: SessionDep,
     principal: AdminDep,
@@ -74,8 +83,7 @@ _REVOKE_LIMITS = (
 
 
 def _sessions_route(summary: str) -> dict[str, Any]:
-    route = require_permission("admin:*")
-    route["responses"][404] = {"description": "User or session not found"}
+    route = require_permission("admin:*", errors={404: "User or session not found"})
     route["summary"] = summary
     route["description"] = f"{summary}. {_REVOKE_LIMITS}"
     return route

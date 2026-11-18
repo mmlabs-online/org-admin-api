@@ -21,11 +21,14 @@ router = APIRouter(
     prefix="/users", tags=["role-assignments"], dependencies=[Depends(current_admin)]
 )
 
+_USER_404 = "Unknown user"
+_PRIVILEGED = "Privileged role (admin-app role, or a role holding an is_admin permission)"
+
 
 @router.get(
     "/{user_id}/role-assignments",
     response_model=Page[AssignmentRead],
-    **require_permission("admin:users:read"),
+    **require_permission("admin:users:read", errors={404: _USER_404}),
 )
 async def list_role_assignments(
     session: SessionDep,
@@ -43,7 +46,16 @@ async def list_role_assignments(
     "/{user_id}/role-assignments",
     response_model=AssignmentRead,
     status_code=status.HTTP_201_CREATED,
-    **require_permission("admin:roles:assign"),
+    **require_permission(
+        "admin:roles:assign",
+        errors={
+            404: _USER_404,
+            409: "Already assigned, app disabled, user unverified or disabled, or other "
+            "assignment rule (details[0].reason)",
+        },
+        requires_super="conditional",
+        super_when=_PRIVILEGED,
+    ),
 )
 async def assign_role(
     session: SessionDep,
@@ -55,14 +67,15 @@ async def assign_role(
     return await AssignmentService(session).assign(user_id, body, actor=principal, ctx=ctx)
 
 
-_REVOKE = require_permission("admin:roles:assign")
-_REVOKE["responses"][409] = {"description": "Last active super-admin"}
-
-
 @router.delete(
     "/{user_id}/role-assignments/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    **_REVOKE,
+    **require_permission(
+        "admin:roles:assign",
+        errors={404: "Unknown user or assignment", 409: "Last active super-admin"},
+        requires_super="conditional",
+        super_when=_PRIVILEGED,
+    ),
 )
 async def revoke_role(
     session: SessionDep,
