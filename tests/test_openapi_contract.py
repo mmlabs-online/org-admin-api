@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
@@ -12,6 +13,7 @@ from app.core.errors import (
     register_error_handlers,
 )
 from app.main import create_app
+from app.modules.admin_auth.deps import _ERROR_RESPONSES, require_permission
 
 REF = "#/components/schemas/ErrorEnvelope"
 
@@ -283,3 +285,115 @@ def test_apps_list_422_is_envelope() -> None:
     response = _schema()["paths"]["/api/v1/apps"]["get"]["responses"]["422"]
     assert response["content"]["application/json"]["schema"] == {"$ref": REF}
     assert "validation_error" in response["description"]
+
+
+_A, _C, _R = "/apps/{key}", "/apps/{key}/credentials", "/apps/{key}/roles/{role_id}"
+_E, _U = "/organizations/{org_id}/entitlements", "/users/{user_id}"
+_RA = "/users/{user_id}/role-assignments"
+_JR = "/apps/{key}/join-requests/{request_id}"
+# (method, path under /api/v1) -> declared subset of {404, 409}
+_EXPECTED_ERRORS: dict[tuple[str, str], set[str]] = {
+    ("get", "/apps"): set(),
+    ("post", "/apps"): {"409"},
+    ("get", _A): {"404"},
+    ("patch", _A): {"404", "409"},
+    ("delete", _A): {"404", "409"},
+    ("get", f"{_A}/permissions"): {"404"},
+    ("post", f"{_A}/permissions"): {"404", "409"},
+    ("patch", f"{_A}/permissions/{{permission_id}}"): {"404", "409"},
+    ("delete", f"{_A}/permissions/{{permission_id}}"): {"404", "409"},
+    ("get", f"{_A}/role-definitions"): {"404"},
+    ("get", f"{_A}/role-definitions/{{role_id}}"): {"404"},
+    ("get", f"{_A}/role-definitions/{{role_id}}/assignments"): {"404"},
+    ("post", f"{_A}/roles"): {"404", "409"},
+    ("patch", _R): {"404", "409"},
+    ("delete", _R): {"404", "409"},
+    ("put", f"{_R}/permissions"): {"404", "409"},
+    ("post", _C): {"404", "409"},
+    ("get", _C): {"404"},
+    ("delete", f"{_C}/{{credential_id}}"): {"404"},
+    ("get", f"{_A}/join-requests"): {"404"},
+    ("post", f"{_JR}/approve"): {"404", "409"},
+    ("post", f"{_JR}/reject"): {"404", "409"},
+    ("get", _E): {"404"},
+    ("post", _E): {"404", "409"},
+    ("patch", f"{_E}/{{entitlement_id}}"): {"404"},
+    ("delete", f"{_E}/{{entitlement_id}}"): {"404"},
+    ("get", f"{_U}/role-assignments"): {"404"},
+    ("post", _RA): {"404", "409"},
+    ("delete", f"{_RA}/{{assignment_id}}"): {"404", "409"},
+    ("get", _U): {"404"},
+    ("patch", _U): {"404", "409"},
+}
+_SUPER: dict[tuple[str, str], str] = {
+    ("post", _C): "always",
+    ("patch", _A): "conditional",
+    ("post", f"{_A}/permissions"): "conditional",
+    ("patch", f"{_A}/permissions/{{permission_id}}"): "conditional",
+    ("delete", f"{_A}/permissions/{{permission_id}}"): "conditional",
+    ("post", f"{_A}/roles"): "conditional",
+    ("patch", _R): "conditional",
+    ("delete", _R): "conditional",
+    ("put", f"{_R}/permissions"): "conditional",
+    ("post", _RA): "conditional",
+    ("delete", f"{_RA}/{{assignment_id}}"): "conditional",
+    ("patch", _U): "conditional",
+}
+
+
+def test_admin_declared_error_responses() -> None:
+    paths = _schema()["paths"]
+    for (method, path), expected in _EXPECTED_ERRORS.items():
+        responses = paths[f"/api/v1{path}"][method]["responses"]
+        assert {"404", "409"} & set(responses) == expected, (method, path)
+        for code in expected:
+            assert responses[code]["content"]["application/json"]["schema"] == {"$ref": REF}
+
+
+def test_parameterized_admin_routes_declare_404() -> None:
+    for path, method, op in _operations(_schema()):
+        if "x-permission" in op and "{" in path:
+            assert "404" in op["responses"], (method, path)
+
+
+def test_requires_super_extension() -> None:
+    for path, method, op in _operations(_schema()):
+        key = (method, path.removeprefix("/api/v1"))
+        value = op.get("x-requires-super")
+        assert value == _SUPER.get(key), key
+        when = op.get("x-requires-super-when")
+        if value == "conditional":
+            assert isinstance(when, str) and when, key
+        else:
+            assert when is None, key
+        if value is not None:
+            assert op["x-permission"] != "admin:*", key
+            assert "admin_wildcard_required" in op["responses"]["403"]["description"], key
+
+
+def test_post_apps_409_documents_codes() -> None:
+    description = _schema()["paths"]["/api/v1/apps"]["post"]["responses"]["409"]["description"]
+    assert "app_key_taken" in description
+    assert "origin_taken" in description
+
+
+def test_require_permission_rejects_bad_arguments() -> None:
+    for kwargs in (
+        {"errors": {401: "x"}},
+        {"errors": {403: "x"}},
+        {"errors": {500: "x"}},
+        {"requires_super": "conditional"},
+        {"super_when": "x"},
+        {"requires_super": "always", "super_when": "x"},
+    ):
+        with pytest.raises(ValueError):
+            require_permission("admin:apps:read", **kwargs)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        require_permission("admin:*", requires_super="always")
+    first = require_permission("admin:apps:read", errors={404: "x"})
+    second = require_permission("admin:apps:read")
+    assert first["responses"] is not second["responses"]
+    first["responses"][401]["description"] = "changed"
+    assert second["responses"][401] != first["responses"][401]
+    assert _ERROR_RESPONSES[401]["description"] != "changed"
+    assert 404 not in _ERROR_RESPONSES

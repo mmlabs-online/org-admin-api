@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     DENIED_ERRORS,
+    AppKeyTakenError,
     ConflictError,
     LastSuperAdminError,
     NotFoundError,
@@ -378,7 +379,7 @@ class AppService:
 
     async def _create(self, data: AppCreate) -> App:
         if await self.repo.get_app_by_key(data.key) is not None:
-            raise ConflictError("App key is already taken")
+            raise AppKeyTakenError()
         claimed = [o for o in data.origins if not is_loopback_origin(o)]
         if await self.repo.app_keys_holding_origins(claimed, data.key):  # G6
             raise _origin_taken()
@@ -393,7 +394,7 @@ class AppService:
                 )
             )
         except IntegrityError as exc:  # concurrent insert with the same key
-            raise ConflictError("App key is already taken") from exc
+            raise AppKeyTakenError() from exc
         # Same transaction: a failure here rolls the app back with the request.
         await self.catalog._build_for_app(app)
         self.repo.mark_apps_changed()

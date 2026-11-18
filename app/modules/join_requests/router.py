@@ -15,16 +15,17 @@ from app.modules.join_requests.service import JoinRequestService
 router = APIRouter(prefix="/apps", tags=["join-requests"], dependencies=[Depends(current_admin)])
 
 
-def _with_409(description: str) -> dict[str, Any]:
-    kwargs = require_permission("admin:roles:assign")
-    kwargs["responses"][409] = {"description": description}
-    return kwargs
+def _assign(description: str) -> dict[str, Any]:
+    return require_permission(
+        "admin:roles:assign",
+        errors={404: "Unknown app, or request not of that app", 409: description},
+    )
 
 
 @router.get(
     "/{key}/join-requests",
     response_model=Page[JoinRequestRead],
-    **require_permission("admin:users:read"),
+    **require_permission("admin:users:read", errors={404: "Unknown app"}),
 )
 async def list_join_requests(
     session: SessionDep,
@@ -43,7 +44,7 @@ async def list_join_requests(
 @router.post(
     "/{key}/join-requests/{request_id}/approve",
     response_model=JoinRequestRead,
-    **_with_409(
+    **_assign(
         "not pending, app disabled, policy changed, user disabled/unverified or default role "
         "unusable (details[0].reason)"
     ),
@@ -65,7 +66,7 @@ async def approve_join_request(
 @router.post(
     "/{key}/join-requests/{request_id}/reject",
     response_model=JoinRequestRead,
-    **_with_409("not pending (details[0].reason)"),
+    **_assign("not pending (details[0].reason)"),
 )
 async def reject_join_request(
     session: SessionDep,

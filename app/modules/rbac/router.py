@@ -5,7 +5,7 @@ change across the `is_admin` boundary, also needs `admin:*` (ADM-002b guards in 
 """
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
@@ -38,16 +38,9 @@ from app.modules.rbac.service import AppService, PermissionService, RoleService
 router = APIRouter(prefix="/apps", tags=["apps"], dependencies=[Depends(current_admin)])
 
 
-def _with_409(key: str, description: str) -> dict[str, Any]:
-    kwargs = require_permission(key)
-    kwargs["responses"][409] = {"description": description}
-    return kwargs
-
-
-def _with_404(key: str, description: str) -> dict[str, Any]:
-    kwargs = require_permission(key)
-    kwargs["responses"][404] = {"description": description}
-    return kwargs
+_APP_404 = "Unknown app"
+_ROLE_404 = "Unknown app, or role not of that app"
+_ADMIN_APP = "On the admin app"
 
 
 def _app_read(app: App, member_count: int) -> AppRead:
@@ -109,7 +102,13 @@ async def list_apps(
     "",
     response_model=AppRead,
     status_code=status.HTTP_201_CREATED,
-    **_with_409("admin:apps:write", "Key or origin already taken"),
+    **require_permission(
+        "admin:apps:write",
+        errors={
+            409: "Key taken (code=app_key_taken, details[0].reason=app_key_taken) "
+            "or origin taken (details[0].reason=origin_taken)"
+        },
+    ),
 )
 async def register_app(
     session: SessionDep, principal: AdminDep, ctx: AuditContextDep, body: AppCreate
@@ -118,7 +117,11 @@ async def register_app(
     return await _app_read_counted(svc, await svc.create(body, actor=principal, ctx=ctx))
 
 
-@router.get("/{key}", response_model=AppRead, **require_permission("admin:apps:read"))
+@router.get(
+    "/{key}",
+    response_model=AppRead,
+    **require_permission("admin:apps:read", errors={404: _APP_404}),
+)
 async def get_app(session: SessionDep, key: str) -> AppRead:
     svc = AppService(session)
     return await _app_read_counted(svc, await svc.get(key))
@@ -127,8 +130,14 @@ async def get_app(session: SessionDep, key: str) -> AppRead:
 @router.patch(
     "/{key}",
     response_model=AppRead,
-    **_with_409(
-        "admin:apps:write", "Admin app invariant, origin already taken, or org_mode in use"
+    **require_permission(
+        "admin:apps:write",
+        errors={
+            404: _APP_404,
+            409: "Admin app invariant, origin already taken, or org_mode in use",
+        },
+        requires_super="conditional",
+        super_when="Changing the admin app",
     ),
 )
 async def update_app(
@@ -148,7 +157,14 @@ async def update_app(
 @router.delete(
     "/{key}",
     status_code=status.HTTP_204_NO_CONTENT,
-    **require_permission("admin:apps:write"),
+    **require_permission(
+        "admin:apps:write",
+        errors={
+            404: _APP_404,
+            409: "Admin app, app has role assignments, or app has entitlements "
+            "(details[0].reason=app_has_entitlements)",
+        },
+    ),
 )
 async def delete_app(
     session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str
@@ -162,7 +178,7 @@ async def delete_app(
 @router.get(
     "/{key}/permissions",
     response_model=Page[PermissionRead],
-    **require_permission("admin:apps:read"),
+    **require_permission("admin:apps:read", errors={404: _APP_404}),
 )
 async def list_permissions(session: SessionDep, key: str, page: PageDep) -> Page[PermissionRead]:
     items, total = await PermissionService(session).list_permissions(
@@ -180,7 +196,13 @@ async def list_permissions(session: SessionDep, key: str, page: PageDep) -> Page
     "/{key}/permissions",
     response_model=PermissionRead,
     status_code=status.HTTP_201_CREATED,
-    **require_permission("admin:roles:manage"),
+    **require_permission(
+        "admin:roles:manage",
+        errors={404: _APP_404, 409: "Permission key already exists, or app is disabled"},
+        requires_super="conditional",
+        super_when="On the admin app, for an is_admin permission, "
+        "or for an app-scope permission of an org app",
+    ),
 )
 async def create_permission(
     session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str, body: PermissionCreate
@@ -192,7 +214,16 @@ async def create_permission(
 @router.patch(
     "/{key}/permissions/{permission_id}",
     response_model=PermissionRead,
-    **_with_409("admin:roles:manage", "Held by the default role or by an assigned role"),
+    **require_permission(
+        "admin:roles:manage",
+        errors={
+            404: "Unknown app, or permission not of that app",
+            409: "Held by the default role or by an assigned role",
+        },
+        requires_super="conditional",
+        super_when="Changing an admin-app permission, changing is_admin, "
+        "or changing scope to app on an org app",
+    ),
 )
 async def update_permission(
     session: SessionDep,
@@ -211,7 +242,15 @@ async def update_permission(
 @router.delete(
     "/{key}/permissions/{permission_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    **require_permission("admin:roles:manage"),
+    **require_permission(
+        "admin:roles:manage",
+        errors={
+            404: "Unknown app, or permission not of that app",
+            409: "Held by the default role or by an assigned role",
+        },
+        requires_super="conditional",
+        super_when=_ADMIN_APP,
+    ),
 )
 async def delete_permission(
     session: SessionDep,
@@ -229,7 +268,7 @@ async def delete_permission(
 @router.get(
     "/{key}/role-definitions",
     response_model=Page[RoleDefinitionRead],
-    **require_permission("admin:apps:read"),
+    **require_permission("admin:apps:read", errors={404: _APP_404}),
 )
 async def list_role_definitions(
     session: SessionDep, key: str, page: PageDep
@@ -243,7 +282,7 @@ async def list_role_definitions(
 @router.get(
     "/{key}/role-definitions/{role_id}",
     response_model=RoleDefinitionRead,
-    **require_permission("admin:apps:read"),
+    **require_permission("admin:apps:read", errors={404: _ROLE_404}),
 )
 async def get_role_definition(
     session: SessionDep, key: str, role_id: uuid.UUID
@@ -258,7 +297,7 @@ async def get_role_definition(
         "Assignments of one role with their holders. `total` counts assignments, not distinct "
         "users: a user can appear once per org and once at app scope."
     ),
-    **_with_404("admin:users:read", "Unknown app, or role not of that app"),
+    **require_permission("admin:users:read", errors={404: _ROLE_404}),
 )
 async def list_role_holders(
     session: SessionDep,
@@ -285,7 +324,12 @@ async def list_role_holders(
     "/{key}/roles",
     response_model=RoleRead,
     status_code=status.HTTP_201_CREATED,
-    **require_permission("admin:roles:manage"),
+    **require_permission(
+        "admin:roles:manage",
+        errors={404: _APP_404, 409: "Role name already exists, or app is disabled"},
+        requires_super="conditional",
+        super_when=_ADMIN_APP,
+    ),
 )
 async def create_role(
     session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str, body: RoleCreate
@@ -296,7 +340,12 @@ async def create_role(
 @router.patch(
     "/{key}/roles/{role_id}",
     response_model=RoleRead,
-    **require_permission("admin:roles:manage"),
+    **require_permission(
+        "admin:roles:manage",
+        errors={404: _ROLE_404, 409: "Role name already exists"},
+        requires_super="conditional",
+        super_when="Renaming an admin-app role",
+    ),
 )
 async def update_role(
     session: SessionDep,
@@ -312,7 +361,15 @@ async def update_role(
 @router.delete(
     "/{key}/roles/{role_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    **require_permission("admin:roles:manage"),
+    **require_permission(
+        "admin:roles:manage",
+        errors={
+            404: _ROLE_404,
+            409: "Default or super-admin role, or role has assignments",
+        },
+        requires_super="conditional",
+        super_when=_ADMIN_APP,
+    ),
 )
 async def delete_role(
     session: SessionDep, principal: AdminDep, ctx: AuditContextDep, key: str, role_id: uuid.UUID
@@ -323,7 +380,15 @@ async def delete_role(
 @router.put(
     "/{key}/roles/{role_id}/permissions",
     response_model=RoleRead,
-    **_with_409("admin:roles:manage", "Default/super-admin role rule or role has assignments"),
+    **require_permission(
+        "admin:roles:manage",
+        errors={
+            404: _ROLE_404,
+            409: "Default/super-admin role rule or role has assignments",
+        },
+        requires_super="conditional",
+        super_when="Changing an admin-app role, or adding/removing an is_admin permission",
+    ),
 )
 async def replace_role_permissions(
     session: SessionDep,

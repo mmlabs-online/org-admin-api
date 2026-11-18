@@ -195,7 +195,8 @@ role that is an admin-app role or holds an `is_admin` permission, and the status
 one. Codes: 403 `admin_wildcard_required` (`details.required = "admin:*"`), 403
 `self_assignment_forbidden` / `self_status_change_forbidden` / `self_session_change_forbidden` (nobody changes their own admin roles
 or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_super_admin_only`,
-409 `conflict`/`origin_taken`. Disabling a user revokes its account sessions on every device.
+409 `conflict`/`origin_taken`, 409 `app_key_taken`. OpenAPI marks these operations with
+`x-requires-super` (`always` / `conditional` + `x-requires-super-when`). Disabling a user revokes its account sessions on every device.
 
 Token (D7): JWT, ES256 (P-256, ADR-0005), lifetime `ACCESS_TOKEN_TTL_SECONDS` (default 15 min, 12 h in production; ADR-0005 §6 as amended by USR-13), header `kid` + `typ: at+jwt`.
 Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,

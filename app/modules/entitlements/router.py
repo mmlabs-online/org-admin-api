@@ -1,7 +1,6 @@
 """Admin (Bearer) endpoints for org entitlements — R3 class 1 (ADM-006)."""
 
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, status
 
@@ -22,13 +21,13 @@ READ = "admin:entitlements:read"
 WRITE = "admin:entitlements:write"
 
 
-def _with_409(key: str, description: str) -> dict[str, Any]:
-    kwargs = require_permission(key)
-    kwargs["responses"][409] = {"description": description}
-    return kwargs
+_ORG_404 = "Unknown organization"
+_ENT_404 = "Unknown organization, or entitlement not of it"
 
 
-@router.get("", response_model=Page[EntitlementRead], **require_permission(READ))
+@router.get(
+    "", response_model=Page[EntitlementRead], **require_permission(READ, errors={404: _ORG_404})
+)
 async def list_entitlements(
     session: SessionDep, page: PageDep, org_id: uuid.UUID, active: bool | None = None
 ) -> Page[EntitlementRead]:
@@ -47,7 +46,13 @@ async def list_entitlements(
     "",
     response_model=EntitlementRead,
     status_code=status.HTTP_201_CREATED,
-    **_with_409(WRITE, "admin app, disabled app, org_mode none or duplicate (details[0].reason)"),
+    **require_permission(
+        WRITE,
+        errors={
+            404: "Unknown organization, or unknown app (details[0].reason=unknown_app)",
+            409: "admin app, disabled app, org_mode none or duplicate (details[0].reason)",
+        },
+    ),
 )
 async def grant_entitlement(
     session: SessionDep,
@@ -60,7 +65,11 @@ async def grant_entitlement(
     return EntitlementRead.model_validate(view)
 
 
-@router.patch("/{entitlement_id}", response_model=EntitlementRead, **require_permission(WRITE))
+@router.patch(
+    "/{entitlement_id}",
+    response_model=EntitlementRead,
+    **require_permission(WRITE, errors={404: _ENT_404}),
+)
 async def update_entitlement(
     session: SessionDep,
     principal: AdminDep,
@@ -76,7 +85,9 @@ async def update_entitlement(
 
 
 @router.delete(
-    "/{entitlement_id}", status_code=status.HTTP_204_NO_CONTENT, **require_permission(WRITE)
+    "/{entitlement_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    **require_permission(WRITE, errors={404: _ENT_404}),
 )
 async def revoke_entitlement(
     session: SessionDep,

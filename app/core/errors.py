@@ -85,6 +85,16 @@ class LastSuperAdminError(ConflictError):
     code = "last_super_admin"
 
 
+class AppKeyTakenError(ConflictError):
+    code = "app_key_taken"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "App key is already taken",
+            details=[{"field": "key", "reason": "app_key_taken"}],
+        )
+
+
 # Guard refusals of a privileged write, audited with `outcome=denied` (ADM-004b).
 DENIED_ERRORS = (
     AdminWildcardRequiredError,
