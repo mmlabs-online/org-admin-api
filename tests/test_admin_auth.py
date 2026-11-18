@@ -9,13 +9,16 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cryptography.hazmat.primitives import serialization
 from httpx import AsyncClient, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rbac.models import App, RoleAssignment
+from app.modules.sessions.repository import SessionRepository
 from app.modules.users.models import User
 from tests.admin_auth_factories import (
+    DROP,
     KEY_SET,
+    admin_session,
     bearer,
     claims_for,
     make_staff,
@@ -171,6 +174,7 @@ async def test_super_admin_wildcard_allows_all(
 ) -> None:
     user = await make_login_user(db_session)
     await assign(db_session, user, await super_admin_role(db_session))
+    await admin_session(db_session, user)
     headers = bearer(mint(user))
     assert (await flags_client.get(ORGS, headers=headers)).status_code == 200
     created = await flags_client.post(ORGS, json={"slug": "acme", "name": "Acme"}, headers=headers)
@@ -189,6 +193,7 @@ async def test_other_app_wildcard_does_not_grant_admin(
     )
     user = await make_login_user(db_session)
     await assign(db_session, user, role)
+    await admin_session(db_session, user)
     resp = await client.get(ORGS, headers=bearer(mint(user)))
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "permission_denied"
@@ -295,3 +300,77 @@ async def test_denials_logged_without_secrets(
         assert token not in caplog.text
         assert token.split(".")[2] not in caplog.text
     assert staff.email not in caplog.text
+
+
+async def test_missing_sid_401(client: AsyncClient, db_session: AsyncSession) -> None:
+    staff = await make_staff(db_session, "admin:*")
+    _assert_401(await client.get(ORGS, headers=bearer(mint(staff, sid=DROP))))
+
+
+@pytest.mark.parametrize("sid", ["not-a-uuid", 123, ""])
+async def test_malformed_sid_401(
+    client: AsyncClient, db_session: AsyncSession, sid: object
+) -> None:
+    staff = await make_staff(db_session, "admin:*")
+    _assert_401(await client.get(ORGS, headers=bearer(mint(staff, sid=sid))))
+
+
+async def test_unknown_sid_401(client: AsyncClient, db_session: AsyncSession) -> None:
+    staff = await make_staff(db_session, "admin:*")
+    _assert_401(await client.get(ORGS, headers=bearer(mint(staff, sid=str(uuid.uuid4())))))
+
+
+async def test_foreign_sid_401(client: AsyncClient, db_session: AsyncSession) -> None:
+    a = await make_staff(db_session, "admin:*")
+    b = await make_staff(db_session, "admin:*")
+    sid_b = await admin_session(db_session, b)
+    _assert_401(await client.get(ORGS, headers=bearer(mint(a, sid=str(sid_b)))))
+
+
+async def test_revoked_device_with_active_account_401(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    staff = await make_staff(db_session, "admin:*")
+    headers = bearer(mint(staff))
+    assert (await client.get(ORGS, headers=headers)).status_code == 200
+    await db_session.execute(
+        text(
+            "UPDATE device_sessions SET revoked_at = now() WHERE id IN "
+            "(SELECT device_session_id FROM account_sessions WHERE user_id = :u)"
+        ),
+        {"u": staff.id},
+    )
+    _assert_401(await client.get(ORGS, headers=headers))
+
+
+async def test_session_lookup_error_is_not_allowed(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staff = await make_staff(db_session, "admin:*")
+
+    async def boom(self: SessionRepository, account_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(SessionRepository, "is_account_active", boom)
+    with pytest.raises(RuntimeError):
+        await client.get(ORGS, headers=bearer(mint(staff)))
+
+
+async def test_session_denials_logged(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(logging.getLogger("app.modules.admin_auth.deps"), "disabled", False)
+    staff = await make_staff(db_session, "admin:*")
+    jti = str(uuid.uuid4())
+    token = mint(staff, jti=jti, sid=str(uuid.uuid4()))
+    with caplog.at_level(logging.INFO, logger="app.modules.admin_auth.deps"):
+        await client.get(ORGS, headers=bearer(token))
+        await client.get(ORGS, headers=bearer(mint(staff, jti=jti, sid=DROP)))
+    text_ = caplog.text
+    assert f"admin_auth_denied reason=session jti={jti} user_id={staff.id}" in text_
+    assert f"admin_auth_denied reason=sid jti={jti} user_id={staff.id}" in text_
+    assert token not in text_
+    assert staff.email not in text_

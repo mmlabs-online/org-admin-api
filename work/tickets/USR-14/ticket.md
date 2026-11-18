@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Areas | architecture, auth, security, api |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/55 |
 
 ## Goal
 With 12 h access tokens (USR-13), logout, password reset, staff session revoke (USR-10) and disable-then-re-enable must end a live admin token on its next request, not at `exp`.
@@ -27,3 +27,4 @@ USR-13, USR-10.
 
 ## Notes / answers from owner
 - 2026-11-17 (owner): create from the USR-13/USR-10 follow-ups (most valuable with 12 h tokens).
+- 2026-11-17 (orchestrator): checked `mmlabs-auth` in the workspace: the Python verifier uses PyJWT with `require` on the six claims only (extra claims accepted); the TS package is a browser client and does not verify tokens. admin-pan not in the workspace — owner to confirm before deploy.

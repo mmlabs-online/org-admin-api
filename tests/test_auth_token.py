@@ -336,6 +336,10 @@ async def test_token_admin_audience_issued(client: AsyncClient, db_session: Asyn
     )
     assert claims["sub"] == str(user.id)
     assert claims["roles"] == ["admin:super-admin"]
+    assert set(claims) == {
+        "iss", "aud", "sub", "email", "email_verified", "roles", "iat", "exp", "jti", "sid",
+    }  # fmt: skip
+    assert claims["sid"] == str(account.id)
 
 
 async def test_token_admin_not_member(client: AsyncClient, db_session: AsyncSession) -> None:

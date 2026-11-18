@@ -252,21 +252,27 @@ failed request per active client. Never keep a leaked public key in the JWKS.
 
 - **Lost or shared device:** staff session revoke (`DELETE /api/v1/users/{id}/sessions[/{session_id}]`,
   `admin:*`) signs the user out on that browser or everywhere; other accounts on a shared browser
-  stay signed in. Tokens already issued stay valid until `exp` (at most `ACCESS_TOKEN_TTL_SECONDS`,
-  12 h in production, plus 30 s). Session revoke is **not** a compromise response: for a suspected
-  compromise use the steps below (disable, or revoke admin roles, held for at least TTL + 60 s;
-  password reset before re-enabling; emergency key rotation for an immediate global cut).
+  stay signed in. It ends that session's **admin** tokens on the next admin request (USR-14); app
+  tokens stay valid until `exp` (at most `ACCESS_TOKEN_TTL_SECONDS`, 12 h in production, plus
+  30 s). Session revoke is **not** a compromise response, because the password still logs in: for a suspected
+  compromise use the steps below (disable the user; or, if you only revoke admin roles, hold that
+  for at least TTL + 60 s; password reset before re-enabling; emergency key rotation for an
+  immediate global cut).
 - **Compromised consumer account:** disable the user. This stops new tokens; live tokens die at
   `exp` (at most the TTL). For an immediate global cut, do an emergency rotation and flush consumer
   JWKS caches.
-- **Compromised staff account:** revoke the admin role or disable the user. This takes effect on
-  the next admin request. Do **not** re-enable or re-grant within TTL + 60 s, because the stolen
-  token would work again. Logout, password reset, staff session revoke and `--clear` do not end an
-  issued admin token. Before re-enabling or re-granting, reset the password (forgot/reset flow, which
-  ends every account session) and confirm the email inbox is not compromised. If the user holds
-  several admin roles, revoke all of them (any remaining `admin:*` permission keeps the stolen token
-  working).
-- **Scope:** use `user_id` and `jti` from the `token_issued` log lines.
+- **Compromised staff account:** (1) disable the user. This is immediate and revokes every account
+  session, so re-enabling no longer revives an old admin token (USR-14). (2) Reset the password
+  (forgot/reset flow) and confirm the email inbox is not compromised before re-enabling. (3) If you
+  only revoke the admin role (sessions left alive), do **not** re-grant it within TTL + 60 s: the
+  stolen token would work again. (4) `--clear` does not end issued admin tokens. (5) If the user
+  holds several admin roles, revoke all of them (any remaining `admin:*` permission keeps the
+  stolen token working).
+- **Scope:** use `user_id` and `jti` from the `token_issued` log lines; `account_session_id` there
+  is the session for a targeted revoke-one.
+
+**After the USR-14 deploy:** admin tokens issued before it have no `sid` and get 401 once. admin-pan
+re-mints silently; curl runbook users log in again.
 
 **TTL change (owner, after the USR-13 merge):** set `ACCESS_TOKEN_TTL_SECONDS=43200` in
 `mmlabs-online/deployment`. It applies to tokens issued after the restart. Before setting it,
@@ -400,8 +406,8 @@ config"). Without it settings refuse to load in production and the CLI exits 1
 **After USR-04 ships:** verify the email via the link in the verification email (resend from a
 signed-in app if it expired). If you don't know the password, use "forgot password" in an app,
 then reset it from the emailed link (USR-04b): this ends every signed-in session of the account
-(its account sessions on every device) and also marks the email verified. Access tokens already
-issued stay valid for at most `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production).
+(its account sessions on every device) and also marks the email verified. Admin tokens end at once;
+other access tokens already issued stay valid for at most `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production).
 
 Locally: `make grant-super-admin email=you@example.com`.
 
@@ -517,13 +523,12 @@ Runbook:
      while it runs): it restores echo if there is a tty, deletes the header and body files, logs
      out (`{"all": true}`, revoking the device session, at most 10 s) if a session cookie
      exists, deletes the jar file, and keeps the exit status.
-   - Logout does not end the access token: one already issued stays valid until
-     `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production).
+   - Logout ends the admin token: its next request is 401 (USR-14).
    - After 3 failed logins for the email, Turnstile is required (`turnstile_token`) and curl
      cannot pass it: get the password right, or wait for the backoff to expire.
 7. Every admin call goes inside the marked section with `-H @"$hdr"`. Tokens last
-   `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production); disabling a user or revoking a role applies on the next
-   request.
+   `ACCESS_TOKEN_TTL_SECONDS` (default 15 min; 12 h in production); disabling a user, revoking a role, logout, password reset and session revoke apply on the
+   next request.
 
 The `Origin` check is CSRF protection, not authentication: the password, the verified email and the
 `admin:*` permission are what protect the admin API. The admin UI (`admin-pan`,

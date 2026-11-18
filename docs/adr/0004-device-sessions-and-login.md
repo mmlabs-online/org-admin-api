@@ -90,7 +90,7 @@ Per-app tokens (USR-03c) and dynamic CORS (USR-03e) build on this.
 10. **Logout.** `{account_id}` revokes that account session on this device only (another device's id
     → 204, no change, no oracle); with the previous cookie value it only reaches account sessions
     created strictly before `rotated_at` (USR-03f, N1; still 204); `{all: true}` revokes the device session and its account sessions
-    and clears the cookie. Tokens already issued (USR-03c) stay valid until they expire.
+    and clears the cookie. Tokens already issued (USR-03c) stay valid until they expire (admin tokens: ended on the next admin request, ADR-0008 USR-14 amendment).
 
 ## Consequences
 - No `refresh_tokens` table; revoking an account session replaces "revoke refresh token".

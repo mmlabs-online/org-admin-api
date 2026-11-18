@@ -19,7 +19,11 @@ from app.core.access_token import InvalidAccessTokenError, verify_access_token
 from app.core.config import Settings
 from app.core.errors import PermissionDeniedError, UnauthorizedError
 from app.core.jwt_keys import KeySet
-from app.modules.admin_auth.service import AdminAuthService, AdminPrincipal
+from app.modules.admin_auth.service import (
+    AdminAuthService,
+    AdminPrincipal,
+    AdminSessionEndedError,
+)
 from app.modules.rbac.authz import permits
 from app.modules.rbac.models import ADMIN_APP_KEY
 
@@ -73,7 +77,15 @@ async def current_admin(
         _deny("sub", jti)
         raise _unauthorized(token_sent=True) from None
     try:
-        return await AdminAuthService(session).principal(user_id, jti)
+        session_id = uuid.UUID(str(claims["sid"]))
+    except (KeyError, ValueError):
+        _deny("sid", jti, user_id)
+        raise _unauthorized(token_sent=True) from None
+    try:
+        return await AdminAuthService(session).principal(user_id, jti, session_id=session_id)
+    except AdminSessionEndedError:
+        _deny("session", jti, user_id)
+        raise _unauthorized(token_sent=True) from None
     except UnauthorizedError:
         _deny("user", jti, user_id)
         raise _unauthorized(token_sent=True) from None
