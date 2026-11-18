@@ -11,7 +11,7 @@
 | Introduced in | unknown (test added in ADM-004c, commit c3da104) |
 | Attempts | 1 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/61 |
 
 ## Report
 Owner/orchestrator, 2026-11-17: `tests/test_cli_audit_purge.py::test_purge_batches_share_cutoff` fails now and then during the full `make check` (seen several times while running USR-05 … USR-10, e.g. the USR-05a / ADM-015 attempts) and passes when re-run. It does not block CI today but makes `make check` untrustworthy and forces manual reruns.
