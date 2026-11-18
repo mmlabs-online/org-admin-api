@@ -11,7 +11,7 @@
 | Introduced in | unknown release; test added in commit 0436f25 (USR-05b) |
 | Attempts | 0 |
 | Created | 2026-11-18 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/62 |
 
 ## Report
 Owner/orchestrator, 2026-11-18: during the BUG-001 implementation one full `make check` run failed in `tests/test_app_manifest_api.py::test_changing_push_writes_one_row` with `assert 'c' not in <audit row text>`; the next five runs were green. Test-only flake, no product impact.
