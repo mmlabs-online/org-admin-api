@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P3 |
 | Areas | architecture, auth, security, api |
 | Attempts | 0 |
@@ -28,3 +28,5 @@ ADM-006.
 ## Notes / answers from owner
 - 2026-11-17: created by the orchestrator from the ADM-006 plan follow-ups. Owner decided ADM-006 v1 ships staff endpoints only; this ticket needs the Q4 answer before it can run (planner should return BLOCKED otherwise).
 - 2026-11-17 (owner) **§8 Q4**: services consume entitlements through an additive `ent` claim (`{plan, limits}`) in the access token, added only when the `org` claim is present; staleness up to the token TTL (12 h) is accepted. No pull endpoint and no app-credential widening for now (R3 class 4 unchanged). Tick spec §8 Q4 with this answer.
+- 2026-11-18 (owner): when the token carries `org` but the org has no active entitlement for the app (none / disabled / app disabled), emit `"ent": null` (the key is always present with `org`; object when entitled). Token issuance is never gated on entitlements.
+- 2026-11-18 (owner): a `limits` key the app needs but the entitlement lacks means the app's own default (recommended 0 / deny), never "unlimited" — document in consumers.md.
