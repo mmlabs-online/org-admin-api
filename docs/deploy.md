@@ -882,13 +882,18 @@ docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file app
   run --rm --no-deps migrate /app/.venv/bin/python -m app.cli audit-purge --older-than-days 365 --dry-run
 ```
 
-## Email retention cleanup (USR-04d)
+## Retention cleanup (USR-04d, USR-15)
 
 `python -m app.cli cleanup [--dry-run]` deletes:
 
 - `email_send_log` rows older than **48 h** (the per-email window only reads the last 24 h);
 - `email_tokens` rows older than **7 d** that are **used or expired** (the global daily cap counts
-  the tokens of the last 24 h).
+  the tokens of the last 24 h);
+- decided `join_requests` (approved, rejected, cancelled) older than **`JOIN_REQUEST_RETENTION_DAYS`**
+  (default 180, must cover `JOIN_REJECT_COOLDOWN_SECONDS`). Rejections inside the cooldown are
+  kept, pending rows are never deleted, and each deleting batch writes one
+  `join_request_retention.purged` audit summary. Raising the cooldown later cannot revive purged
+  rejections.
 
 Both ages have a 24 h floor in code, so a change can never break the limits. Deletes run in
 batches of 1000 (`FOR UPDATE SKIP LOCKED`, `lock_timeout` 2 s, one commit per batch); the job
@@ -906,6 +911,7 @@ Output (counts only; a dry run says `would delete` and adds `dry-run: nothing wa
 ```
 email_send_log: deleted <n> (older than 48 h)
 email_tokens: deleted <n> (used or expired, older than 7 d)
+join_requests: deleted <n> (decided, older than <N> d)
 ```
 
 | Exit | Meaning |

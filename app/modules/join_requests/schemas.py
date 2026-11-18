@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-JoinRequestStatusFilter = Literal["pending", "approved", "rejected"]
+JoinRequestStatusFilter = Literal["pending", "approved", "rejected", "cancelled"]
 
 
 class JoinRequestRead(BaseModel):

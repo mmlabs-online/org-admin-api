@@ -404,3 +404,18 @@ def test_conftest_empty_test_database_url_uses_test_db() -> None:
         timeout=60,
     )
     assert out.stdout.strip().endswith("/org_admin_test")
+
+
+def test_join_max_pending_per_app_floor() -> None:
+    assert Settings().join_max_pending_per_app == 1000
+    with pytest.raises(ValidationError):
+        Settings(join_max_pending_per_app=0)  # type: ignore[call-arg]
+
+
+def test_join_request_retention_must_cover_cooldown() -> None:
+    with pytest.raises(ValidationError):
+        Settings(join_request_retention_days=1, join_reject_cooldown_seconds=604800)  # type: ignore[call-arg]
+    with pytest.raises(ValidationError):
+        Settings(join_request_retention_days=0)  # type: ignore[call-arg]
+    settings = Settings(join_request_retention_days=7, join_reject_cooldown_seconds=604800)  # type: ignore[call-arg]
+    assert settings.join_request_retention_days == 7

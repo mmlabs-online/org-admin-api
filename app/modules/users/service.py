@@ -13,6 +13,7 @@ from app.modules.audit.context import AuditContext
 from app.modules.audit.diff import change
 from app.modules.audit.service import AuditLogger
 from app.modules.auth.repository import EmailTokenRepository
+from app.modules.join_requests.repository import JoinRequestRepository
 from app.modules.rbac.actor import Actor, actor_user_id, require_super
 from app.modules.rbac.models import ADMIN_APP_KEY
 from app.modules.rbac.repository import RbacRepository
@@ -41,8 +42,9 @@ class UserService:
     async def set_status(
         self, user_id: uuid.UUID, status: UserStatus, *, actor: Actor, ctx: AuditContext
     ) -> User:
-        """Lock order `admin` app -> user row (as `bootstrap_super_admin`), so the
-        last-super-admin guard is serialized with revokes and other status changes."""
+        """Lock order `admin` app -> user row (as `bootstrap_super_admin`) -> the user's join
+        requests (disable cancels them), so the last-super-admin guard is serialized with revokes
+        and other status changes. No per-app lock: user before app would deadlock with approve."""
         rbac = RbacRepository(self.repo.session)
         admin = await rbac.lock_app(ADMIN_APP_KEY)
         user = await self.repo.get_for_update(user_id)
@@ -81,6 +83,18 @@ class UserService:
             await SessionRepository(self.repo.session).revoke_all_accounts_of_user(user.id)
             # A reset/verify link must not come back to life on re-enable (ADM-002d).
             await EmailTokenRepository(self.repo.session).invalidate_all(user.id)
+            cancelled = await JoinRequestRepository(self.repo.session).cancel_pending_for_user(
+                user.id, actor_user_id(actor)
+            )
+            for request_id, app_key in cancelled:
+                await self.audit.record(
+                    AuditAction.APP_JOIN_REQUEST_CANCELLED,
+                    actor=actor,
+                    ctx=ctx,
+                    target=(AuditTarget.JOIN_REQUEST, request_id),
+                    app_key=app_key,
+                    changes={"status": change("pending", "cancelled")},
+                )
         await self.audit.record(
             action,
             actor=actor,

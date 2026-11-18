@@ -269,10 +269,13 @@ async def join_app(
     """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`; `{key}` must be the
     calling app. "Continue as <account>" is the consent (D8). 200 for a new or an existing
     membership (idempotent); 202 `pending` + `request_id` on an `approval` app (idempotent);
-    403 `join_rejected` inside the cooldown after a rejection."""
+    403 `join_rejected` inside the cooldown after a rejection; 403 `join_queue_full` when the
+    app's pending queue is at its cap (`join_available` does not reflect this)."""
     settings: Settings = request.app.state.settings
     result = await JoinService(
-        session, reject_cooldown_seconds=settings.join_reject_cooldown_seconds
+        session,
+        reject_cooldown_seconds=settings.join_reject_cooldown_seconds,
+        max_pending_per_app=settings.join_max_pending_per_app,
     ).join(app, device, key, body, ctx=ctx)
     if device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)

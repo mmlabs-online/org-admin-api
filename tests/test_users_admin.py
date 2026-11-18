@@ -5,15 +5,18 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.models import AuditLog
 from app.modules.auth.email_verification import VERIFY, email_token_hash
 from app.modules.auth.models import EmailToken
 from app.modules.auth.password_reset import RESET
 from app.modules.auth.repository import EmailTokenRepository
+from app.modules.join_requests.models import AppJoinRequest
 from app.modules.users.models import User
 from tests.conftest import MakeClient
+from tests.join_request_factories import make_approval_app, make_join_request
 
 BASE = "/api/v1/users"
 USER_READ_KEYS = {
@@ -323,3 +326,135 @@ async def test_user_read_has_exact_keys(
         assert set(body) == USER_READ_KEYS
         assert "password_hash" not in resp.text
         assert "secret-hash-value" not in resp.text
+
+
+# --- join requests cancelled on disable (USR-15) -----------------------------
+
+
+async def _pending_rows(db_session: AsyncSession, user: User) -> list[AppJoinRequest]:
+    rows = await db_session.scalars(
+        select(AppJoinRequest)
+        .where(AppJoinRequest.user_id == user.id)
+        .execution_options(populate_existing=True)
+    )
+    return list(rows)
+
+
+async def _cancel_audit(db_session: AsyncSession, *request_ids: uuid.UUID) -> list[AuditLog]:
+    """Cancel audit rows of these requests (committed rows of other tests may exist)."""
+    rows = await db_session.scalars(
+        select(AuditLog)
+        .where(AuditLog.action == "app.join_request_cancelled", AuditLog.target_id.in_(request_ids))
+        .execution_options(populate_existing=True)
+    )
+    return list(rows)
+
+
+async def test_disable_cancels_pending_join_requests(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    staff = await _user(db_session, "staff@x.io")
+    user = await _user(db_session, "target@x.io")
+    other = await _user(db_session, "other@x.io")
+    app_a, app_b, app_c, app_d = [await make_approval_app(db_session) for _ in range(4)]
+    p1 = await make_join_request(db_session, app_a, user)
+    p2 = await make_join_request(db_session, app_b, user)
+    approved = await make_join_request(db_session, app_c, user, "approved")
+    rejected = await make_join_request(db_session, app_d, user, "rejected")
+    others = await make_join_request(db_session, app_a, other)
+    before = {r.id: (r.status, r.decided_at, r.decided_by) for r in (approved, rejected, others)}
+
+    async with make_client(admin_permissions=["admin:*"], admin_user=staff) as client:
+        resp = await client.patch(f"{BASE}/{user.id}", json={"status": "disabled"})
+    assert resp.status_code == 200, resp.text
+
+    rows = {r.id: r for r in await _pending_rows(db_session, user)}
+    for row in (p1, p2):
+        got = rows[row.id]
+        assert (got.status, got.decided_by) == ("cancelled", staff.id)
+        assert got.decided_at is not None
+    for row in (approved, rejected):
+        got = rows[row.id]
+        assert (got.status, got.decided_at, got.decided_by) == before[row.id]
+    await db_session.refresh(others)
+    assert (others.status, others.decided_at, others.decided_by) == before[others.id]
+
+    cancels = await _cancel_audit(db_session, p1.id, p2.id)
+    assert sorted(c.target_id for c in cancels) == sorted([p1.id, p2.id])
+    assert {c.app_key for c in cancels} == {app_a.key, app_b.key}
+    for c in cancels:
+        assert (c.target_type, c.actor_user_id, c.outcome) == ("join_request", staff.id, "success")
+        assert c.changes == {"status": {"from": "pending", "to": "cancelled"}}
+        assert "@" not in str(c.changes)
+    disabled = await db_session.scalar(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(AuditLog.action == "user.disabled", AuditLog.target_id == user.id)
+    )
+    assert disabled == 1
+
+
+async def test_disable_cancel_rolls_back_with_disable(
+    make_strict_client: MakeClient, db_session: AsyncSession
+) -> None:
+    user = await _user(db_session, "self@x.io")
+    row = await make_join_request(db_session, await make_approval_app(db_session), user)
+    user_id, row_id = user.id, row.id
+    await db_session.commit()
+    async with make_strict_client(admin_permissions=["admin:*"], admin_user=user) as client:
+        resp = await client.patch(f"{BASE}/{user_id}", json={"status": "disabled"})
+    assert resp.status_code == 403
+    status = await db_session.scalar(
+        select(AppJoinRequest.status).where(AppJoinRequest.id == row_id)
+    )
+    assert status == "pending"
+    assert await _cancel_audit(db_session, row_id) == []
+
+
+async def test_disable_cancel_lock_order(make_client: MakeClient, db_session: AsyncSession) -> None:
+    staff = await _user(db_session, "staff@x.io")
+    user = await _user(db_session, "target@x.io")
+    await make_join_request(db_session, await make_approval_app(db_session), user)
+    statements: list[str] = []
+    conn = db_session.bind.sync_connection  # type: ignore[union-attr]
+    assert conn is not None
+
+    def _record(*args: Any) -> None:
+        statements.append(args[2])
+
+    event.listen(conn, "before_cursor_execute", _record)
+    try:
+        async with make_client(admin_permissions=["admin:*"], admin_user=staff) as client:
+            resp = await client.patch(f"{BASE}/{user.id}", json={"status": "disabled"})
+    finally:
+        event.remove(conn, "before_cursor_execute", _record)
+    assert resp.status_code == 200, resp.text
+    app_locks = [
+        i for i, s in enumerate(statements) if "FROM apps" in s and "FOR NO KEY UPDATE" in s
+    ]
+    user_lock = next(
+        i for i, s in enumerate(statements) if "FROM users" in s and "FOR NO KEY UPDATE" in s
+    )
+    cancel = next(i for i, s in enumerate(statements) if s.startswith("UPDATE join_requests"))
+    assert len(app_locks) == 1
+    assert app_locks[0] < user_lock < cancel
+
+
+async def test_disable_noop_cancels_nothing(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    staff = await _user(db_session, "staff@x.io")
+    disabled = await _user(db_session, "off@x.io", status="disabled")
+    active = await _user(db_session, "on@x.io")
+    app = await make_approval_app(db_session)
+    seeded = await make_join_request(db_session, app, disabled)
+    live = await make_join_request(db_session, await make_approval_app(db_session), active)
+    async with make_client(admin_permissions=["admin:*"], admin_user=staff) as client:
+        resp = await client.patch(f"{BASE}/{disabled.id}", json={"status": "disabled"})
+        assert resp.status_code == 200, resp.text
+        resp = await client.patch(f"{BASE}/{active.id}", json={"status": "active"})
+        assert resp.status_code == 200, resp.text
+    for row in (seeded, live):
+        await db_session.refresh(row)
+        assert row.status == "pending"
+    assert await _cancel_audit(db_session, seeded.id, live.id) == []

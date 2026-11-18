@@ -70,7 +70,9 @@ app scope (`org_id NULL`, an expired row is revived) and writes an audit entry �
 403 `join_unavailable` (USR-03b). `approval` (USR-03g) queues one `join_requests` row (idempotent) and
 writes `app.join_requested` → 202 `{"status":"pending","request_id"}`; inside the rejection cooldown
 (`JOIN_REJECT_COOLDOWN_SECONDS`, default 7 days) → 403 `join_rejected`. Staff then approve (grants the
-default role at app scope, `granted_by` = staff) or reject; the app polls `/token`.
+default role at app scope, `granted_by` = staff) or reject; the app polls `/token`. A new request is
+refused with 403 `join_queue_full` when the app has `JOIN_MAX_PENDING_PER_APP` pending requests
+(USR-15). Disabling a user cancels their pending requests (`cancelled`, no cooldown).
 
 **Switch / list accounts** — `GET /api/v1/auth/accounts` lists the device's non-revoked account sessions
 of active users, oldest first: `{"items": [{account_id, email, email_verified, display_name}]}` (a single
@@ -113,7 +115,7 @@ role_assignments   (id, user_id, role_id, org_id → organizations NULL, granted
                     expires_at NULL, created_at)   org_id NULL = app scope; never 0
 organizations      (id uuid, name, slug unique, description NULL, status active|suspended,
                     created_by → users NULL, created_at, updated_at)   [Identity module; existing table moved, D15]
-join_requests      (id, app_id, user_id, status pending|approved|rejected, created_at, decided_at NULL,
+join_requests      (id, app_id, user_id, status pending|approved|rejected|cancelled, created_at, decided_at NULL,
                     decided_by NULL) — join_policy = approval (USR-03g). CHECK pending iff decided_at
                     NULL; partial unique (app_id, user_id) WHERE pending; FKs cascade app/user,
                     decided_by SET NULL
@@ -152,7 +154,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | `GET /api/v1/auth/accounts` | cookie + Origin + `X-MM-App` | accounts signed in on this device | USR-03b |
 | `POST /api/v1/auth/token` `{audience, account_id, org_id?}` | cookie + `X-MM-App` | per-app JWT (also `aud=admin` since ADM-002), or `403 {error:"not_member", join_available}` / `403 email_unverified` | USR-03c, ADM-002 |
 | `POST /api/v1/auth/apps/{key}/join` `{account_id}` | cookie + Origin + `X-MM-App` (= `{key}`) | apply join policy, assign default role, audit; `approval`: 202 pending (USR-03g) | USR-03b |
-| `GET /api/v1/apps/{key}/join-requests?status=` | Bearer `admin:users:read` | staff list (default `pending`) | USR-03g |
+| `GET /api/v1/apps/{key}/join-requests?status=` | Bearer `admin:users:read` | staff list (default `pending`; also `approved`, `rejected`, `cancelled`) | USR-03g |
 | `POST /api/v1/apps/{key}/join-requests/{request_id}/approve` \| `/reject` | Bearer `admin:roles:assign` | decide a request (200; 409 reasons in the response) | USR-03g |
 | Admin: `/api/v1/organizations/{org_id}/entitlements` (GET `?active=`, POST, PATCH/DELETE `/{entitlement_id}`) | Bearer `admin:entitlements:read` (GET) / `admin:entitlements:write` | grant, update, revoke and list an org's product entitlements (409 reasons in `details[0].reason`) | ADM-006 |
 | Admin: `GET /api/v1/stats/dashboard` | Bearer `aud=admin` + `require_permission` (`admin:stats:read`, `is_admin`, granted to no role; `admin:*` covers it) | dashboard counters, plus every app's key and name incl. disabled and `admin` apps via `members_per_app` (single document, `Cache-Control: no-store`, no audit row) | ADM-015 |
@@ -221,7 +223,7 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
   role assignments), every CLI write (`system:cli`: register-app, set-admin-origins,
   grant-super-admin, cleanup summary, create-account: `user.created` + `app.joined`) and `app.joined`
   (ADM-004); join requests (USR-03g): `app.join_requested`, `app.join_request_approved`,
-  `app.join_request_rejected`; staff session revoke (USR-10): `user.session_revoked`, `user.sessions_revoked` (session ids and counts only; no-ops write nothing). Already-issued access tokens stay valid until `exp`, at most `ACCESS_TOKEN_TTL_SECONDS` (12 h in production) plus 30 s leeway for app tokens; admin tokens end on the next admin request (USR-14). Identity events (ADM-004b):
+  `app.join_request_rejected`, `app.join_request_cancelled` (user disabled, USR-15), `join_request_retention.purged` (cleanup summary); staff session revoke (USR-10): `user.session_revoked`, `user.sessions_revoked` (session ids and counts only; no-ops write nothing). Already-issued access tokens stay valid until `exp`, at most `ACCESS_TOKEN_TTL_SECONDS` (12 h in production) plus 30 s leeway for app tokens; admin tokens end on the next admin request (USR-14). Identity events (ADM-004b):
   `auth.login_succeeded`, `auth.login_failed` (after the password check only; anonymous actor, no
   email), `auth.logged_out`, `auth.logged_out_all`, `device_session.reuse_revoked`,
   `auth.password_reset_completed`, `auth.email_verified`. Manifest pushes (USR-05b): one

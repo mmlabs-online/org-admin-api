@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     orgs_list_rate_window_seconds: int = Field(default=60, ge=1)
     org_create_max_per_user: int = Field(default=20, ge=1)
     join_reject_cooldown_seconds: int = Field(default=604800, ge=0)  # 0 = no cooldown
+    # Join-request queue (USR-15): pending cap per approval app; retention of decided rows.
+    join_max_pending_per_app: int = Field(default=1000, ge=1)
+    join_request_retention_days: int = Field(default=180, ge=1)
     # Org invitations (USR-06b, ADR-0014): per-IP windows, TTL, per-inviter and per-org caps.
     invitation_create_rate_limit: int = Field(default=20, ge=1)
     invitation_create_rate_window_seconds: int = Field(default=3600, ge=1)
@@ -194,6 +197,14 @@ class Settings(BaseSettings):
             or self.argon2_time_cost < _ARGON2_MIN_TIME_COST
         ):
             raise ValueError("Argon2 parameters are below the minimum for staging/production")
+        return self
+
+    @model_validator(mode="after")
+    def _join_retention_covers_cooldown(self) -> Self:
+        if self.join_request_retention_days * 86400 < self.join_reject_cooldown_seconds:
+            raise ValueError(
+                "JOIN_REQUEST_RETENTION_DAYS must be at least JOIN_REJECT_COOLDOWN_SECONDS"
+            )
         return self
 
     @model_validator(mode="after")

@@ -82,7 +82,9 @@ async def test_constraints(db_session: AsyncSession) -> None:
     user, staff = await make_user(db_session), await make_user(db_session)
     await _insert(db_session, app.id, user.id, "pending")
 
+    await _insert(db_session, app.id, user.id, "cancelled", True)
     for status, decided in [
+        ("cancelled", False),  # cancelled without decided_at
         ("approved", False),  # decided without decided_at
         ("pending", True),  # pending with decided_at
         ("bogus", True),
