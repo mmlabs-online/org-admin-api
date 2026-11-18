@@ -111,3 +111,11 @@ libraries and apps (`mmlabs-auth`, admin-pan, ricotdin, TuDoCuaTui) before produ
 - **Rejected alternative: `tokens_valid_after`.** A per-user cutoff compared with `iat` needs a
   migration, over-kills the user's other sessions, depends on second-granularity `iat` and on the
   app and DB clocks agreeing, and adds nothing for the listed triggers.
+
+## Amendment: `ent` claim (ADM-018, 2026-11-18)
+- **§5 claims:** `ent` is an optional claim. The key is always present when `org` is present: an
+  object `{"plan": str, "limits": {str: int}}` for an active entitlement, else `null`. It is never
+  present without `org` and never on `aud=admin`. Adding a claim is not breaking; verifiers must
+  not require it (`REQUIRED_CLAIMS` is unchanged). See ADR-0017.
+- **Risk 2 (consumer apps):** `ent` joins the claims frozen until `exp`; a change of an
+  entitlement reaches a token only at its `exp`.

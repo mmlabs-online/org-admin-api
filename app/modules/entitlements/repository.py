@@ -90,6 +90,15 @@ class EntitlementRepository:
         row = result.one_or_none()
         return None if row is None else _view(row)
 
+    async def get_active_for(self, org_id: uuid.UUID, app_id: uuid.UUID) -> EntitlementView | None:
+        result = await self.session.execute(
+            _select()
+            .where(OrgEntitlement.org_id == org_id, OrgEntitlement.app_id == app_id, ACTIVE)
+            .execution_options(populate_existing=True)
+        )
+        row = result.one_or_none()
+        return None if row is None else _view(row)
+
     async def get_for_org(self, org_id: uuid.UUID, ent_id: uuid.UUID) -> OrgEntitlement | None:
         return await self.session.scalar(
             select(OrgEntitlement)

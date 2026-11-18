@@ -168,7 +168,7 @@ All identity endpoints live under **`/api/v1/auth`** (D13). The cookie is `__Hos
 | Admin: `POST\|GET /api/v1/apps/{key}/credentials`, `DELETE /api/v1/apps/{key}/credentials/{id}` | Bearer `aud=admin` + `require_permission` (`admin:apps:write` and `admin:*` to issue; `admin:apps:read`; `admin:apps:write` to revoke) | staff issue (shown once), list and revoke app credentials | USR-05a |
 | `POST /api/v1/auth/orgs` `{account_id, name, slug, description?}` | cookie; needs the app-scope permission `<app>:org:create` (ADR-0013) | create org, creator gets `apps.org_owner_role_id` in it; 201 | USR-06a |
 | `GET /api/v1/auth/orgs?account_id=` | cookie | the account's orgs where it holds an org-exact role of the calling app (`X-MM-App`; no `app=` parameter), `Page[…]` with the caller's roles | USR-06a |
-| `POST /api/v1/auth/token` with `org_id` | cookie | adds `org` claim; 403 `org_access_denied` (unknown, suspended or not-a-member org, one answer); 422 `org_not_supported` for `org_mode = none` apps | USR-06a |
+| `POST /api/v1/auth/token` with `org_id` | cookie | adds `org`, `org_roles`, `ent` claims; 403 `org_access_denied` (unknown, suspended or not-a-member org, one answer); 422 `org_not_supported` for `org_mode = none` apps | USR-06a |
 | `POST /api/v1/auth/orgs/{id}/invitations` `{account_id, email, role}` · `POST /api/v1/auth/invitations/accept` `{account_id, token}` | cookie; invite needs `<app>:org:invite` in that org (org-exact); accept is bound to the invited verified email (token in the body, ADR-0014) | invite / accept into an org | USR-06b |
 | Admin: `/api/v1/organizations` (CRUD) | Bearer `aud=admin` + `require_permission` (`admin:organizations:read\|write`) | organizations | ADM-001, ADM-002 |
 | Admin: `/api/v1/users` (list, get, status) | Bearer `aud=admin` + `require_permission` (`admin:users:read\|write`; `admin:*` for privileged users) | staff user management | USR-01, ADM-002 |
@@ -199,7 +199,7 @@ or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_su
 Token (D7): JWT, ES256 (P-256, ADR-0005), lifetime `ACCESS_TOKEN_TTL_SECONDS` (default 15 min, 12 h in production; ADR-0005 §6 as amended by USR-13), header `kid` + `typ: at+jwt`.
 Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<app key>`, `sub`,
 `email`, `email_verified`, `roles` (app-scope roles + roles in the selected org), `org` (only when
-`org_id` given, USR-06), `org_roles` (only with `org`: roles held in that org only, ADR-0015), `iat`, `exp`, `jti`, `sid` (only for `aud=admin`: the account-session id, USR-14).
+`org_id` given, USR-06), `org_roles` (only with `org`: roles held in that org only, ADR-0015), `ent` (only with `org`, never `aud=admin`: `{plan, limits}` of the active entitlement or `null`, ADR-0017), `iat`, `exp`, `jti`, `sid` (only for `aud=admin`: the account-session id, USR-14).
 
 ## 5. Security rules (complements R11 in CLAUDE.md)
 
@@ -280,7 +280,7 @@ Claims `iss` (from `JWT_ISSUER`; production `https://api.mmlabs.online`), `aud=<
 | D4 | Each app keeps its own login page (no central SSO page); accounts are shared. Apps use `@mmlabs/auth-client` (TS, framework-agnostic, Angular/React wrappers) posting credentials straight to the API. Backends use `mmlabs-auth` (Python): JWKS verification, role-catalog cache with ETag, `require_permission()`. |
 | D5 | Multi-account browser sessions: cookie `mm_device` (opaque, HttpOnly, Secure, SameSite=Lax, Path=/auth, host-only, stored hashed); tables `device_sessions`, `account_sessions`; each app keeps `mm_account_id` in localStorage; logging into another account in app B does not affect app A. |
 | D6 | Rotate `mm_device` on login and at most every ~24 h, with a 60 s grace for the previous value; reuse after the grace revokes the device session. |
-| D7 | `POST /auth/token {audience, account_id, org_id?}` → JWT (TTL default 15 min, 12 h in production; owner, 2026-11-17, USR-13): iss, aud, sub, email, email_verified, roles, org?, org_roles?, iat, exp; asymmetric signing, keys from env, `kid`. |
+| D7 | `POST /auth/token {audience, account_id, org_id?}` → JWT (TTL default 15 min, 12 h in production; owner, 2026-11-17, USR-13): iss, aud, sub, email, email_verified, roles, org?, org_roles?, ent?, iat, exp; asymmetric signing, keys from env, `kid`. |
 | D8 | Non-member → `403 {error:"not_member", join_available}`; `POST /auth/apps/{key}/join {account_id}` applies `join_policy` (open/approval/closed), assigns the default role at app scope, writes audit. "Continue as <account>" = consent. |
 | D9 | Default join_policy `open`, except `admin` = `closed`. Default role `<app>:member` = all app permissions except `is_admin` ones (e.g. `<app>:roles:manage`); on `org_mode = required` apps also except `scope = org` ones (ADR-0015). Policy and role content are data. |
 | D10 | Org usage per app: `apps.org_mode` (`none` default, `required` for calechip). No org = `org_id NULL`. `organizations` lives in the Identity module. Org-scoped apps: join gives an app-scope role (e.g. with `calechip:org:create`); org roles from creating an org (owner) or invitation (ADR-0014); token `roles` = app-scope + selected-org roles; `org_roles` = selected-org roles only (ADR-0015). |
@@ -310,6 +310,7 @@ Decisions from the USR-03b plan (2026-11-13):
 | D24 | **Decided (USR-12, 2026-11-16):** verification resend accepts `X-MM-App: admin` for users with an effective admin role only (403 `origin_not_allowed` otherwise); signup and forgot keep refusing admin. See ADR-0008 amendment. |
 | D25 | **Accepted (owner merged USR-05a, PR #47, 2026-11-17):** new R3 auth class 4 "app credential" (opaque per-app API key `mmak_<key_id>_<secret>`, SHA-256 hash only, accepted only on `PUT /api/v1/apps/{key}/manifest` and only for its own app) and R9 exception (singular `manifest`, a single document). See ADR-0016. |
 | D26 | **Proposed in ADM-015, accepted when the owner merges it (answers OQ4–OQ6, 2026-11-17):** R9 exception — `GET /api/v1/stats/dashboard` is a single, bounded document (fixed counters, 12 months, one entry per app), not `Page[T]`. Permission `admin:stats:read` (`is_admin`): counts, no audit rows exposed; it also reveals every app's key and name, including disabled apps and the `admin` app, through `members_per_app` (accepted by the owner, appsec finding 1, so no `admin:apps:read` is needed for that list). Members = OQ5 definition, one shared repository function (`RbacRepository.member_counts`) also used by ADM-016. |
+| D27 | **Entitlement consumption (owner, 2026-11-17/18, ADM-018):** products read an org's entitlement through the additive `ent` token claim (`{plan, limits}`, or `null` when not entitled; present iff `org` is present, never on `aud=admin`). No pull endpoint; R3 class 4 and ADR-0016 unchanged. See ADR-0017. |
 
 ## 9. Open questions
 
