@@ -3,13 +3,13 @@
 | Field | Value |
 |---|---|
 | Type | bug |
-| State | REVIEW |
+| State | REWORK |
 | Severity | S3 |
 | Priority | P3 |
 | Areas | db |
 | Found in | local `make check` in cloud sessions (main after v0.1.5) |
 | Introduced in | unknown (test added in ADM-004c, commit c3da104) |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-17 |
 | PR | — |
 
