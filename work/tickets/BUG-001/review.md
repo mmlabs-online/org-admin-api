@@ -32,3 +32,28 @@ No violations found. The change stays in the repository layer (R1). There is no 
 - **CI runs `postgres:17-alpine`; local is PG 16.** The forcing recipe was only checked on PG 16. If PG 17 plans differently, the regression tests could pass vacuously on CI. The fix still holds, because a materialized CTE locks once whatever the plan. It would still be worth one CI-side EXPLAIN check, or an `explain()`-based plan-shape assertion that skips when the shape is not reached.
 - Open a separate bug for the `tests/test_app_manifest_api.py::test_changing_push_writes_one_row` flake: the `'c' not in` assertion fails when random hex contains `c`.
 - Severity S3 → S2 needs the owner's decision (plan recommendation).
+
+## Attempt 2 — 2026-11-18
+Verdict: PASS
+
+### Checks (run by reviewer)
+- Scope: I reviewed only `git diff HEAD~1 -- tests`, as instructed. It changes two files: `tests/purge_plan.py` and `tests/test_cli_cleanup.py`.
+- `service postgresql start` (PG 16), then `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`. Results: ruff "All checks passed!", format "322 files already formatted", mypy (`uv run mypy app`) "Success: no issues found in 147 source files", pytest **2424 passed** in 220.88s with 1 warning (a pty DeprecationWarning that was already there). The manifest flake did not show up, so no rerun was needed.
+- alembic check: not applicable, because this attempt has no migration or app change.
+
+### Acceptance criteria
+- [x] **The 🟡 from security-review.md Attempt 1 is fixed.** `explain()` is gone from `tests/purge_plan.py`. Its now-unused imports (`Executable`, `sqlalchemy.dialects.postgresql`) were removed with it. `grep` shows that no test references `explain`. The only import from `tests.purge_plan` is still `force_rescanned_semijoin`, in `tests/test_cli_audit_purge.py:20`, `tests/test_cli_cleanup.py:22` and `tests/test_join_requests_retention.py:17`.
+- [x] **The missing docstring has been added** to `test_purge_tokens_respects_limit_when_subquery_rescanned` (`tests/test_cli_cleanup.py:293`).
+- [x] The attempt-1 acceptance criteria still hold: the full suite is green, including all four `*_respects_limit_when_subquery_rescanned` regression tests.
+
+### Issues
+None.
+
+### Rules R1–R11
+No violations found. This is a tests-only diff, inside the rework scope (R7).
+
+### Nits (do not block)
+- None.
+
+### Follow-ups (out of scope)
+- These are unchanged from Attempt 1: the PG 17 CI plan-shape check, the separate bug for the `test_changing_push_writes_one_row` flake, and the S3 → S2 severity decision for the owner.
