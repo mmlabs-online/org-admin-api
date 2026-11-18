@@ -19,6 +19,7 @@ from app.modules.auth.models import EmailSendLog, EmailToken
 from app.modules.auth.repository import EmailRetentionRepository
 from app.modules.auth.retention import EmailRetentionService, PurgeCount
 from tests.auth_factories import sha256
+from tests.purge_plan import force_rescanned_semijoin
 from tests.rbac_factories import make_user
 
 Scope = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -272,3 +273,27 @@ async def test_cleanup_dry_run_no_audit_row(db_session: AsyncSession) -> None:
     await _seed(db_session)
     assert await _run(db_session, "--dry-run") == 0
     assert await _audit_rows(db_session) == []
+
+
+async def test_purge_send_log_respects_limit_when_subquery_rescanned(
+    db_session: AsyncSession,
+) -> None:
+    """BUG-001: a rescanned `LIMIT ... FOR UPDATE` subquery deleted more than one batch."""
+    for age in ("10 days", "9 days", "8 days", "7 days", "6 days"):  # oldest first
+        await _send_log(db_session, age)
+    await force_rescanned_semijoin(db_session)
+    repo = EmailRetentionRepository(db_session)
+    assert await repo.purge_send_log(timedelta(hours=48), 2) == 2
+    assert (await _counts(db_session))[0] == 3
+
+
+async def test_purge_tokens_respects_limit_when_subquery_rescanned(
+    db_session: AsyncSession,
+) -> None:
+    user = await make_user(db_session)
+    for age in ("12 days", "11 days", "10 days", "9 days", "8 days"):  # oldest first
+        await _token(db_session, user.id, age, used=True, ttl="24 hours")
+    await force_rescanned_semijoin(db_session)
+    repo = EmailRetentionRepository(db_session)
+    assert await repo.purge_tokens(timedelta(days=7), 2) == 2
+    assert (await _counts(db_session))[1] == 3

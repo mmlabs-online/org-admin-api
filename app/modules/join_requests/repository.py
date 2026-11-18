@@ -169,15 +169,17 @@ class JoinRequestRetentionRepository:
 
     async def purge(self, retention: timedelta, cooldown_seconds: int, batch: int) -> int:
         """Delete up to `batch` old decided rows, skipping rows another transaction holds."""
-        ids = (
+        # MATERIALIZED: select and lock the ids once (BUG-001).
+        batch_ids = (
             select(AppJoinRequest.id)
             .where(self._where(retention, cooldown_seconds))
             .order_by(AppJoinRequest.decided_at, AppJoinRequest.id)
             .limit(batch)
             .with_for_update(skip_locked=True)
-            .scalar_subquery()
+            .cte("batch")
+            .prefix_with("MATERIALIZED")
         )
-        stmt: Delete = delete(AppJoinRequest).where(AppJoinRequest.id.in_(ids))
+        stmt: Delete = delete(AppJoinRequest).where(AppJoinRequest.id.in_(select(batch_ids.c.id)))
         result = await self.session.execute(stmt.execution_options(synchronize_session=False))
         return int(cast(CursorResult[Any], result).rowcount)
 
