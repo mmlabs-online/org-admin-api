@@ -7,7 +7,7 @@
 | Areas | architecture, auth, security, api |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/58 |
 
 ## Goal
 mmlabs services can read an org's active entitlements for their own app (spec §5.6), once the owner answers spec §8 Q4.
