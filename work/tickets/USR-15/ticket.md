@@ -27,3 +27,4 @@ USR-03g.
 
 ## Notes / answers from owner
 - 2026-11-17 (owner): create from the USR-03g follow-ups.
+- 2026-11-18 (orchestrator): appsec 🟡 (cleanup must use the API's JOIN_* env) checked read-only in `mmlabs-online/deployment` `apps/org-admin-api/compose.yml`: `org-admin-api` and `migrate` (used for `cleanup`) share the same `x-app` anchor (same `env_file` + `environment`), so the cooldown/retention values match. No change made in the deployment repo.
