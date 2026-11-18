@@ -1,5 +1,5 @@
-"""Append-only by shape (AC2): `add` and `list` are the only row operations (plus the read-only
-`count_actions_since`); `rollback`,
+"""Append-only by shape (AC2): `add` is the only write; `list`, `get` and `count_actions_since`
+are reads; `rollback`,
 `commit` and `begin_nested` touch session state only (ADM-004b failure paths). The DB trigger
 backs this up."""
 
@@ -8,9 +8,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 
+from app.modules.audit.actions import AuditTarget
 from app.modules.audit.models import AuditLog
 
 
@@ -24,6 +25,7 @@ class AuditLogFilter:
     target_type: str | None = None
     target_id: uuid.UUID | None = None
     app_key: str | None = None
+    org_id: uuid.UUID | None = None
     outcome: str | None = None
     occurred_from: datetime | None = None
     occurred_to: datetime | None = None
@@ -46,6 +48,9 @@ class AuditRepository:
     def begin_nested(self) -> AsyncSessionTransaction:
         return self.session.begin_nested()
 
+    async def get(self, audit_log_id: uuid.UUID) -> AuditLog | None:
+        return await self.session.get(AuditLog, audit_log_id)
+
     async def list(
         self, filters: AuditLogFilter, *, limit: int, offset: int
     ) -> tuple[list[AuditLog], int]:
@@ -62,6 +67,16 @@ class AuditRepository:
             where.append(AuditLog.target_id == filters.target_id)
         if filters.app_key is not None:
             where.append(AuditLog.app_key == filters.app_key)
+        if filters.org_id is not None:
+            where.append(
+                or_(
+                    and_(
+                        AuditLog.target_type == AuditTarget.ORGANIZATION.value,
+                        AuditLog.target_id == filters.org_id,
+                    ),
+                    AuditLog.org_id == filters.org_id,
+                )
+            )
         if filters.outcome is not None:
             where.append(AuditLog.outcome == filters.outcome)
         if filters.occurred_from is not None:
