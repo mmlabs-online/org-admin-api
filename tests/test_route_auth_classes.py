@@ -107,6 +107,7 @@ BEARER = {
     ("POST", f"{V1}/apps/{{key}}/join-requests/{{request_id}}/approve"): "admin:roles:assign",
     ("POST", f"{V1}/apps/{{key}}/join-requests/{{request_id}}/reject"): "admin:roles:assign",
     ("GET", f"{V1}/audit-logs"): "admin:audit:read",
+    ("GET", f"{V1}/audit-logs/export"): "admin:audit:read",
     ("GET", f"{V1}/audit-logs/{{audit_log_id}}"): "admin:audit:read",
 }
 # Bearer, self-scoped, no permission (ADR-0008 USR-11 amendment). GET only, no path/query/body

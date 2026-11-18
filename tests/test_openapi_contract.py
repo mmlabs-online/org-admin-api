@@ -73,6 +73,18 @@ def test_me_permissions_operation() -> None:
     assert set(component["required"]) == {"user_id", "roles", "permissions"}
 
 
+def test_audit_export_operation() -> None:
+    op = _schema()["paths"]["/api/v1/audit-logs/export"]["get"]
+    ok = op["responses"]["200"]
+    assert ok["content"] == {"text/csv": {"schema": {"type": "string"}}}
+    assert {"Content-Disposition", "X-Export-Truncated", "X-Export-Row-Count"} <= set(ok["headers"])
+    assert "X-Request-ID" in ok["headers"]
+    assert op["x-permission"] == "admin:audit:read"
+    for code in ("401", "403", "422"):
+        assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
+    assert not {"limit", "offset"} & {p["name"] for p in op["parameters"]}
+
+
 def test_role_definitions_operations() -> None:
     schema = _schema()
     base = "/api/v1/apps/{key}/role-definitions"

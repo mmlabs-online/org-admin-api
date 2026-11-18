@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P3 |
 | Areas | api, security |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/68 |
 
 ## Goal
 Staff can download a filtered audit log as CSV from the API (admin-pan removed its client-side export, PAN-016).
@@ -27,3 +27,7 @@ ADM-021 (shared filters), ADM-004b. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
 - Needs owner answer before PLAN: is this in scope separately from §5.11 reports (blocked, ADM-017)?
+- **Answered (owner, 2026-11-18):**
+  - In scope separately from §5.11. This is a synchronous CSV export on the same filters as the list: no saved definitions, no schedules, no xlsx. §5.11 stays blocked, and the export is recorded under spec §5.4 as part of the audit log.
+  - Permission: the existing `admin:audit:read`, so no migration.
+  - Row cap: 10,000 rows. The response says when the export was truncated.

@@ -343,7 +343,10 @@ async def test_admin_policy_actual_request(registry: FakeRegistry) -> None:
         resp = await c.get(ADMIN_PATH, headers={"Origin": ORIGIN, "Authorization": "Bearer x"})
     h = resp.headers
     assert h["access-control-allow-origin"] == ORIGIN
-    assert h["access-control-expose-headers"] == "Retry-After, ETag, X-Request-ID"
+    assert h["access-control-expose-headers"] == (
+        "Retry-After, ETag, X-Request-ID, Content-Disposition, "
+        "X-Export-Truncated, X-Export-Row-Count"
+    )
     assert "access-control-allow-credentials" not in h
     assert h["cache-control"] == "no-store"
     assert h["vary"] == "Accept-Encoding, Origin"

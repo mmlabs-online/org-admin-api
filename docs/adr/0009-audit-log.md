@@ -141,3 +141,4 @@ Supersedes §5's "keeps a valid inbound `X-Request-ID`" and the ADM-004b `X-Requ
   trusted network could forge it.
 - **Older rows.** Rows written before this release may hold client-supplied ids (correlation only,
   not evidence).
+- **2026-11-18 (ADM-022):** the CSV export (GET /api/v1/audit-logs/export) is the one audited read: one audit_log.exported row (filters, row_count, truncated, max_rows; no row data) in the request transaction. List and get stay unaudited.
