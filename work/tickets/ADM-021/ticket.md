@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | REWORK |
 | Priority | P2 |
 | Areas | api, db |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-17 |
 | PR | — |
 
