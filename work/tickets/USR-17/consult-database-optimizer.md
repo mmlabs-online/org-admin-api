@@ -1,38 +1,51 @@
 **Findings**
-- Current indexes on `role_assignments` (models.py:195-229, migration b638a7c84c31 lines 136-176): PK(id); unique `uq_role_assignments_user_role_org(user_id, role_id, org_id)` (NULLS NOT DISTINCT); `ix_role_assignments_role_id(role_id)`; `ix_role_assignments_org_id(org_id)`. The org_id FK was added later by b4d82f6a1c93. There is no index on `created_at`, and none on `user_id` alone (the unique index covers it as its leading column).
-- The existing per-user query is `RepoBase._assignment_rows()` / `page_assignments` in app/modules/rbac/repository.py:487-516. It selects `(RoleAssignment, App.key, Role.key, active_label)`, joins Role and App, orders by `created_at.desc(), id`, and runs a separate `count()` query. `active` is computed as `expires_at IS NULL OR expires_at > func.now()`. That per-user list has no `active` filter, only the computed field. `AssignmentRead` (schemas.py:282) has id, app, role_id, role_key, org_id, granted_by, expires_at, active, created_at.
-- `users` has `email` (CITEXT, unique), `display_name` (String(100), nullable) and `id` as the PK. The join is on the PK, so a single join returns email and display_name with no N+1.
-- There is already a helper that fetches Role and App by role_id (repository.py ~465-473). It is usable for the 404 checks: unknown role, or `app.key != path key` → the same 404.
+
+- **Existing indexes on `role_assignments`:**
+  - `ix_role_assignments_role_id (role_id)`, `ix_role_assignments_org_id (org_id)`, and the unique `uq_role_assignments_user_role_org (user_id, role_id, org_id)` with NULLS NOT DISTINCT. All three are in migration `/home/user/org-admin-api/migrations/versions/20261111_b638a7c84c31_create_rbac.py`.
+  - The unique index leads with `user_id`, so it does not serve a role-first lookup. `ix_role_assignments_role_id` does.
+  - There is no `created_at` index.
+- **`users`:**
+  - `id` is the PK and `email` is a unique `CITEXT`. `display_name` is `String(100)` and nullable.
+  - `role_assignments.user_id` is `NOT NULL` with `ON DELETE CASCADE`, so an inner join to `users` never drops rows. `roles.id` has the same guarantee through its FK.
+- **Existing per-user list:**
+  - `RbacRepository.page_assignments` (`/home/user/org-admin-api/app/modules/rbac/repository.py`, around lines 496-525) builds on `_assignment_rows()`.
+  - It selects `(RoleAssignment, App.key, Role.key, active)`, joins Role and App, and orders by `created_at.desc(), id` with limit and offset.
+  - It runs a separate `count(*)` over the same joins and filters.
+  - The active flag is `or_(expires_at IS NULL, expires_at > func.now())`. It is a label on the row, not a filter, which matches the ticket's "default includes expired rows marked `active=false`".
+  - The same predicate is repeated inline in several other methods and in `_active_assignments`.
+- **Role lookup:** `get_role(app_id, role_id)` (repository line 159) is already used by `get_role_definition` in `router.py`. It is the right basis for the app-and-role 404 check.
 
 **Recommendations**
-1. Query shape (AC2/AC3). Extend `_assignment_rows()` with `.join(User, User.id == RoleAssignment.user_id)` and add `User.email, User.display_name` to the select. Do this in a new repo method, e.g. `page_role_holders(role_id, *, active: bool | None, org_id: UUID | None, limit, offset)`, rather than changing the per-user one. The WHERE clause is `role_id = :rid`, plus:
-   - `active=true`: `expires_at IS NULL OR expires_at > now()`.
-   - `active=false`: `NOT (...)`, which is `expires_at IS NOT NULL AND expires_at <= now()`. The column is nullable, so write it this way to avoid NULL semantics.
-   - `org_id`: `org_id = :org`. Decide whether an app-scope-only filter is needed; it is not in the ACs, so leave it out and list it in open questions.
-   Order by `created_at DESC, id`, then LIMIT/OFFSET.
-2. Total. Build the count query from the same filters, but without the Role, App and User joins. The role_id is already resolved to a single role, and the FK guarantees the user exists, so the count only needs `role_assignments`. Use two statements (count, then page) as the per-user list does. Do not use `count() OVER()`, because it breaks when the offset is past the end of the results. Both statements must share the same `now()`: inside one transaction `func.now()` is the transaction timestamp, so they are consistent.
-3. Index (AC2 and the §6 p95 < 200 ms target). Do not add a new index in this ticket.
-   - `ix_role_assignments_role_id` already narrows to one role's rows. A role has few holders: normally tens to low thousands, and at most the number of users for a default role like `member`. A top-N sort over that set, plus the join to `users` by PK for only `limit ≤ 100` rows, is well under 200 ms.
-   - A composite `(role_id, created_at DESC, id)` would only pay off for a role with hundreds of thousands of holders. In that case the `member` role with many holders is the realistic worst case, and the cost is a sort of about N rows, which is still tens of ms at N ≈ 10^5. The count would also have to scan about N rows regardless of the index.
-   - Adding it means a migration, with `downgrade()` (R2) and `alembic check`. It also adds write cost on every grant, revoke and login-time role change. That is not justified without evidence.
-   - Conditional recommendation: if the planner wants a safeguard, put it in the plan as a follow-up. Require an `EXPLAIN (ANALYZE, BUFFERS)` on seeded data (for example 200k assignments on one role) in the impl-log. Add the composite index (and drop the redundant `ix_role_assignments_role_id`, since the composite supersedes it) only if p95 exceeds about 100 ms. Per CLAUDE.md R7 this goes to follow-ups, not into the diff.
-   - The `org_id` filter combined with `role_id` is served by `ix_role_assignments_role_id`; the planner may pick a BitmapAnd with `ix_role_assignments_org_id`. No composite is needed.
-4. No N+1. One joined select returns all item fields. Map rows to a new schema, e.g. `RoleHolderRead(AssignmentRead)` plus `user_id`, `email`, `display_name: str | None`. The result is a single list statement and a single count statement per request, plus one role/app lookup. Add a test that counts SQL statements (or asserts it via the engine event hook, if the test suite has one) so an N+1 regression fails.
-5. 404 logic (AC4). Resolve the app by key (404 if unknown or disabled; check how USR-16 treats the `admin` app and disabled apps and stay consistent). Load the role by `role_id`; if it is missing or `role.app_id != app.id`, return 404 with the same shape and code, so the response does not reveal that the role exists under another app. Put the check in the service (R1), not the router.
-6. Permission (AC1). `admin:users:read` fits: it is the same permission as the per-user assignment list and `GET /users`, and the data (email) is already covered by it. `admin:roles:assign` is not needed; it is a write permission and would block read-only staff. Declare it with `require_permission("admin:users:read")` (x-permission), and attach `current_admin` for the Bearer class (R3 class 1). The per-user router already does this; the new route lives in the USR-16 role-definitions router, not in `assignments_router.py`.
-7. Tests. Cover each AC item (401, 403, 404 for unknown app, unknown role and a role from another app). Also cover: an expired row (`active=false` and excluded with `active=true`), an org-scoped row against `org_id`, each filter alone and combined, and paging (`limit`, `offset`, `total`, and order with a created_at tie broken by `id`). `created_at` uses `server_default now()`, so tied timestamps need explicit values in the fixtures.
+
+1. Add a new repository method, for example `page_role_holders(role_id, *, active: bool | None, org_id: UUID | None, limit, offset)`. The service resolves app by key (404), then `get_role(app.id, role_id)` (404), then calls this method. It issues two statements in total, which satisfies the "no N+1" criterion.
+   - Rows: `select(RoleAssignment, App.key, Role.key, active.label("active"), User.id, User.email, User.display_name)`.
+     - Join `Role`, `App` and `User` on `User.id == RoleAssignment.user_id`.
+     - Filter `RoleAssignment.role_id == role_id`.
+     - Order `created_at.desc(), id`, then limit and offset.
+   - Count: `select(count()).select_from(RoleAssignment).where(role_id, filters)`. It needs no joins, because the role is already validated and the FKs are NOT NULL. It must carry the same `active` and `org_id` filters as the rows query.
+   - Reuse one shared predicate, for example `_is_active()` returning the `or_`. Use it for the label and for the filter: `active=True` filters on it, and `active=False` filters on `not_()` of it. The expression is never NULL, so `not_` is safe. Keep using the database clock (`func.now()`).
+   - `org_id` is plain equality: `RoleAssignment.org_id == org_id`.
+   - If the response schema extends `AssignmentRead`, `_assignment_rows` needs an extension or a sibling builder. Do not change the shape of the existing tuple used by the per-user paths (R7).
+2. **No migration is needed (R2).** The planner should state this explicitly in `plan.md`.
+   - Rows for a single role are filtered through `ix_role_assignments_role_id`, and the sort runs on that small set. A holder list per role is bounded by users, not by the table.
+   - A `(role_id, created_at DESC, id)` index would make the top-N sort free, but it adds write cost and a migration. It is only worth it if a role reaches roughly 10^5 holders. Defer it and record it as a follow-up.
+   - The `org_id` filter combined with `role_id` is also fine on the single-column indexes. The planner can pick a BitmapAnd or just filter the `role_id` result.
+3. **Tests (R8):** assert the number of statements in the happy-path test, or at least check that email and display_name come from a single call. Also cover:
+   - the expired boundary: `expires_at` in the past gives `active=false`, and `expires_at` in the future or NULL gives `active=true`;
+   - ordering ties on `id`;
+   - a total that equals the filtered count, not the page size.
+4. **Permission:** `admin:users:read` fits. The endpoint reads users' PII and does not mutate anything.
 
 **Risks**
-- Offset paging on a large role gets slower with deep offsets (scan plus sort of the full filtered set). Limited to 100 per page; acceptable for an admin UI.
-- Without a composite index the sort is done on the whole filtered set per request. This is fine at expected sizes but unmeasured; hence the EXPLAIN requirement above.
-- The `active=false` predicate must not be written as `expires_at <= now()` alone, which handles NULL correctly (NULL is filtered out) but diverges from the `NOT(active)` definition used by the computed field if someone later changes one of them. Share one SQLAlchemy expression for both the label and the filter.
-- PII (email) in the response is accepted by the owner (ticket notes, §8 Q6). No logging of emails (R11): do not put holder emails in log lines or error details.
-- Deleted or disabled users: `users.id` FK is `ON DELETE CASCADE`, so there are no orphan assignments. Check whether the per-user list shows rows of disabled or unverified users; the holder list should show them too (the planner should confirm it).
+
+- If the `active` predicate is copied rather than shared, the row label and the filter can drift apart.
+- Offset paging with `ORDER BY created_at DESC, id` is stable only because the sort includes `id`. Concurrent inserts can still shift pages, as with the existing list.
+- The `uq_role_assignments_user_role_org` index with NULLS NOT DISTINCT means one holder appears at most once per `(role, org)`. The same user can appear several times for one role, once per org. Clients must not assume `user_id` is unique within the page.
+- Email exposure is PII. It is accepted in the ticket, but keep it out of logs and audit details (R5/R11).
 
 **Open questions**
-- Should the holder list include assignments of disabled or unverified users? The recommendation is yes, with no filter, for parity with the per-user list. If it should not, say so in the plan.
-- Is there an `org_id` filter value for "app scope only" (`org_id IS NULL`)? The ACs list only `org_id = X`. Recommend leaving it out of v1.
-- Does the test suite have a SQL-statement counter for the N+1 test, or does one need to be added to the fixtures?
-- Is the composite index follow-up wanted as a ticket, given the unmeasured worst case, or is it dropped unless the EXPLAIN shows a problem?
 
-Files read: /home/user/org-admin-api/app/modules/rbac/models.py, /home/user/org-admin-api/app/modules/rbac/repository.py, /home/user/org-admin-api/app/modules/rbac/assignments_router.py, /home/user/org-admin-api/app/modules/rbac/schemas.py, /home/user/org-admin-api/migrations/versions/20261111_b638a7c84c31_create_rbac.py, /home/user/org-admin-api/work/tickets/USR-17/ticket.md.
+- Can the `org_id` filter select app-scope rows (`org_id IS NULL`)? A plain `org_id=` equality cannot. The ticket does not ask for it. A flag such as `scope=app` would be an addition and needs planner sign-off.
+- Should an unknown `org_id` filter return 404, or an empty page? Recommend an empty page, with no org lookup.
+- Should holders whose user status is `disabled` be listed? Recommend yes, as the per-user list does. Surface the user's status only if the owner wants it, since the ticket does not list `status`.
+- Is a role with `is_system` or the `admin` app listable here? Recommend yes, for staff with the permission, unlike the public catalog's 404 for the `admin` app.

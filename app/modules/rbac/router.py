@@ -11,14 +11,17 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.api.deps import PageDep, SessionDep
 from app.core.config import Settings
+from app.core.listing import SearchTerm
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
 from app.modules.audit.deps import AuditContextDep
-from app.modules.rbac.models import App
+from app.modules.rbac.models import App, AppStatus, JoinPolicy, OrgMode
 from app.modules.rbac.schemas import (
+    DEFAULT_APP_SORT,
     AppCreate,
     AppFields,
     AppRead,
+    AppSort,
     AppUpdate,
     PermissionCreate,
     PermissionRead,
@@ -41,6 +44,12 @@ def _with_409(key: str, description: str) -> dict[str, Any]:
     return kwargs
 
 
+def _with_404(key: str, description: str) -> dict[str, Any]:
+    kwargs = require_permission(key)
+    kwargs["responses"][404] = {"description": description}
+    return kwargs
+
+
 def _app_read(app: App, member_count: int) -> AppRead:
     return AppRead(**AppFields.model_validate(app).model_dump(), member_count=member_count)
 
@@ -50,9 +59,43 @@ async def _app_read_counted(svc: AppService, app: App) -> AppRead:
 
 
 @router.get("", response_model=Page[AppRead], **require_permission("admin:apps:read"))
-async def list_apps(session: SessionDep, page: PageDep) -> Page[AppRead]:
+async def list_apps(
+    session: SessionDep,
+    page: PageDep,
+    status: Annotated[AppStatus | None, Query(description="Only apps with this status.")] = None,
+    join_policy: Annotated[
+        JoinPolicy | None, Query(description="Only apps with this join policy.")
+    ] = None,
+    org_mode: Annotated[OrgMode | None, Query(description="Only apps with this org mode.")] = None,
+    q: Annotated[
+        SearchTerm | None,
+        Query(
+            description=(
+                "Case-insensitive substring of key or name; trimmed, 1..100 chars after "
+                "trimming; empty or whitespace-only is 422 (omit the parameter instead)."
+            )
+        ),
+    ] = None,
+    sort: Annotated[
+        AppSort,
+        Query(
+            description=(
+                "One of key, -key, name, -name, created_at, -created_at ('-' = descending); "
+                "id ascending breaks ties. name follows the database collation."
+            )
+        ),
+    ] = DEFAULT_APP_SORT,
+) -> Page[AppRead]:
     svc = AppService(session)
-    items, total = await svc.list_apps(limit=page.limit, offset=page.offset)
+    items, total = await svc.list_apps(
+        status=status,
+        join_policy=join_policy,
+        org_mode=org_mode,
+        q=q,
+        sort=sort,
+        limit=page.limit,
+        offset=page.offset,
+    )
     counts = await svc.member_counts(items)
     return Page(
         items=[_app_read(a, counts.get(a.id, 0)) for a in items],
@@ -84,7 +127,9 @@ async def get_app(session: SessionDep, key: str) -> AppRead:
 @router.patch(
     "/{key}",
     response_model=AppRead,
-    **_with_409("admin:apps:write", "Admin app invariant or origin already taken"),
+    **_with_409(
+        "admin:apps:write", "Admin app invariant, origin already taken, or org_mode in use"
+    ),
 )
 async def update_app(
     session: SessionDep,
@@ -209,7 +254,11 @@ async def get_role_definition(
 @router.get(
     "/{key}/role-definitions/{role_id}/assignments",
     response_model=Page[RoleHolderRead],
-    **require_permission("admin:users:read"),
+    description=(
+        "Assignments of one role with their holders. `total` counts assignments, not distinct "
+        "users: a user can appear once per org and once at app scope."
+    ),
+    **_with_404("admin:users:read", "Unknown app, or role not of that app"),
 )
 async def list_role_holders(
     session: SessionDep,
@@ -219,22 +268,12 @@ async def list_role_holders(
     page: PageDep,
     active: Annotated[
         bool | None,
-        Query(
-            description="Omitted: all rows; expired rows have `active=false`. `true`: not "
-            "expired; `false`: expired only. Database clock; ignores user status."
-        ),
+        Query(description="true: not expired; false: expired; omitted: all rows."),
     ] = None,
     org_id: Annotated[
-        uuid.UUID | None,
-        Query(
-            description="Exact organization. App-scope rows cannot be selected on their own. "
-            "An unknown org returns an empty page."
-        ),
+        uuid.UUID | None, Query(description="Only assignments in this organization.")
     ] = None,
 ) -> Page[RoleHolderRead]:
-    """Holders of one role, newest first. One row per assignment (app scope or one
-    organization), so a user can appear more than once and `total` counts rows. Rows carry
-    holder emails (PII)."""
     items, total = await RoleService(session).list_holders(
         key, role_id, active=active, org_id=org_id, limit=page.limit, offset=page.offset
     )

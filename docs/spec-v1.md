@@ -47,6 +47,8 @@ One model for every mmlabs app, the admin API included (app `admin`). Apps are r
 
 Membership (2026-11-11, D8–D10; details in [`identity-architecture.md`](identity-architecture.md)): each app has a `join_policy` (`open` | `approval` | `closed`; default `open`, `admin` = `closed`), a default role `<app>:member` holding all its permissions except those flagged `is_admin` (for `org_mode = required` apps also except org-level permissions, `permissions.scope = 'org'`; ADR-0015; owner, 2026-11-17), an `org_mode` (`none` | `required`; calechip = `required`) and its allowed browser `origins`. Joining assigns the default role at app scope (`org_id NULL`). Policy and role contents are data. The role catalog `GET /api/v1/apps/{key}/roles` is public (D17); app origins are limited to `mmlabs.online`, its subdomains and localhost (D19).
 
+> 2026-11-18 (USR-18): staff apps list filters `status`, `join_policy`, `org_mode`, `q` (key or name, trimmed 1..100, empty → 422) and `sort` (allow-list, default `key`, `id` tie-breaker).
+
 ### §5.4 Audit log
 Append-only record of every mutating admin action: actor, action, target type/id, before/after (or diff), timestamp, request id. Read-only, filterable listing for auditors.
 
@@ -57,6 +59,9 @@ The list of mmlabs products is the `apps` table of §5.3 (key, name, status).
 Which org can use which product, with plan and limits; enable/disable per org. Readable by mmlabs services through the `ent` access-token claim (§8 Q4, ADR-0017).
 
 > 2026-11-17 (ADM-006): staff Bearer endpoints under /api/v1/organizations/{org_id}/entitlements (admin:entitlements:read|write). Active = enabled AND org active AND app active (?active=true). Only non-admin, active, org_mode=required apps can be granted. ADM-018: services read it through the `ent` claim (Q4, ADR-0017).
+
+> 2026-11-18 (ADM-019): `PATCH /api/v1/apps/{key}` changing `org_mode` from `required` to `none` is refused with 409 `org_mode_in_use` while the app has org entitlements or org-scoped role assignments (owner, 2026-11-17).
+> 2026-11-18 (ADM-020): staff list filters `status`, `q` (name or slug, trimmed 1..100, empty → 422) and `sort` (allow-list, default `-created_at`, `id` tie-breaker).
 
 ### §5.8 mmlabs Identity — ecosystem users and authentication (owner, 2026-11-11)
 One account per person across all mmlabs apps, **fully self-hosted here** (D1): email + password only, no external IdP, no social login, not an OIDC provider. Architecture, data model, API and decision log D1–D12: [`identity-architecture.md`](identity-architecture.md).

@@ -19,32 +19,33 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.listing import ilike_any, sort_clauses
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
     App,
     AppStatus,
+    JoinPolicy,
+    OrgMode,
     Permission,
     PermissionScope,
     Role,
     RoleAssignment,
     RolePermission,
 )
+from app.modules.rbac.schemas import AppSort
 from app.modules.users.models import User, UserStatus
+
+_APP_SORT_COLUMNS = {"key": App.key, "name": App.name, "created_at": App.created_at}
 
 # (assignment, app key, role key, active) — `active` is computed with the database clock.
 AssignmentRow = tuple[RoleAssignment, str, str, bool]
-
-# (assignment, email, display name, user status, email verified, active)
-RoleHolderRow = tuple[RoleAssignment, str, str | None, str, bool, bool]
+# (assignment, app key, role key, active, holder email, holder display name, holder status)
+RoleHolderRow = tuple[RoleAssignment, str, str, bool, str, str | None, str]
 
 # `session.info` flag: an app was written; the CORS origin cache is invalidated after commit.
 APPS_CHANGED_KEY = "rbac_apps_changed"
-
-
-def _not_expired() -> ColumnElement[bool]:
-    return or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now())
 
 
 class RbacRepository:
@@ -88,10 +89,33 @@ class RbacRepository:
             .execution_options(populate_existing=True)
         )
 
-    async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
-        total = await self.session.scalar(select(func.count()).select_from(App))
+    async def list_apps(
+        self,
+        *,
+        status: AppStatus | None,
+        join_policy: JoinPolicy | None,
+        org_mode: OrgMode | None,
+        q: str | None,
+        sort: AppSort,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[App], int]:
+        conditions: list[ColumnElement[bool]] = []
+        if status is not None:
+            conditions.append(App.status == status.value)
+        if join_policy is not None:
+            conditions.append(App.join_policy == join_policy.value)
+        if org_mode is not None:
+            conditions.append(App.org_mode == org_mode.value)
+        if q is not None:
+            conditions.append(ilike_any(q, App.key, App.name))
+        total = await self.session.scalar(select(func.count()).select_from(App).where(*conditions))
         result = await self.session.scalars(
-            select(App).order_by(App.key).limit(limit).offset(offset)
+            select(App)
+            .where(*conditions)
+            .order_by(*sort_clauses(sort, _APP_SORT_COLUMNS, App.id))
+            .limit(limit)
+            .offset(offset)
         )
         return list(result), total or 0
 
@@ -117,6 +141,15 @@ class RbacRepository:
     async def app_has_assignments(self, app_id: uuid.UUID) -> bool:
         stmt = select(
             exists().where(RoleAssignment.role_id == Role.id).where(Role.app_id == app_id)
+        )
+        return bool(await self.session.scalar(stmt))
+
+    async def app_has_org_assignments(self, app_id: uuid.UUID) -> bool:
+        stmt = select(
+            exists()
+            .where(RoleAssignment.role_id == Role.id)
+            .where(Role.app_id == app_id)
+            .where(RoleAssignment.org_id.is_not(None))
         )
         return bool(await self.session.scalar(stmt))
 
@@ -493,9 +526,14 @@ class RbacRepository:
         return (await self.session.execute(select(func.now()))).scalar_one()
 
     @staticmethod
+    def _is_active() -> ColumnElement[bool]:
+        """Not expired, with the database clock (the single definition of `active`)."""
+        return or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now())
+
+    @staticmethod
     def _assignment_rows() -> Select[RoleAssignment, str, str, bool]:
         return (
-            select(RoleAssignment, App.key, Role.key, _not_expired().label("active"))
+            select(RoleAssignment, App.key, Role.key, RbacRepository._is_active().label("active"))
             .join(Role, Role.id == RoleAssignment.role_id)
             .join(App, App.id == Role.app_id)
         )
@@ -509,33 +547,28 @@ class RbacRepository:
         limit: int,
         offset: int,
     ) -> tuple[list[RoleHolderRow], int]:
-        conds = [RoleAssignment.role_id == role_id]
-        if org_id is not None:
-            conds.append(RoleAssignment.org_id == org_id)
+        """Two statements (count + rows). Explicit `User` columns: never the entity, so
+        `password_hash` cannot reach the result."""
+        filters: list[ColumnElement[bool]] = [RoleAssignment.role_id == role_id]
         if active is True:
-            conds.append(_not_expired())
+            filters.append(self._is_active())
         elif active is False:
-            # The OR is never NULL (`expires_at IS NULL` is true for NULL), so NOT is NULL-safe.
-            conds.append(not_(_not_expired()))
+            filters.append(not_(self._is_active()))
+        if org_id is not None:
+            filters.append(RoleAssignment.org_id == org_id)
         total = await self.session.scalar(
-            select(func.count()).select_from(RoleAssignment).where(*conds)
+            select(func.count()).select_from(RoleAssignment).where(*filters)
         )
         result = await self.session.execute(
-            select(
-                RoleAssignment,
-                User.email,
-                User.display_name,
-                User.status,
-                User.email_verified_at.is_not(None),
-                _not_expired().label("active"),
-            )
+            self._assignment_rows()
+            .add_columns(User.email, User.display_name, User.status)
             .join(User, User.id == RoleAssignment.user_id)
-            .where(*conds)
+            .where(*filters)
             .order_by(RoleAssignment.created_at.desc(), RoleAssignment.id)
             .limit(limit)
             .offset(offset)
         )
-        return [(r[0], r[1], r[2], r[3], r[4], r[5]) for r in result.all()], total or 0
+        return [(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in result.all()], total or 0
 
     async def page_assignments(
         self, user_id: uuid.UUID, *, app_key: str | None, limit: int, offset: int

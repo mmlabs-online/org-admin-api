@@ -37,5 +37,7 @@ creating an org needs one convention that does.
 - `org_owner_role_id` and `default_role_id` must differ (422 `same_as_default_role`).
   The default-role build skips `scope = org` permissions on org apps (ADR-0015).
 - Admin UI (`admin-pan`) must handle the new 409 on org delete.
+- Same refuse-not-cascade principle (ADM-019): `PATCH` of an app's `org_mode` from `required` to
+  `none` answers 409 `org_mode_in_use` while org entitlements or org-scoped assignments exist.
 - Per-IP limits (`ORG_CREATE_*`, `ORGS_LIST_*`) and a per-user lifetime cap
   (`ORG_CREATE_MAX_PER_USER`) bound abuse.

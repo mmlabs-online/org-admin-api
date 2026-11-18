@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -24,6 +24,10 @@ from app.modules.rbac.models import (
     PermissionScope,
 )
 from app.modules.rbac.origins import MAX_ORIGINS, normalize_origins
+from app.modules.users.models import UserStatus
+
+AppSort = Literal["key", "-key", "name", "-name", "created_at", "-created_at"]
+DEFAULT_APP_SORT: AppSort = "key"
 
 # Display text (input only): NFC, then length, then Unicode category check (ADR-0003 §11).
 AppName = Annotated[
@@ -292,21 +296,18 @@ class AssignmentRead(BaseModel):
 
 
 class RoleHolderRead(AssignmentRead):
-    """One holder row of a role; the same user can appear once per scope (app or org)."""
+    """One assignment of a role with its holder (USR-17). `total` of the list counts
+    assignments, not distinct users: a user can appear once per org and once at app scope."""
 
-    active: bool = Field(
-        description="Not expired (database clock). Does not reflect user status, email "
-        "verification or organization status."
-    )
     user_id: uuid.UUID
     email: str
-    display_name: str | None = Field(description="Untrusted user text: render as text only.")
-    user_status: str = Field(
-        description="Holder's account status (`active` or `disabled`). A disabled holder gets "
-        "no tokens."
-    )
-    email_verified: bool = Field(
-        description="Holder's email is verified. An unverified holder gets no app tokens."
+    display_name: str | None
+    user_status: UserStatus = Field(description="Account status; disabled users are listed.")
+    active: bool = Field(
+        description=(
+            "Not expired (database clock); ignores user, org and app status, "
+            "so not 'effective in tokens'."
+        )
     )
 
 

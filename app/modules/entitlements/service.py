@@ -2,7 +2,7 @@
 
 Suspended org, disabled app or changed `org_mode` do not touch existing rows: writes stay
 allowed and `active` reports the effective state. Only a new grant is refused for an app that
-cannot carry it.
+cannot carry it. A grant locks the app row so it serialises with `PATCH org_mode` (ADM-019).
 """
 
 import uuid
@@ -61,13 +61,13 @@ class EntitlementService:
         self, org_id: uuid.UUID, data: EntitlementCreate, *, actor: Actor, ctx: AuditContext
     ) -> EntitlementView:
         await self._require_org(org_id)
-        app = await self.rbac.get_app_by_key(data.app_key)
+        if data.app_key == ADMIN_APP_KEY:  # before locking: keeps the admin lock ordering
+            raise _refusal("The admin app has no entitlements", "admin_app")
+        app = await self.rbac.lock_app(data.app_key)
         if app is None:
             raise NotFoundError(
                 "App not found", details=[{"field": "app_key", "reason": "unknown_app"}]
             )
-        if app.key == ADMIN_APP_KEY:
-            raise _refusal("The admin app has no entitlements", "admin_app")
         if app.status == AppStatus.DISABLED.value:
             raise _refusal("The app is disabled", "app_disabled")
         if app.org_mode != OrgMode.REQUIRED.value:

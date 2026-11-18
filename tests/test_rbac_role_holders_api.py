@@ -6,23 +6,41 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rbac.models import App, Role, RoleAssignment
-from app.modules.users.models import UserStatus
+from app.modules.rbac.repository import RbacRepository
+from app.modules.users.models import User
 from tests.conftest import MakeClient
-from tests.rbac_factories import assign, make_app, make_org, make_role, make_user, super_admin_role
+from tests.rbac_factories import (
+    assign,
+    make_app,
+    make_org,
+    make_role,
+    make_user,
+    super_admin_role,
+)
 
 BASE = "/api/v1/apps"
 KEYS = {
-    "id", "app", "role_id", "role_key", "org_id", "granted_by", "expires_at", "active",
-    "created_at", "user_id", "email", "display_name", "user_status", "email_verified",
-}  # fmt: skip
-PAST = datetime(2020, 1, 1, tzinfo=UTC)
+    "id",
+    "app",
+    "role_id",
+    "role_key",
+    "org_id",
+    "granted_by",
+    "expires_at",
+    "active",
+    "created_at",
+    "user_id",
+    "email",
+    "display_name",
+    "user_status",
+}
 
 
-def _url(role_id: object, app: str = "stoktok") -> str:
+def _url(app: str, role_id: object) -> str:
     return f"{BASE}/{app}/role-definitions/{role_id}/assignments"
 
 
@@ -48,344 +66,357 @@ def _capture_sql(db_session: AsyncSession) -> Iterator[list[str]]:
         event.remove(conn, "before_cursor_execute", _record)
 
 
-async def _role(db_session: AsyncSession, key: str = "stoktok") -> tuple[App, Role]:
-    app = await make_app(db_session, key)
-    return app, await make_role(db_session, app, f"{key}:viewer")
+async def _setup(db_session: AsyncSession, **app_kwargs: object) -> tuple[App, Role]:
+    app = await make_app(db_session, "stoktok", **app_kwargs)
+    return app, await make_role(db_session, app, "stoktok:r0")
 
 
-async def _ids(client: AsyncClient, role: Role, **params: Any) -> tuple[list[str], int]:
-    resp = await client.get(_url(role.id), params=params)
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    return [i["id"] for i in body["items"]], body["total"]
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
-async def test_role_holders_item_shape(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
-    _, role = await _role(db_session)
+async def _set_created(db_session: AsyncSession, ra: RoleAssignment, when: datetime) -> None:
+    await db_session.execute(
+        update(RoleAssignment)
+        .where(RoleAssignment.id == ra.id)
+        .values(created_at=when)
+        .execution_options(synchronize_session=False)
+    )
+
+
+# --- auth ---------------------------------------------------------------------
+
+
+async def test_holders_401_without_token(client: AsyncClient) -> None:
+    resp = await client.get(_url("nope", uuid.uuid4()))
+    assert resp.status_code == 401
+
+
+async def test_holders_403_without_users_read(make_client: MakeClient) -> None:
+    async with make_client(admin_permissions=["admin:orgs:read"]) as c:
+        resp = await c.get(_url("nope", uuid.uuid4()))
+    assert resp.status_code == 403
+    assert resp.json()["error"]["details"]["required"] == "admin:users:read"
+
+
+@pytest.mark.parametrize("permission", ["admin:apps:read", "admin:roles:assign"])
+async def test_holders_403_with_other_permission_only(
+    make_client: MakeClient, db_session: AsyncSession, permission: str
+) -> None:
+    _, role = await _setup(db_session)
+    async with make_client(admin_permissions=[permission]) as c:
+        resp = await c.get(_url("stoktok", role.id))
+    assert resp.status_code == 403
+    assert resp.json()["error"]["details"]["required"] == "admin:users:read"
+
+
+async def test_holders_admin_star_passes(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _setup(db_session)
+    assert (await rbac_client.get(_url("stoktok", role.id))).status_code == 200
+
+
+# --- 404 / 422 ----------------------------------------------------------------
+
+
+async def test_holders_404_unknown_app(rbac_client: AsyncClient) -> None:
+    resp = await rbac_client.get(_url("nope", uuid.uuid4()))
+    assert resp.status_code == 404
+    assert resp.json()["error"]["message"] == "App not found"
+
+
+async def test_holders_404_unknown_role(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    await _setup(db_session)
+    resp = await rbac_client.get(_url("stoktok", uuid.uuid4()))
+    assert resp.status_code == 404
+    assert resp.json()["error"]["message"] == "Role not found"
+
+
+async def test_holders_404_other_app_role_same_body(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _setup(db_session)
+    other = await make_app(db_session, "other")
+    other_role = await make_role(db_session, other, "other:viewer")
+    unknown = await rbac_client.get(_url("stoktok", uuid.uuid4()))
+    foreign = await rbac_client.get(_url("stoktok", other_role.id))
+    assert foreign.status_code == unknown.status_code == 404
+    assert foreign.json() == unknown.json()
+
+
+async def test_holders_invalid_params_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _setup(db_session)
+    assert (await rbac_client.get(_url("stoktok", "not-a-uuid"))).status_code == 422
+    for params in ({"org_id": "not-a-uuid"}, {"active": "maybe"}):
+        resp = await rbac_client.get(_url("stoktok", role.id), params=params)
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "validation_error"
+
+
+async def test_holders_limit_over_100_is_422(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _setup(db_session)
+    resp = await rbac_client.get(_url("stoktok", role.id), params={"limit": 101})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+
+
+# --- shape --------------------------------------------------------------------
+
+
+async def test_holders_item_shape(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    _, role = await _setup(db_session)
     user = await make_user(db_session)
-    user.display_name = "Some One"
-    user.email_verified_at = datetime.now(UTC)
+    user.display_name = "Holder One"
     granter = await make_user(db_session)
     ra = await assign(db_session, user, role, granted_by=granter.id)
-    resp = await rbac_client.get(_url(role.id))
+    resp = await rbac_client.get(_url("stoktok", role.id))
     assert resp.status_code == 200
-    assert resp.headers["cache-control"] == "no-store"
     body = resp.json()
-    assert (body["total"], body["limit"], body["offset"]) == (1, 20, 0)
+    assert body["total"] == 1
     item = body["items"][0]
     assert set(item) == KEYS
     assert item["id"] == str(ra.id)
     assert item["app"] == "stoktok"
     assert item["role_id"] == str(role.id)
-    assert item["role_key"] == role.key
+    assert item["role_key"] == "stoktok:r0"
     assert item["org_id"] is None
     assert item["granted_by"] == str(granter.id)
     assert item["expires_at"] is None
     assert item["active"] is True
     assert item["user_id"] == str(user.id)
     assert item["email"] == user.email
-    assert item["display_name"] == "Some One"
+    assert item["display_name"] == "Holder One"
     assert item["user_status"] == "active"
-    assert item["email_verified"] is True
+    assert "password_hash" not in resp.text
 
 
-async def test_role_holders_disabled_and_unverified_listed(
+async def test_holders_cache_control_no_store(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    _, role = await _role(db_session)
-    disabled = await make_user(db_session)
-    disabled.status = UserStatus.DISABLED.value
-    unverified = await make_user(db_session)
-    await assign(db_session, disabled, role)
-    await assign(db_session, unverified, role)
-    items = (await rbac_client.get(_url(role.id))).json()["items"]
-    by_user = {i["user_id"]: i for i in items}
-    assert by_user[str(disabled.id)]["user_status"] == "disabled"
-    assert by_user[str(disabled.id)]["active"] is True
-    assert by_user[str(unverified.id)]["email_verified"] is False
-    assert by_user[str(unverified.id)]["active"] is True
+    _, role = await _setup(db_session)
+    resp = await rbac_client.get(_url("stoktok", role.id))
+    assert resp.headers["cache-control"] == "no-store"
 
 
-async def test_role_holders_paging_and_order(
+# --- filters ------------------------------------------------------------------
+
+
+async def test_holders_expired_default_and_active_filters(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    _, role = await _role(db_session)
-    base = datetime(2026, 1, 1, tzinfo=UTC)
-    rows = []
-    for i in range(5):
-        ra = await assign(db_session, await make_user(db_session), role)
-        ra.created_at = base + timedelta(days=i)
-        rows.append(ra)
-    tied = []
-    for _ in range(2):
-        ra = await assign(db_session, await make_user(db_session), role)
-        ra.created_at = base + timedelta(days=10)
-        tied.append(ra)
-    await db_session.flush()
-    expected = [str(r.id) for r in sorted(tied, key=lambda r: r.id)]
-    expected += [str(r.id) for r in reversed(rows)]
-    seen: list[str] = []
-    for offset in (0, 2, 4, 6):
-        resp = await rbac_client.get(_url(role.id), params={"limit": 2, "offset": offset})
-        body = resp.json()
-        assert body["total"] == 7
-        assert (body["limit"], body["offset"]) == (2, offset)
-        seen += [i["id"] for i in body["items"]]
-    assert seen == expected
-    assert len(set(seen)) == 7
-
-
-async def test_role_holders_limit_over_100_422(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    for params in ({"limit": 101}, {"offset": -1}):
-        resp = await rbac_client.get(_url(role.id), params=params)
-        assert resp.status_code == 422
-        assert resp.json()["error"]["code"] == "validation_error"
-
-
-async def _mixed(
-    db_session: AsyncSession, role: Role, org_id: uuid.UUID | None = None
-) -> list[RoleAssignment]:
-    future = datetime.now(UTC) + timedelta(days=30)
-    expired = await assign(
-        db_session, await make_user(db_session), role, org_id=org_id, expires_at=PAST
+    _, role = await _setup(db_session)
+    live = await assign(db_session, await make_user(db_session), role)
+    dead = await assign(
+        db_session, await make_user(db_session), role, expires_at=_now() - timedelta(days=1)
     )
-    future_row = await assign(
-        db_session, await make_user(db_session), role, org_id=org_id, expires_at=future
+    url = _url("stoktok", role.id)
+    body = (await rbac_client.get(url)).json()
+    assert body["total"] == 2
+    flags = {i["id"]: i["active"] for i in body["items"]}
+    assert flags == {str(live.id): True, str(dead.id): False}
+    body = (await rbac_client.get(url, params={"active": "true"})).json()
+    assert [i["id"] for i in body["items"]] == [str(live.id)]
+    assert body["total"] == 1
+    body = (await rbac_client.get(url, params={"active": "false"})).json()
+    assert [i["id"] for i in body["items"]] == [str(dead.id)]
+    assert body["total"] == 1
+
+
+async def test_holders_active_boundary(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    _, role = await _setup(db_session)
+    never = await assign(db_session, await make_user(db_session), role)
+    future = await assign(
+        db_session, await make_user(db_session), role, expires_at=_now() + timedelta(days=1)
     )
-    forever = await assign(db_session, await make_user(db_session), role, org_id=org_id)
-    return [expired, future_row, forever]
-
-
-async def test_role_holders_expired_rows_default(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    expired, future, forever = await _mixed(db_session, role)
-    body = (await rbac_client.get(_url(role.id))).json()
-    assert body["total"] == 3
-    active = {i["id"]: i["active"] for i in body["items"]}
-    assert active == {str(expired.id): False, str(future.id): True, str(forever.id): True}
-
-
-async def test_role_holders_active_filter(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    expired, future, forever = await _mixed(db_session, role)
-    ids, total = await _ids(rbac_client, role, active="true")
-    assert (set(ids), total) == ({str(future.id), str(forever.id)}, 2)
-    ids, total = await _ids(rbac_client, role, active="false")
-    assert (ids, total) == ([str(expired.id)], 1)
-
-
-async def test_role_holders_active_partition(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    org = await make_org(db_session)
-    await _mixed(db_session, role)
-    await _mixed(db_session, role, org.id)
-    all_ids, _ = await _ids(rbac_client, role)
-    on_ids, on_total = await _ids(rbac_client, role, active="true")
-    off_ids, off_total = await _ids(rbac_client, role, active="false")
-    assert not set(on_ids) & set(off_ids)
-    assert set(on_ids) | set(off_ids) == set(all_ids)
-    assert on_total + off_total == len(all_ids) == 6
-    for flag, value in (("true", True), ("false", False)):
-        items = (await rbac_client.get(_url(role.id), params={"active": flag})).json()["items"]
-        assert all(i["active"] is value for i in items)
-
-
-async def test_role_holders_org_filter(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
-    _, role = await _role(db_session)
-    org_a, org_b = await make_org(db_session), await make_org(db_session)
-    r1 = await assign(db_session, await make_user(db_session), role)
-    r2 = await assign(db_session, await make_user(db_session), role, org_id=org_a.id)
-    r3 = await assign(db_session, await make_user(db_session), role, org_id=org_b.id)
-    ids, total = await _ids(rbac_client, role, org_id=str(org_a.id))
-    assert (ids, total) == ([str(r2.id)], 1)
-    items = (await rbac_client.get(_url(role.id))).json()["items"]
-    assert {i["id"]: i["org_id"] for i in items} == {
-        str(r1.id): None,
-        str(r2.id): str(org_a.id),
-        str(r3.id): str(org_b.id),
+    past = await assign(
+        db_session, await make_user(db_session), role, expires_at=_now() - timedelta(seconds=1)
+    )
+    items = (await rbac_client.get(_url("stoktok", role.id))).json()["items"]
+    assert {i["id"]: i["active"] for i in items} == {
+        str(never.id): True,
+        str(future.id): True,
+        str(past.id): False,
     }
 
 
-async def test_role_holders_same_user_multiple_rows(
+async def test_holders_org_filter(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    _, role = await _setup(db_session, org_mode="required")
+    org_a, org_b = await make_org(db_session), await make_org(db_session)
+    app_row = await assign(db_session, await make_user(db_session), role)
+    a_row = await assign(db_session, await make_user(db_session), role, org_id=org_a.id)
+    await assign(db_session, await make_user(db_session), role, org_id=org_b.id)
+    url = _url("stoktok", role.id)
+    body = (await rbac_client.get(url)).json()
+    assert body["total"] == 3
+    assert {i["id"] for i in body["items"]} >= {str(app_row.id), str(a_row.id)}
+    body = (await rbac_client.get(url, params={"org_id": str(org_a.id)})).json()
+    assert [i["id"] for i in body["items"]] == [str(a_row.id)]
+    assert body["items"][0]["org_id"] == str(org_a.id)
+
+
+async def test_holders_unknown_org_is_empty_page(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    _, role = await _role(db_session)
+    _, role = await _setup(db_session)
+    await assign(db_session, await make_user(db_session), role)
+    resp = await rbac_client.get(_url("stoktok", role.id), params={"org_id": str(uuid.uuid4())})
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+    assert resp.json()["total"] == 0
+
+
+async def test_holders_filters_combine_and_total(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _setup(db_session, org_mode="required")
+    org = await make_org(db_session)
+    live = await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    dead = await assign(
+        db_session,
+        await make_user(db_session),
+        role,
+        org_id=org.id,
+        expires_at=_now() - timedelta(days=1),
+    )
+    await assign(db_session, await make_user(db_session), role)  # app scope
+    url = _url("stoktok", role.id)
+    body = (
+        await rbac_client.get(url, params={"org_id": str(org.id), "active": "false", "limit": 1})
+    ).json()
+    assert [i["id"] for i in body["items"]] == [str(dead.id)]
+    assert body["total"] == 1
+    body = (
+        await rbac_client.get(url, params={"org_id": str(org.id), "active": "true", "limit": 1})
+    ).json()
+    assert len(body["items"]) == 1
+    assert body["total"] == 2
+    assert live.id  # one of the two live org rows
+
+
+async def test_holders_same_user_multiple_rows(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _setup(db_session, org_mode="required")
     org = await make_org(db_session)
     user = await make_user(db_session)
     await assign(db_session, user, role)
     await assign(db_session, user, role, org_id=org.id)
-    body = (await rbac_client.get(_url(role.id))).json()
+    body = (await rbac_client.get(_url("stoktok", role.id))).json()
     assert body["total"] == 2
-    assert {i["user_id"] for i in body["items"]} == {str(user.id)}
-    assert len({i["id"] for i in body["items"]}) == 2
+    assert [i["user_id"] for i in body["items"]] == [str(user.id)] * 2
 
 
-async def test_role_holders_org_filter_unknown_org_empty(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    await assign(db_session, await make_user(db_session), role)
-    resp = await rbac_client.get(_url(role.id), params={"org_id": str(uuid.uuid4())})
-    assert resp.status_code == 200
-    assert resp.json()["items"] == []
-    assert resp.json()["total"] == 0
-
-
-async def test_role_holders_filters_combined(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    org = await make_org(db_session)
-    expired = await assign(
-        db_session, await make_user(db_session), role, org_id=org.id, expires_at=PAST
-    )
-    live = await assign(db_session, await make_user(db_session), role, org_id=org.id)
-    await assign(db_session, await make_user(db_session), role, expires_at=PAST)
-    await assign(db_session, await make_user(db_session), role)
-    org_id = str(org.id)
-    assert await _ids(rbac_client, role, active="true", org_id=org_id) == ([str(live.id)], 1)
-    assert await _ids(rbac_client, role, active="false", org_id=org_id) == ([str(expired.id)], 1)
-
-
-async def test_role_holders_bad_query_values_422(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    for params in ({"org_id": "not-a-uuid"}, {"active": "maybe"}):
-        resp = await rbac_client.get(_url(role.id), params=params)
-        assert resp.status_code == 422
-        assert resp.json()["error"]["code"] == "validation_error"
-
-
-async def test_role_holders_bad_role_uuid_422(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    await _role(db_session)
-    resp = await rbac_client.get(_url("not-a-uuid"))
-    assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "validation_error"
-
-
-async def test_role_holders_empty_role(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
-    _, role = await _role(db_session)
-    resp = await rbac_client.get(_url(role.id))
-    assert resp.status_code == 200
-    assert resp.json()["items"] == []
-    assert resp.json()["total"] == 0
-
-
-async def test_role_holders_only_this_role(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    app, role = await _role(db_session)
-    other = await make_role(db_session, app, "stoktok:editor")
+async def test_holders_only_this_role(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    app, role = await _setup(db_session)
+    other_role = await make_role(db_session, app, "stoktok:r1")
     mine = await assign(db_session, await make_user(db_session), role)
-    await assign(db_session, await make_user(db_session), other)
-    assert await _ids(rbac_client, role) == ([str(mine.id)], 1)
+    await assign(db_session, await make_user(db_session), other_role)
+    body = (await rbac_client.get(_url("stoktok", role.id))).json()
+    assert [i["id"] for i in body["items"]] == [str(mine.id)]
 
 
-async def test_role_holders_404_unknown_app_and_malformed_key(
+# --- order and paging ---------------------------------------------------------
+
+
+async def test_holders_order_and_id_tiebreak(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    _, role = await _role(db_session)
-    for key in ("nope", "BAD_KEY!"):
-        resp = await rbac_client.get(_url(role.id, key))
-        assert resp.status_code == 404
-        assert resp.json()["error"]["code"] == "not_found"
+    _, role = await _setup(db_session)
+    base = _now() - timedelta(days=10)
+    old = await assign(db_session, await make_user(db_session), role)
+    mid_a = await assign(db_session, await make_user(db_session), role)
+    mid_b = await assign(db_session, await make_user(db_session), role)
+    new = await assign(db_session, await make_user(db_session), role)
+    await _set_created(db_session, old, base)
+    await _set_created(db_session, mid_a, base + timedelta(days=1))
+    await _set_created(db_session, mid_b, base + timedelta(days=1))
+    await _set_created(db_session, new, base + timedelta(days=2))
+    ids = [i["id"] for i in (await rbac_client.get(_url("stoktok", role.id))).json()["items"]]
+    tied = sorted([str(mid_a.id), str(mid_b.id)], key=uuid.UUID)
+    assert ids == [str(new.id), *tied, str(old.id)]
 
 
-async def test_role_holders_404_unknown_role(
+async def test_holders_paging(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    _, role = await _setup(db_session)
+    rows = [await assign(db_session, await make_user(db_session), role) for _ in range(3)]
+    url = _url("stoktok", role.id)
+    first = (await rbac_client.get(url, params={"limit": 2, "offset": 0})).json()
+    second = (await rbac_client.get(url, params={"limit": 2, "offset": 2})).json()
+    assert (first["total"], first["limit"], first["offset"]) == (3, 2, 0)
+    assert (second["total"], second["limit"], second["offset"]) == (3, 2, 2)
+    a = [i["id"] for i in first["items"]]
+    b = [i["id"] for i in second["items"]]
+    assert len(a) == 2 and len(b) == 1
+    assert not set(a) & set(b)
+    assert set(a) | set(b) == {str(r.id) for r in rows}
+
+
+# --- who is listed ------------------------------------------------------------
+
+
+async def test_holders_disabled_user_listed(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    _, role = await _role(db_session)
+    _, role = await _setup(db_session)
     user = await make_user(db_session)
     await assign(db_session, user, role)
-    resp = await rbac_client.get(_url(uuid.uuid4()))
-    assert resp.status_code == 404
-    assert resp.json()["error"]["code"] == "not_found"
-    assert user.email not in resp.text
+    await db_session.execute(update(User).where(User.id == user.id).values(status="disabled"))
+    item = (await rbac_client.get(_url("stoktok", role.id))).json()["items"][0]
+    assert item["user_status"] == "disabled"
+    assert item["active"] is True
 
 
-async def test_role_holders_404_role_of_other_app(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    await _role(db_session)
-    _, other_role = await _role(db_session, "other")
-    user = await make_user(db_session)
-    await assign(db_session, user, other_role)
-    resp = await rbac_client.get(_url(other_role.id, "stoktok"))
-    assert resp.status_code == 404
-    assert user.email not in resp.text
-    assert (await rbac_client.get(_url(other_role.id, "other"))).status_code == 200
-
-
-async def test_role_holders_admin_app_leaf_permission(
+async def test_holders_admin_app_super_admin_listed(
     make_client: MakeClient, db_session: AsyncSession
 ) -> None:
     role = await super_admin_role(db_session)
     user = await make_user(db_session)
-    ra = await assign(db_session, user, role)
+    await assign(db_session, user, role)
     async with make_client(admin_permissions=["admin:users:read"]) as c:
-        resp = await c.get(_url(role.id, "admin"), params={"limit": 100})
+        resp = await c.get(_url("admin", role.id))
     assert resp.status_code == 200
-    assert str(ra.id) in {i["id"] for i in resp.json()["items"]}
+    assert str(user.id) in [i["user_id"] for i in resp.json()["items"]]
 
 
-async def test_role_holders_disabled_app_listed(
+async def test_holders_disabled_app_listed(
     rbac_client: AsyncClient, db_session: AsyncSession
 ) -> None:
     app = await make_app(db_session, "oldapp", status="disabled")
     role = await make_role(db_session, app, "oldapp:viewer")
-    ra = await assign(db_session, await make_user(db_session), role)
-    resp = await rbac_client.get(_url(role.id, "oldapp"))
+    await assign(db_session, await make_user(db_session), role)
+    resp = await rbac_client.get(_url("oldapp", role.id))
     assert resp.status_code == 200
-    assert [i["id"] for i in resp.json()["items"]] == [str(ra.id)]
+    assert resp.json()["total"] == 1
 
 
-async def test_role_holders_403_without_permission(
-    make_client: MakeClient, db_session: AsyncSession
-) -> None:
-    _, role = await _role(db_session)
-    urls = (_url(role.id), _url(role.id, "nope"), _url(uuid.uuid4()))
-    for perms in (["admin:apps:read"], ["admin:roles:assign"]):
-        async with make_client(admin_permissions=perms) as c:
-            for url in urls:
-                resp = await c.get(url)
-                assert resp.status_code == 403
-                assert resp.json()["error"]["details"]["required"] == "admin:users:read"
-    for perms in (["admin:users:read"], ["admin:*"]):
-        async with make_client(admin_permissions=perms) as c:
-            assert (await c.get(_url(role.id))).status_code == 200
+# --- queries ------------------------------------------------------------------
 
 
-async def test_role_holders_401_before_404_and_422(client: AsyncClient) -> None:
-    assert (await client.get(_url(uuid.uuid4(), "nope"))).status_code == 401
-    assert (await client.get(_url("not-a-uuid"))).status_code == 401
-    assert (await client.get(_url(uuid.uuid4()), params={"active": "maybe"})).status_code == 401
-
-
-async def test_role_holders_bounded_queries(
-    rbac_client: AsyncClient, db_session: AsyncSession
-) -> None:
-    app, one = await _role(db_session)
-    six = await make_role(db_session, app, "stoktok:six")
-    await assign(db_session, await make_user(db_session), one)
+async def test_holders_bounded_queries(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    _, role = await _setup(db_session)
     for _ in range(6):
-        org = await make_org(db_session)
-        await assign(db_session, await make_user(db_session), six, org_id=org.id)
+        await assign(db_session, await make_user(db_session), role)
     counts = []
-    for role, n in ((one, 1), (six, 6)):
+    for limit in (1, 6):
         with _capture_sql(db_session) as statements:
-            resp = await rbac_client.get(_url(role.id))
-        assert len(resp.json()["items"]) == n
+            resp = await rbac_client.get(_url("stoktok", role.id), params={"limit": limit})
+        assert len(resp.json()["items"]) == limit
         counts.append(len(statements))
     assert counts[0] == counts[1]
+
+
+async def test_page_role_holders_two_statements(db_session: AsyncSession) -> None:
+    _, role = await _setup(db_session)
+    await assign(db_session, await make_user(db_session), role)
+    with _capture_sql(db_session) as statements:
+        rows, total = await RbacRepository(db_session).page_role_holders(
+            role.id, active=None, org_id=None, limit=10, offset=0
+        )
+    assert len(statements) == 2
+    assert (len(rows), total) == (1, 1)

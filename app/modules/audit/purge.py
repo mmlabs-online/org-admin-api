@@ -58,15 +58,18 @@ class AuditPurgeRepository:
 
     async def delete_batch(self, cutoff: datetime, batch: int) -> int:
         """Delete up to `batch` of the oldest purgeable rows, skipping rows another holds."""
-        ids = (
+        # MATERIALIZED: the ids are selected and locked once; an inlined subquery could be
+        # rescanned per outer row and return the next live rows each time (BUG-001).
+        batch_ids = (
             select(AuditLog.id)
             .where(_purgeable(cutoff))
             .order_by(AuditLog.occurred_at, AuditLog.id)
             .limit(batch)
             .with_for_update(skip_locked=True)
-            .scalar_subquery()
+            .cte("batch")
+            .prefix_with("MATERIALIZED")
         )
-        stmt = delete(AuditLog).where(AuditLog.id.in_(ids))
+        stmt = delete(AuditLog).where(AuditLog.id.in_(select(batch_ids.c.id)))
         result = await self.session.execute(stmt.execution_options(synchronize_session=False))
         return int(cast(CursorResult[Any], result).rowcount)
 

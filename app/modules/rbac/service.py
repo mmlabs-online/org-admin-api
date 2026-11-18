@@ -36,11 +36,12 @@ from app.modules.rbac.models import (
     RoleAssignment,
 )
 from app.modules.rbac.origins import is_loopback_origin
-from app.modules.rbac.repository import AssignmentRow, RbacRepository
+from app.modules.rbac.repository import AssignmentRow, RbacRepository, RoleHolderRow
 from app.modules.rbac.schemas import (
     AdminOriginsSet,
     AppCreate,
     AppRegister,
+    AppSort,
     AppUpdate,
     AssignmentCreate,
     AssignmentRead,
@@ -332,8 +333,26 @@ class AppService:
         self.catalog = RoleCatalogService(session)
         self.audit = AuditLogger(session)
 
-    async def list_apps(self, *, limit: int, offset: int) -> tuple[list[App], int]:
-        return await self.repo.list_apps(limit=limit, offset=offset)
+    async def list_apps(
+        self,
+        *,
+        status: AppStatus | None,
+        join_policy: JoinPolicy | None,
+        org_mode: OrgMode | None,
+        q: str | None,
+        sort: AppSort,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[App], int]:
+        return await self.repo.list_apps(
+            status=status,
+            join_policy=join_policy,
+            org_mode=org_mode,
+            q=q,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+        )
 
     async def member_counts(self, apps: Sequence[App]) -> dict[uuid.UUID, int]:
         return await self.repo.member_counts([a.id for a in apps])
@@ -482,6 +501,20 @@ class AppService:
             raise UnprocessableError(
                 "A default role of an org app must not hold org-level permissions",
                 details=[{"field": "default_role_id", "reason": "role_has_org_permissions"}],
+            )
+
+        if (
+            changes.get("org_mode") == OrgMode.NONE.value
+            and app.org_mode == OrgMode.REQUIRED.value
+            and (
+                await self.repo.app_has_entitlements(app.id)
+                or await self.repo.app_has_org_assignments(app.id)
+            )
+        ):
+            raise ConflictError(
+                "App has organization data (entitlements or org role assignments); "
+                "revoke them before switching org_mode to none",
+                details=[{"field": "org_mode", "reason": "org_mode_in_use"}],
             )
 
         if "origins" in changes:
@@ -1108,25 +1141,7 @@ class RoleService:
         rows, total = await self.repo.page_role_holders(
             role.id, active=active, org_id=org_id, limit=limit, offset=offset
         )
-        return [
-            RoleHolderRead(
-                id=ra.id,
-                app=app.key,
-                role_id=ra.role_id,
-                role_key=role.key,
-                org_id=ra.org_id,
-                granted_by=ra.granted_by,
-                expires_at=ra.expires_at,
-                active=is_active,
-                created_at=ra.created_at,
-                user_id=ra.user_id,
-                email=email,
-                display_name=display_name,
-                user_status=user_status,
-                email_verified=verified,
-            )
-            for ra, email, display_name, user_status, verified, is_active in rows
-        ], total
+        return [_role_holder_read(r) for r in rows], total
 
     async def create(
         self, key: str, data: RoleCreate, *, actor: Actor, ctx: AuditContext
@@ -1348,6 +1363,17 @@ def _assignment_read(row: AssignmentRow) -> AssignmentRead:
         expires_at=ra.expires_at,
         active=active,
         created_at=ra.created_at,
+    )
+
+
+def _role_holder_read(row: RoleHolderRow) -> RoleHolderRead:
+    ra, app_key, role_key, active, email, display_name, user_status = row
+    return RoleHolderRead(
+        **_assignment_read((ra, app_key, role_key, active)).model_dump(),
+        user_id=ra.user_id,
+        email=email,
+        display_name=display_name,
+        user_status=UserStatus(user_status),
     )
 
 

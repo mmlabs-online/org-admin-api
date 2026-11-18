@@ -1,30 +1,29 @@
-## Attempt 1 — 2026-11-18
+
+## Attempt 1
 
 ### Files touched
-| File | Required because |
-|---|---|
-| app/modules/rbac/schemas.py | `RoleHolderRead` |
-| app/modules/rbac/repository.py | `_not_expired()`, `RoleHolderRow`, `page_role_holders` |
-| app/modules/rbac/service.py | `RoleService.list_holders` |
-| app/modules/rbac/router.py | `GET /apps/{key}/role-definitions/{role_id}/assignments` (`admin:users:read`, `no-store`) |
-| tests/test_rbac_role_holders_api.py | new API tests |
-| tests/test_route_auth_classes.py | BEARER entry |
-| tests/test_openapi_contract.py | `test_role_holders_operation`, envelope sweep entry |
-| docs/identity-architecture.md | section 4 row, D18 sentence |
+- `app/modules/rbac/schemas.py` — `RoleHolderRead(AssignmentRead)` (+ `UserStatus` import); required by AC2.
+- `app/modules/rbac/repository.py` — `_is_active()`, `_assignment_rows()` uses it, `RoleHolderRow`, `page_role_holders()` (2 statements), `not_` import; AC2/AC3.
+- `app/modules/rbac/service.py` — `RoleService.list_holders`, `_role_holder_read`; R1 business layer.
+- `app/modules/rbac/router.py` — `GET /{key}/role-definitions/{role_id}/assignments`, `admin:users:read`, `Cache-Control: no-store`; small `_with_404` helper (same shape as `_with_409`) so the 404 envelope is documented in OpenAPI.
+- `tests/test_rbac_role_holders_api.py` (new) — all plan tests.
+- `tests/test_route_auth_classes.py` — BEARER row.
+- `tests/test_openapi_contract.py` — `test_role_holders_operation`.
+- `docs/identity-architecture.md` — §4 table row.
 
-### Tests added / changed
-- tests/test_rbac_role_holders_api.py: all tests listed in the plan (shape, disabled/unverified, paging/order, limit 422, expired default, active filter/partition, org filter, multi-row user, unknown org, combined, bad query/uuid 422, empty, only-this-role, 404 x3, admin app, disabled app, 403, 401, bounded queries).
-- tests/test_openapi_contract.py: `test_role_holders_operation` asserts 401/403/422 envelope refs (not 404: `require_permission` documents no 404 on any route, so I did not add one).
+### Tests added
+All tests listed in the plan (API + repository + contract + route class row).
 
-### Checks (actual output summary)
-- make check: ruff, format, mypy clean; pytest `2420 passed, 1 warning`.
-- alembic check: not run (no migration).
+### Check results
+`env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check` on the final tree: `2456 passed, 1 warning` (ruff, format, mypy clean).
+Note: one earlier full run failed once on `tests/test_stats_repository.py::test_login_count_uses_action_index` (planner index choice; passes in isolation 3/3 and in the final full run); unrelated to this ticket, looks flaky.
 
 ### Out-of-plan files
 None.
 
-### Follow-ups (noticed, not done)
-- As in plan.md.
+### Follow-ups
+- As in plan.md (scope filter, email_verified_at, index, other inline `active` copies, no-store on `GET /users*`).
+- `test_login_count_uses_action_index` appears order/stat-dependent (flaky).
 
 ### Scope self-check
-- Could the diff be smaller? No.
+Only plan files touched; `_with_404` is the one small addition inside router.py. No migration.

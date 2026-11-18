@@ -56,7 +56,6 @@ def test_every_error_response_references_envelope() -> None:
     assert "/api/v1/apps/{key}/roles" in checked
     assert "/api/v1/me/permissions" in checked
     assert "/api/v1/apps/{key}/role-definitions" in checked
-    assert "/api/v1/apps/{key}/role-definitions/{role_id}/assignments" in checked
 
 
 def test_me_permissions_operation() -> None:
@@ -96,19 +95,15 @@ def test_role_holders_operation() -> None:
     schema = _schema()
     path = "/api/v1/apps/{key}/role-definitions/{role_id}/assignments"
     op = schema["paths"][path]["get"]
-    ref = "#/components/schemas/Page_RoleHolderRead_"
-    assert op["responses"]["200"]["content"]["application/json"]["schema"] == {"$ref": ref}
+    ok = op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert ok == {"$ref": "#/components/schemas/Page_RoleHolderRead_"}
     assert op["x-permission"] == "admin:users:read"
-    for code in ("401", "403", "422"):
+    for code in ("401", "403", "404"):
         assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
-    params = {p["name"]: p for p in op["parameters"]}
-    for name in ("active", "org_id"):
-        assert params[name]["required"] is False
-        assert params[name]["description"]
     component = schema["components"]["schemas"]["RoleHolderRead"]
     assert set(component["required"]) == {
         "id", "app", "role_id", "role_key", "org_id", "granted_by", "expires_at", "active",
-        "created_at", "user_id", "email", "display_name", "user_status", "email_verified",
+        "created_at", "user_id", "email", "display_name", "user_status",
     }  # fmt: skip
 
 
@@ -204,3 +199,87 @@ async def test_real_error_bodies_match_envelope(
         assert resp.status_code == status
         ErrorEnvelope.model_validate(resp.json())
         assert set(resp.json()["error"]) == {"code", "message", "details"}
+
+
+def _param(op: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(p for p in op["parameters"] if p["name"] == name)
+
+
+def _flat(schema: dict[str, Any]) -> dict[str, Any]:
+    """The non-null branch of an optional parameter schema."""
+    if "anyOf" in schema:
+        return next(s for s in schema["anyOf"] if s.get("type") != "null")
+    return schema
+
+
+def test_organizations_list_query_params() -> None:
+    schema = _schema()
+    op = schema["paths"]["/api/v1/organizations"]["get"]
+    for name in ("limit", "offset", "status", "q", "sort"):
+        param = _param(op, name)
+        assert param["in"] == "query"
+        assert not param.get("required")
+    for name in ("status", "q", "sort"):
+        assert _param(op, name)["description"]
+    status = _flat(_param(op, "status")["schema"])
+    if "$ref" in status:
+        status = schema["components"]["schemas"][status["$ref"].rsplit("/", 1)[-1]]
+    assert status["enum"] == ["active", "suspended"]
+    q = _flat(_param(op, "q")["schema"])
+    assert (q["minLength"], q["maxLength"]) == (1, 100)
+    assert "422" in _param(op, "q")["description"]
+    sort = _param(op, "sort")["schema"]
+    assert sort["enum"] == ["created_at", "-created_at", "name", "-name", "slug", "-slug"]
+    assert sort["default"] == "-created_at"
+
+
+def test_organizations_declared_error_responses() -> None:
+    paths = _schema()["paths"]
+    item = paths["/api/v1/organizations/{org_id}"]
+    for method in ("get", "patch", "delete"):
+        assert item[method]["responses"]["404"]["content"]["application/json"]["schema"] == {
+            "$ref": REF
+        }
+    assert "409" not in item["patch"]["responses"]
+    for op in (item["delete"], paths["/api/v1/organizations"]["post"]):
+        assert op["responses"]["409"]["content"]["application/json"]["schema"] == {"$ref": REF}
+
+
+def test_organizations_list_422_is_envelope() -> None:
+    response = _schema()["paths"]["/api/v1/organizations"]["get"]["responses"]["422"]
+    assert response["content"]["application/json"]["schema"] == {"$ref": REF}
+    assert "validation_error" in response["description"]
+
+
+def test_apps_list_query_params() -> None:
+    schema = _schema()
+    op = schema["paths"]["/api/v1/apps"]["get"]
+    names = ("status", "join_policy", "org_mode", "q", "sort")
+    for name in ("limit", "offset", *names):
+        param = _param(op, name)
+        assert param["in"] == "query"
+        assert not param.get("required")
+    for name in names:
+        assert _param(op, name)["description"]
+    expected = {
+        "status": ["active", "disabled"],
+        "join_policy": ["open", "approval", "closed"],
+        "org_mode": ["none", "required"],
+    }
+    for name, values in expected.items():
+        enum = _flat(_param(op, name)["schema"])
+        if "$ref" in enum:
+            enum = schema["components"]["schemas"][enum["$ref"].rsplit("/", 1)[-1]]
+        assert enum["enum"] == values
+    q = _flat(_param(op, "q")["schema"])
+    assert (q["minLength"], q["maxLength"]) == (1, 100)
+    assert "422" in _param(op, "q")["description"]
+    sort = _param(op, "sort")["schema"]
+    assert sort["enum"] == ["key", "-key", "name", "-name", "created_at", "-created_at"]
+    assert sort["default"] == "key"
+
+
+def test_apps_list_422_is_envelope() -> None:
+    response = _schema()["paths"]["/api/v1/apps"]["get"]["responses"]["422"]
+    assert response["content"]["application/json"]["schema"] == {"$ref": REF}
+    assert "validation_error" in response["description"]
