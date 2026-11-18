@@ -2,19 +2,21 @@ import unicodedata
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.listing import sort_clauses
 from app.modules.audit.models import AuditLog
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.rbac.models import App, Permission, Role
-from app.modules.rbac.repository import RbacRepository
+from app.modules.rbac.repository import _APP_SORT_COLUMNS, RbacRepository
+from app.modules.rbac.schemas import AppSort
 from app.modules.rbac.service import RoleCatalogService
-from tests.admin_auth_factories import make_staff
+from tests.admin_auth_factories import bearer, make_staff, mint
 from tests.auth_factories import make_login_user
 from tests.conftest import MakeClient
 from tests.rbac_factories import (
@@ -969,3 +971,252 @@ async def test_get_app_query_count(make_client: MakeClient, db_session: AsyncSes
     app = await _app_with_member(db_session)
     seen = await _app_statements(make_client, db_session, f"{BASE}/{app.key}")
     assert len(seen) == 2
+
+
+# --- list filters and sort (USR-18) ---
+
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+async def _seed_app(
+    db_session: AsyncSession,
+    key: str,
+    name: str,
+    *,
+    status: str = "active",
+    join_policy: str = "open",
+    org_mode: str = "none",
+    created_at: datetime = T0,
+) -> App:
+    app = App(
+        key=key,
+        name=name,
+        status=status,
+        join_policy=join_policy,
+        org_mode=org_mode,
+        created_at=created_at,
+    )
+    db_session.add(app)
+    await db_session.flush()
+    await db_session.refresh(app)
+    return app
+
+
+async def _keys(client: AsyncClient, query: str = "") -> list[str]:
+    resp = await client.get(f"{BASE}?{query}")
+    assert resp.status_code == 200
+    return [i["key"] for i in resp.json()["items"]]
+
+
+def test_apps_sort_allow_list_matches_repository_mapping() -> None:
+    for value in get_args(AppSort):
+        assert sort_clauses(value, _APP_SORT_COLUMNS, App.id)
+
+
+async def test_list_apps_filter_status(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    await _seed_app(db_session, "alpha", "Alpha")
+    await _seed_app(db_session, "bravo", "Bravo", status="disabled")
+    resp = await rbac_client.get(f"{BASE}?status=disabled")
+    assert [i["key"] for i in resp.json()["items"]] == ["bravo"]
+    assert resp.json()["total"] == 1
+    resp = await rbac_client.get(f"{BASE}?status=active")
+    assert [i["key"] for i in resp.json()["items"]] == ["admin", "alpha"]
+    assert resp.json()["total"] == 2
+
+
+async def test_list_apps_filter_join_policy(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _seed_app(db_session, "po", "Po", join_policy="open")
+    await _seed_app(db_session, "pa", "Pa", join_policy="approval")
+    await _seed_app(db_session, "pc", "Pc", join_policy="closed")
+    resp = await rbac_client.get(f"{BASE}?join_policy=approval")
+    assert [i["key"] for i in resp.json()["items"]] == ["pa"]
+    assert resp.json()["total"] == 1
+    resp = await rbac_client.get(f"{BASE}?join_policy=closed")
+    assert [i["key"] for i in resp.json()["items"]] == ["admin", "pc"]
+    assert resp.json()["total"] == 2
+
+
+async def test_list_apps_filter_org_mode(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _seed_app(db_session, "mn", "Mn", org_mode="none")
+    await _seed_app(db_session, "mr", "Mr", org_mode="required")
+    resp = await rbac_client.get(f"{BASE}?org_mode=required")
+    assert [i["key"] for i in resp.json()["items"]] == ["mr"]
+    assert resp.json()["total"] == 1
+
+
+async def test_list_apps_filter_q_key_or_name_case_insensitive(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _seed_app(db_session, "one", "Alpha")
+    await _seed_app(db_session, "bravo", "Other")
+    await _seed_app(db_session, "three", "Charlie")
+    assert await _keys(rbac_client, "q=ALP") == ["one"]
+    assert await _keys(rbac_client, "q=BRAV") == ["bravo"]
+
+
+async def test_list_apps_filter_q_is_trimmed(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _seed_app(db_session, "one", "Alpha")
+    resp = await rbac_client.get(BASE, params={"q": " alpha "})
+    assert [i["key"] for i in resp.json()["items"]] == ["one"]
+
+
+@pytest.mark.parametrize(
+    ("q", "expected"),
+    [("%", ["pure"]), ("a_b", ["ab"]), ("_", ["ab"]), ("\\", ["back"])],
+)
+async def test_list_apps_filter_q_escapes_like_wildcards(
+    rbac_client: AsyncClient, db_session: AsyncSession, q: str, expected: list[str]
+) -> None:
+    await _seed_app(db_session, "pure", "100% Pure")
+    await _seed_app(db_session, "plain", "100 Pure")
+    await _seed_app(db_session, "ab", "a_b")
+    await _seed_app(db_session, "axb", "axb")
+    await _seed_app(db_session, "back", "back\\slash")
+    resp = await rbac_client.get(BASE, params={"q": q})
+    assert [i["key"] for i in resp.json()["items"]] == expected
+
+
+async def test_list_apps_filters_combined(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _seed_app(db_session, "hit", "Alpha", status="disabled", join_policy="approval")
+    await _seed_app(db_session, "ahit", "Alpha", status="active", join_policy="approval")
+    await _seed_app(db_session, "bhit", "Alpha", status="disabled", join_policy="open")
+    await _seed_app(db_session, "chit", "Other", status="disabled", join_policy="approval")
+    resp = await rbac_client.get(f"{BASE}?status=disabled&join_policy=approval&q=alph")
+    assert [i["key"] for i in resp.json()["items"]] == ["hit"]
+    assert resp.json()["total"] == 1
+
+
+async def test_list_apps_total_is_filtered_count(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    for key in ("matcha", "matchb", "matchc", "othera", "otherb"):
+        await _seed_app(db_session, key, key.title())
+    resp = await rbac_client.get(f"{BASE}?q=match&limit=1")
+    body = resp.json()
+    assert (body["total"], len(body["items"]), body["limit"]) == (3, 1, 1)
+
+
+@pytest.mark.parametrize(
+    ("sort", "expected"),
+    [
+        ("key", ["ka", "kb", "kc"]),
+        ("-key", ["kc", "kb", "ka"]),
+        ("name", ["kc", "ka", "kb"]),
+        ("-name", ["kb", "ka", "kc"]),
+        ("created_at", ["kb", "kc", "ka"]),
+        ("-created_at", ["ka", "kc", "kb"]),
+    ],
+)
+async def test_list_apps_sort_orders(
+    rbac_client: AsyncClient, db_session: AsyncSession, sort: str, expected: list[str]
+) -> None:
+    await _seed_app(db_session, "ka", "Bravo", created_at=T0 + timedelta(days=3))
+    await _seed_app(db_session, "kb", "Charlie", created_at=T0 + timedelta(days=1))
+    await _seed_app(db_session, "kc", "Alpha", created_at=T0 + timedelta(days=2))
+    keys = [k for k in await _keys(rbac_client, f"sort={sort}") if k != "admin"]
+    assert keys == expected
+
+
+@pytest.mark.parametrize("sort", ["name", "-name", "created_at", "-created_at"])
+async def test_list_apps_sort_tie_breaker_is_id_asc(
+    rbac_client: AsyncClient, db_session: AsyncSession, sort: str
+) -> None:
+    t1 = await _seed_app(db_session, "tie1", "Same")
+    t2 = await _seed_app(db_session, "tie2", "Same")
+    await _seed_app(db_session, "other", "Other", created_at=T0 + timedelta(days=1))
+    tied = {t1.key: t1.id, t2.key: t2.id}
+    keys = [k for k in await _keys(rbac_client, f"sort={sort}") if k in tied]
+    assert keys == sorted(tied, key=lambda k: tied[k])
+
+
+async def test_list_apps_default_order_unchanged(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _seed_app(db_session, "zed", "Aaa")
+    await _seed_app(db_session, "bee", "Zzz")
+    default = (await rbac_client.get(BASE)).json()["items"]
+    assert default == (await rbac_client.get(f"{BASE}?sort=key")).json()["items"]
+    keys = [i["key"] for i in default]
+    assert keys == sorted(keys)
+
+
+async def test_list_apps_member_count_on_filtered_page(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    mca = await _seed_app(db_session, "mca", "Mca")
+    mcb = await _seed_app(db_session, "mcb", "Mcb")
+    ra, rb = await make_role(db_session, mca, "mm:r"), await make_role(db_session, mcb, "mm:r")
+    await assign(db_session, await make_login_user(db_session), ra)
+    for _ in range(2):
+        await assign(db_session, await make_login_user(db_session), rb)
+    items = (await rbac_client.get(f"{BASE}?q=mcb")).json()["items"]
+    assert [(i["key"], i["member_count"]) for i in items] == [("mcb", 2)]
+    counts = {
+        i["key"]: i["member_count"]
+        for i in (await rbac_client.get(f"{BASE}?status=active&sort=-key")).json()["items"]
+    }
+    assert (counts["mca"], counts["mcb"]) == (1, 2)
+
+
+async def test_list_apps_query_count_with_filters(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    path = f"{BASE}?status=active&q=qa-&sort=-name"
+    await _app_with_member(db_session)
+    few = await _app_statements(make_client, db_session, path)
+    for _ in range(4):
+        await _app_with_member(db_session)
+    many = await _app_statements(make_client, db_session, path)
+    assert len(few) == len(many) == 3
+    assert sum("role_assignments" in s for s in many) == 1
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "status=deleted",
+        "join_policy=x",
+        "org_mode=x",
+        "sort=bogus",
+        "sort=id",
+        "sort=KEY",
+        "sort=member_count",
+        "q=",
+        "q=%20%20%20",
+        "q=" + "x" * 101,
+    ],
+)
+async def test_list_apps_rejects_bad_query(rbac_client: AsyncClient, query: str) -> None:
+    resp = await rbac_client.get(f"{BASE}?{query}")
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+
+
+async def test_list_apps_ignores_unknown_params(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _seed_app(db_session, "alpha", "Alpha")
+    plain = (await rbac_client.get(BASE)).json()["items"]
+    resp = await rbac_client.get(f"{BASE}?foo=bar")
+    assert resp.status_code == 200
+    assert resp.json()["items"] == plain
+
+
+async def test_list_apps_without_permission_403(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    staff = await make_staff(db_session)
+    headers = bearer(mint(staff))
+    for query in ("q=acme&sort=name", "sort=bogus"):
+        resp = await client.get(f"{BASE}?{query}", headers=headers)
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "permission_denied"
+        assert resp.json()["error"]["details"] == {"required": "admin:apps:read"}
