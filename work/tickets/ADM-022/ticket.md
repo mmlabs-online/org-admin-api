@@ -27,3 +27,4 @@ ADM-021 (shared filters), ADM-004b. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
 - Needs owner answer before PLAN: is this in scope separately from §5.11 reports (blocked, ADM-017)?
+- 2026-11-18 (owner): yes — the audit-log CSV export is separate from §5.11 reports and in scope; it does not wait for OQ9–OQ18. The planner records this in spec §5.4 (and a cross-reference in §5.11).
