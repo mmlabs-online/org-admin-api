@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Type | bug |
-| State | BACKLOG |
+| State | PLANNING |
 | Severity | S3 |
 | Priority | P3 |
 | Areas | api |
@@ -53,3 +53,4 @@ None.
 
 ## Notes / answers from owner
 - 2026-11-18 (owner): record this flake as a bug.
+- 2026-11-18 (owner): fix now (option C). Orchestrator: consult skipped — test-only fix, root cause in the ticket; the USR-05b review already flagged the `rsplit` nit.
