@@ -80,3 +80,13 @@ None.
 
 ### Scope self-check
 Only the planned files changed; the repository change per site is the CTE swap; no commit made (as instructed).
+
+## Attempt 2 (REWORK)
+
+Fixes only the review's findings from Attempt 1.
+- `tests/purge_plan.py`: deleted unused `explain()` and the imports only it used (`Executable`, `postgresql`).
+- `tests/test_cli_cleanup.py`: one-line docstring on `test_purge_tokens_respects_limit_when_subquery_rescanned`.
+- Removed untracked `tests/__pycache__/_explore_tmp*.pyc`.
+
+Check: `env -u APP_VERSION -u DATABASE_URL -u APP_ENV make check`: ruff, format, mypy clean; 2424 passed.
+Out-of-plan files: none. Follow-ups: unchanged. No commit made.

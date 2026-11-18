@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Type | bug |
-| State | REWORK |
+| State | REVIEW |
 | Severity | S3 |
 | Priority | P3 |
 | Areas | db |

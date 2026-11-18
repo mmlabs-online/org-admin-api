@@ -290,6 +290,7 @@ async def test_purge_send_log_respects_limit_when_subquery_rescanned(
 async def test_purge_tokens_respects_limit_when_subquery_rescanned(
     db_session: AsyncSession,
 ) -> None:
+    """BUG-001 regression: the tokens purge honors its batch limit under a rescanned subquery."""
     user = await make_user(db_session)
     for age in ("12 days", "11 days", "10 days", "9 days", "8 days"):  # oldest first
         await _token(db_session, user.id, age, used=True, ttl="24 hours")
