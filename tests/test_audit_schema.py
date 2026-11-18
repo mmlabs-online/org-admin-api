@@ -9,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.repository import AuditLogFilter, AuditRepository
+
 INSERT = text(
     "INSERT INTO audit_log (id, actor_kind, actor_user_id, actor_label, action, target_type,"
     " target_id, app_key, changes, request_id) VALUES (:id, :actor_kind, :actor_user_id,"
@@ -158,6 +160,30 @@ async def test_outcome_partial_index_used(db_session: AsyncSession) -> None:
         )
     ).scalars()
     assert "ix_audit_log_outcome" in "\n".join(plan)
+
+
+async def test_org_filter_uses_indexes(db_session: AsyncSession) -> None:
+    await db_session.execute(text("SET LOCAL enable_seqscan = off"))
+    # Text mirror of the count form of `AuditRepository.list` with `org_id`.
+    plan = "\n".join(
+        (
+            await db_session.execute(
+                text(
+                    "EXPLAIN SELECT count(*) FROM audit_log WHERE "
+                    "(target_type = 'organization' AND target_id = :o) OR org_id = :o"
+                ),
+                {"o": uuid.uuid4()},
+            )
+        ).scalars()
+    )
+    assert "ix_audit_log_org_id" in plan
+    assert "ix_audit_log_target" in plan
+    assert "Seq Scan on audit_log" not in plan
+    # The method itself runs.
+    items, total = await AuditRepository(db_session).list(
+        AuditLogFilter(org_id=uuid.uuid4()), limit=1, offset=0
+    )
+    assert (items, total) == ([], 0)
 
 
 # Retention purge (ADM-004c): DELETE needs the `audit.allow_purge` latch AND a row older than

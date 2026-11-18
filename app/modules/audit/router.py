@@ -1,7 +1,7 @@
 """Admin (Bearer) endpoint, R3 class 1: the read-only audit log (ADM-004). Not audited itself."""
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import AwareDatetime
@@ -18,6 +18,13 @@ from app.modules.rbac.models import APP_KEY_RE
 router = APIRouter(prefix="/audit-logs", tags=["audit"], dependencies=[Depends(current_admin)])
 
 
+def _read_route(errors: dict[int, str]) -> dict[str, Any]:
+    kwargs = require_permission("admin:audit:read")
+    for code, description in errors.items():
+        kwargs["responses"][code] = {"description": description}
+    return kwargs
+
+
 @router.get("", response_model=Page[AuditLogRead], **require_permission("admin:audit:read"))
 async def list_audit_logs(
     session: SessionDep,
@@ -28,6 +35,16 @@ async def list_audit_logs(
     target_type: Annotated[AuditTarget | None, Query()] = None,
     target_id: Annotated[uuid.UUID | None, Query()] = None,
     app_key: Annotated[str | None, Query(pattern=APP_KEY_RE)] = None,
+    org_id: Annotated[
+        uuid.UUID | None,
+        Query(
+            description=(
+                "Rows about this organization: the target is this organization, or the row's "
+                "`org_id` equals it. Combined with the other filters by AND (e.g. with "
+                "`target_type=user`, only user-targeted rows whose `org_id` is this org)."
+            )
+        ),
+    ] = None,
     outcome: Annotated[AuditOutcome | None, Query()] = None,
     occurred_from: Annotated[AwareDatetime | None, Query(alias="from")] = None,
     occurred_to: Annotated[AwareDatetime | None, Query(alias="to")] = None,
@@ -39,6 +56,7 @@ async def list_audit_logs(
         target_type=None if target_type is None else target_type.value,
         target_id=target_id,
         app_key=app_key,
+        org_id=org_id,
         outcome=None if outcome is None else outcome.value,
         occurred_from=occurred_from,
         occurred_to=occurred_to,
@@ -52,3 +70,12 @@ async def list_audit_logs(
         limit=page.limit,
         offset=page.offset,
     )
+
+
+@router.get(
+    "/{audit_log_id}",
+    response_model=AuditLogRead,
+    **_read_route({404: "Audit log entry not found"}),
+)
+async def get_audit_log(session: SessionDep, audit_log_id: uuid.UUID) -> AuditLogRead:
+    return AuditLogRead.model_validate(await AuditLogService(session).get(audit_log_id))

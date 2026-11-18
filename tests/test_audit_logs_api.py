@@ -118,6 +118,138 @@ async def test_filter_app_key(admin_client: AsyncClient, db_session: AsyncSessio
     assert resp.json()["items"][0]["ip"] == "203.0.113.7"
 
 
+async def test_filter_org_id_target_or_column(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = uuid.uuid4()
+    a = await _add(db_session, minutes=0, target_type="organization", target_id=org)
+    b = await _add(
+        db_session,
+        minutes=1,
+        action="entitlement.granted",
+        target_type="entitlement",
+        target_id=uuid.uuid4(),
+        org_id=org,
+    )
+    other = uuid.uuid4()
+    await _add(db_session, minutes=2, target_type="organization", target_id=other, org_id=other)
+    resp = await admin_client.get(URL, params={"org_id": str(org)})
+    assert _ids(resp) == [str(b.id), str(a.id)]
+    assert resp.json()["total"] == 2
+
+
+async def test_filter_org_id_row_matching_both_once(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = uuid.uuid4()
+    both = await _add(db_session, target_type="organization", target_id=org, org_id=org)
+    resp = await admin_client.get(URL, params={"org_id": str(org)})
+    assert _ids(resp) == [str(both.id)]
+    assert resp.json()["total"] == 1
+
+
+async def test_filter_org_id_other_target_type_not_matched(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = uuid.uuid4()
+    await _add(db_session, action="user.created", target_type="user", target_id=org)
+    resp = await admin_client.get(URL, params={"org_id": str(org)})
+    assert _ids(resp) == []
+
+
+async def test_filter_org_id_with_other_filters(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = uuid.uuid4()
+    target_hit = await _add(
+        db_session,
+        minutes=0,
+        action="organization.updated",
+        outcome="denied",
+        app_key="stoktok",
+        target_type="organization",
+        target_id=org,
+    )
+    column_hit = await _add(
+        db_session,
+        minutes=1,
+        action="entitlement.granted",
+        app_key="ricotdin",
+        target_type="entitlement",
+        target_id=uuid.uuid4(),
+        org_id=org,
+    )
+    org_param = {"org_id": str(org)}
+    both = {**org_param, "action": "organization.updated"}
+    assert _ids(await admin_client.get(URL, params=both)) == [str(target_hit.id)]
+    both = {**org_param, "action": "entitlement.granted"}
+    assert _ids(await admin_client.get(URL, params=both)) == [str(column_hit.id)]
+    both = {**org_param, "outcome": "denied"}
+    assert _ids(await admin_client.get(URL, params=both)) == [str(target_hit.id)]
+    both = {**org_param, "app_key": "ricotdin"}
+    assert _ids(await admin_client.get(URL, params=both)) == [str(column_hit.id)]
+    assert len(_ids(await admin_client.get(URL, params=org_param))) == 2
+
+
+async def test_unknown_org_id_empty_page(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _add(db_session, org_id=uuid.uuid4())
+    resp = await admin_client.get(URL, params={"org_id": str(uuid.uuid4())})
+    assert resp.status_code == 200
+    assert resp.json() == {"items": [], "total": 0, "limit": 20, "offset": 0}
+
+
+async def test_get_audit_log_matches_list_item(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = uuid.uuid4()
+    row = await _add(
+        db_session,
+        target_type="organization",
+        target_id=org,
+        org_id=org,
+        ip="203.0.113.7",
+        user_agent="pytest/1.0",
+        changes={"name": {"from": "a", "to": "b"}},
+    )
+    resp = await admin_client.get(f"{URL}/{row.id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body) == READ_KEYS
+    assert body == (await admin_client.get(URL)).json()["items"][0]
+    assert body["user_agent"] == "pytest/1.0"
+    assert body["ip"] == "203.0.113.7"
+
+
+async def test_get_audit_log_404(admin_client: AsyncClient) -> None:
+    resp = await admin_client.get(f"{URL}/{uuid.uuid4()}")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"
+
+
+async def test_get_audit_log_422_malformed_id(admin_client: AsyncClient) -> None:
+    resp = await admin_client.get(f"{URL}/not-a-uuid")
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+
+
+async def test_get_audit_log_401(client: AsyncClient) -> None:
+    resp = await client.get(f"{URL}/{uuid.uuid4()}")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "unauthorized"
+
+
+async def test_get_audit_log_403_without_permission(make_client: MakeClient) -> None:
+    url = f"{URL}/{uuid.uuid4()}"
+    async with make_client(admin_permissions=["admin:users:read"]) as client:
+        resp = await client.get(url)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["details"] == {"required": "admin:audit:read"}
+    async with make_client(admin_permissions=["admin:audit:read"]) as client:
+        assert (await client.get(url)).status_code == 404
+
+
 async def test_time_range_half_open(admin_client: AsyncClient, db_session: AsyncSession) -> None:
     before, start, inside, end = [await _add(db_session, minutes=m) for m in (-1, 0, 5, 10)]
     params = {"from": T0.isoformat(), "to": (T0 + timedelta(minutes=10)).isoformat()}
@@ -146,10 +278,22 @@ async def test_unknown_app_key_empty_page(
         {"target_type": "galaxy"},
         {"actor_user_id": "not-a-uuid"},
         {"app_key": "Bad Key"},
+        {"org_id": "not-a-uuid"},
         {"limit": 101},
         {"offset": -1},
     ],
-    ids=["naive_from", "naive_to", "action", "actor_kind", "target", "uuid", "app", "limit", "off"],
+    ids=[
+        "naive_from",
+        "naive_to",
+        "action",
+        "actor_kind",
+        "target",
+        "uuid",
+        "app",
+        "org",
+        "limit",
+        "off",
+    ],
 )
 async def test_422_validation(admin_client: AsyncClient, params: dict[str, Any]) -> None:
     """Covers test_422_naive_datetime, test_422_unknown_action and test_422_limit_over_100."""

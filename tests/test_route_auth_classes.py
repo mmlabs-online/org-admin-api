@@ -107,6 +107,7 @@ BEARER = {
     ("POST", f"{V1}/apps/{{key}}/join-requests/{{request_id}}/approve"): "admin:roles:assign",
     ("POST", f"{V1}/apps/{{key}}/join-requests/{{request_id}}/reject"): "admin:roles:assign",
     ("GET", f"{V1}/audit-logs"): "admin:audit:read",
+    ("GET", f"{V1}/audit-logs/{{audit_log_id}}"): "admin:audit:read",
 }
 # Bearer, self-scoped, no permission (ADR-0008 USR-11 amendment). GET only, no path/query/body
 # input, caller's own data only. Adding an entry needs an ADR-0008 amendment (owner approval).
@@ -304,6 +305,7 @@ def _fill(path: str) -> str:
             name: uuid.uuid4()
             for name in (
                 "org_id",
+                "audit_log_id",
                 "user_id",
                 "assignment_id",
                 "permission_id",

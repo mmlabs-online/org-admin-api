@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import AppError, UnprocessableError
+from app.core.errors import AppError, NotFoundError, UnprocessableError
 from app.modules.admin_auth.service import AdminPrincipal
 from app.modules.audit.actions import ActorKind, AuditAction, AuditOutcome, AuditTarget
 from app.modules.audit.context import AnonymousActor, AuditContext, EndUser
@@ -269,3 +269,9 @@ class AuditLogService:
                 "from must not be after to", details=[{"field": "from", "reason": "after_to"}]
             )
         return await self.repo.list(filters, limit=limit, offset=offset)
+
+    async def get(self, audit_log_id: uuid.UUID) -> AuditLog:
+        row = await self.repo.get(audit_log_id)
+        if row is None:
+            raise NotFoundError("Audit log entry not found")
+        return row

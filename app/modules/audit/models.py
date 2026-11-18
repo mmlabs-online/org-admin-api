@@ -68,6 +68,13 @@ class AuditLog(UUIDPkMixin, Base):
             postgresql_where=text("app_key IS NOT NULL"),
         ),
         Index(
+            "ix_audit_log_org_id",
+            "org_id",
+            "occurred_at",
+            "id",
+            postgresql_where=text("org_id IS NOT NULL"),
+        ),
+        Index(
             "ix_audit_log_outcome",
             "outcome",
             "occurred_at",

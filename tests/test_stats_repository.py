@@ -51,6 +51,9 @@ async def test_sign_ups_window_and_zero_fill(db_session: AsyncSession) -> None:
 
 async def test_login_count_uses_action_index(db_session: AsyncSession) -> None:
     await db_session.execute(text("SET LOCAL enable_seqscan = off"))
+    # Planner statistics left by earlier tests are timing-dependent; with the time-only index
+    # gone (dropped inside this test's rolled-back transaction) the choice is deterministic.
+    await db_session.execute(text("DROP INDEX ix_audit_log_occurred_at_id"))
     # Text mirror of `AuditRepository.count_actions_since`.
     plan = (
         await db_session.execute(
