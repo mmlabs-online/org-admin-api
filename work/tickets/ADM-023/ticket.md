@@ -7,7 +7,7 @@
 | Areas | api |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/67 |
 
 ## Goal
 `/openapi.json` lists every real error response and permission requirement, so admin-pan's generated types match the API.
