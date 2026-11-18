@@ -24,6 +24,7 @@ from app.modules.rbac.schemas import (
     PermissionRead,
     PermissionUpdate,
     RoleCreate,
+    RoleDefinitionRead,
     RolePermissionsReplace,
     RoleRead,
     RoleUpdate,
@@ -177,6 +178,31 @@ async def delete_permission(
 
 
 # --- roles -------------------------------------------------------------------
+
+
+@router.get(
+    "/{key}/role-definitions",
+    response_model=Page[RoleDefinitionRead],
+    **require_permission("admin:apps:read"),
+)
+async def list_role_definitions(
+    session: SessionDep, key: str, page: PageDep
+) -> Page[RoleDefinitionRead]:
+    items, total = await RoleService(session).list_definitions(
+        key, limit=page.limit, offset=page.offset
+    )
+    return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@router.get(
+    "/{key}/role-definitions/{role_id}",
+    response_model=RoleDefinitionRead,
+    **require_permission("admin:apps:read"),
+)
+async def get_role_definition(
+    session: SessionDep, key: str, role_id: uuid.UUID
+) -> RoleDefinitionRead:
+    return await RoleService(session).get_definition(key, role_id)
 
 
 @router.post(

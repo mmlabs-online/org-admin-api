@@ -93,6 +93,8 @@ BEARER = {
     ("POST", f"{V1}/apps/{{key}}/permissions"): "admin:roles:manage",
     ("PATCH", f"{V1}/apps/{{key}}/permissions/{{permission_id}}"): "admin:roles:manage",
     ("DELETE", f"{V1}/apps/{{key}}/permissions/{{permission_id}}"): "admin:roles:manage",
+    ("GET", f"{V1}/apps/{{key}}/role-definitions"): "admin:apps:read",
+    ("GET", f"{V1}/apps/{{key}}/role-definitions/{{role_id}}"): "admin:apps:read",
     ("POST", f"{V1}/apps/{{key}}/roles"): "admin:roles:manage",
     ("PATCH", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("DELETE", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",

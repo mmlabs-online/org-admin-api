@@ -49,6 +49,7 @@ from app.modules.rbac.schemas import (
     RoleCatalog,
     RoleCatalogEntry,
     RoleCreate,
+    RoleDefinitionRead,
     RolePermissionsReplace,
     RoleRead,
     RoleUpdate,
@@ -1020,6 +1021,11 @@ class PermissionService:
         )
 
 
+def role_is_privileged(app_key: str, holds_admin_permission: bool) -> bool:
+    """Mirrors `AssignmentService._guard_privileged` (ADR-0008 G4); change both together."""
+    return app_key == ADMIN_APP_KEY or holds_admin_permission
+
+
 class RoleService:
     """Every mutation locks the app row first and decides every guard after it (ADR-0003 §10)."""
 
@@ -1042,6 +1048,49 @@ class RoleService:
             is_system=role.is_system,
             permissions=sorted(keys.values()),
         )
+
+    async def _definitions(self, app: App, roles: Sequence[Role]) -> list[RoleDefinitionRead]:
+        keys: dict[uuid.UUID, list[str]] = {}
+        admin: set[uuid.UUID] = set()
+        for role_id, perm_key, is_admin in await self.repo.role_permission_rows(
+            [r.id for r in roles]
+        ):
+            keys.setdefault(role_id, []).append(perm_key)
+            if is_admin:
+                admin.add(role_id)
+        return [
+            RoleDefinitionRead(
+                id=r.id,
+                app=app.key,
+                key=r.key,
+                name=r.name,
+                is_system=r.is_system,
+                is_default=r.id == app.default_role_id,
+                privileged=role_is_privileged(app.key, r.id in admin),
+                permissions=sorted(keys.get(r.id, [])),
+                created_at=r.created_at,
+                updated_at=r.updated_at,
+            )
+            for r in roles
+        ]
+
+    async def _app(self, key: str) -> App:
+        app = await self.repo.get_app_by_key(key)
+        if app is None:
+            raise NotFoundError("App not found")
+        return app
+
+    async def list_definitions(
+        self, key: str, *, limit: int, offset: int
+    ) -> tuple[list[RoleDefinitionRead], int]:
+        app = await self._app(key)
+        roles, total = await self.repo.page_roles(app.id, limit=limit, offset=offset)
+        return await self._definitions(app, roles), total
+
+    async def get_definition(self, key: str, role_id: uuid.UUID) -> RoleDefinitionRead:
+        app = await self._app(key)
+        role = await self._get(app, role_id)
+        return (await self._definitions(app, [role]))[0]
 
     async def create(
         self, key: str, data: RoleCreate, *, actor: Actor, ctx: AuditContext
