@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Type | bug |
-| State | BACKLOG |
+| State | PLANNING |
 | Severity | S3 |
 | Priority | P3 |
 | Areas | db |
