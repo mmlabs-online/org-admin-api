@@ -1,14 +1,18 @@
 """Per-app access tokens (D7, ADR-0005): checks in the order of the USR-03c plan, then sign."""
 
 import logging
+import re
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_keys import KeySet
+from app.modules.entitlements.repository import EntitlementRepository, EntitlementView
+from app.modules.entitlements.schemas import PLAN_PATTERN, Limits
 from app.modules.membership.service import join_available
 from app.modules.rbac.authz import AuthzService
 from app.modules.rbac.models import ADMIN_APP_KEY, App, OrgMode
@@ -27,6 +31,20 @@ from app.modules.users.models import UserStatus
 from app.modules.users.repository import UserRepository
 
 logger = logging.getLogger(__name__)
+
+_LIMITS = TypeAdapter(Limits)
+
+
+def _ent_claim(view: EntitlementView, aud: str) -> dict[str, object] | None:
+    """The `ent` claim; a row that breaks the ADM-006 contract fails closed to `None`."""
+    try:
+        if re.fullmatch(PLAN_PATTERN, view.plan) is None:
+            raise ValueError("plan")
+        _LIMITS.validate_python(view.limits, strict=True)
+    except (ValueError, ValidationError):
+        logger.warning("ent_out_of_contract entitlement_id=%s aud=%s", view.id, aud)
+        return None
+    return {"plan": view.plan, "limits": dict(view.limits)}
 
 
 @dataclass(frozen=True)
@@ -49,6 +67,7 @@ class TokenService:
         self.accounts = SessionRepository(session)
         self.users = UserRepository(session)
         self.authz = AuthzService(session)
+        self.entitlements = EntitlementRepository(session)
         self.key_set = key_set
         self.issuer = issuer
         self.ttl = ttl_seconds
@@ -95,6 +114,9 @@ class TokenService:
             roles = await self.authz.effective_roles(user.id, app.key, data.org_id)
             claims["org"] = str(data.org_id)
             claims["org_roles"] = org_roles  # org-exact only (ADR-0015); `roles` stays the union
+            if app.key != ADMIN_APP_KEY:  # invariant: `ent` never sits next to `sid`
+                view = await self.entitlements.get_active_for(data.org_id, app.id)
+                claims["ent"] = None if view is None else _ent_claim(view, app.key)
 
         if app.key == ADMIN_APP_KEY:
             claims["sid"] = str(account.id)  # admin tokens end with this account session (USR-14)

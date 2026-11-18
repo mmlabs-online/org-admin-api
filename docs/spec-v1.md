@@ -54,9 +54,9 @@ Append-only record of every mutating admin action: actor, action, target type/id
 The list of mmlabs products is the `apps` table of §5.3 (key, name, status).
 
 ### §5.6 Org product entitlements
-Which org can use which product, with plan and limits; enable/disable per org. Readable by mmlabs services (service-to-service auth, §8 Q4).
+Which org can use which product, with plan and limits; enable/disable per org. Readable by mmlabs services through the `ent` access-token claim (§8 Q4, ADR-0017).
 
-> 2026-11-17 (ADM-006): staff Bearer endpoints under /api/v1/organizations/{org_id}/entitlements (admin:entitlements:read|write). Active = enabled AND org active AND app active (?active=true). Only non-admin, active, org_mode=required apps can be granted. Service-to-service read (Q4) deferred to ADM-018.
+> 2026-11-17 (ADM-006): staff Bearer endpoints under /api/v1/organizations/{org_id}/entitlements (admin:entitlements:read|write). Active = enabled AND org active AND app active (?active=true). Only non-admin, active, org_mode=required apps can be granted. ADM-018: services read it through the `ent` claim (Q4, ADR-0017).
 
 ### §5.8 mmlabs Identity — ecosystem users and authentication (owner, 2026-11-11)
 One account per person across all mmlabs apps, **fully self-hosted here** (D1): email + password only, no external IdP, no social login, not an OIDC provider. Architecture, data model, API and decision log D1–D12: [`identity-architecture.md`](identity-architecture.md).
@@ -66,7 +66,7 @@ One account per person across all mmlabs apps, **fully self-hosted here** (D1): 
 - **Passwords:** hashed with Argon2id; never logged or returned; minimum length and a breached/common-password check per the plan.
 - **Login and sessions:** each app has its own login page and uses `@mmlabs/auth-client`, which posts credentials straight to this API (D4). A browser holds one device session (cookie `__Host-mm_device`, rotated with a 60 s grace) with any number of signed-in accounts; each app remembers its own chosen account, so signing into another account in one app does not change another app (D5, D6). Logout per account or for the whole device.
 - **Per-app access tokens:** an app asks for its own per-app access JWT (lifetime `ACCESS_TOKEN_TTL_SECONDS`, up to 12 h; 12 h in production (owner, 2026-11-17)) for a chosen account (and org, if any), carrying only that app's roles (D7). Not a member → `not_member` with `join_available`; joining follows the app's `join_policy` (D8–D9).
-- **Verification by apps:** public keys at `/.well-known/jwks.json`; apps verify signature, `iss`, `aud` and expiry locally. Claims: `sub`, `email`, `email_verified`, `aud`, `roles` (app-scope plus selected-org roles), `org` (if scoped), `org_roles` (if scoped: role keys held in that org only; org apps authorize org data from it, ADR-0015) (owner, 2026-11-17), `iat`, `exp`. Backends use `mmlabs-auth` (Python) (D4).
+- **Verification by apps:** public keys at `/.well-known/jwks.json`; apps verify signature, `iss`, `aud` and expiry locally. Claims: `sub`, `email`, `email_verified`, `aud`, `roles` (app-scope plus selected-org roles), `org` (if scoped), `org_roles` (if scoped: role keys held in that org only; org apps authorize org data from it, ADR-0015) (owner, 2026-11-17), `ent` (if scoped: `{plan, limits}` of the org's active entitlement for the app, else `null`; ADR-0017), `iat`, `exp`. Backends use `mmlabs-auth` (Python) (D4).
 - **Abuse protection:** no hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP limit, Turnstile after 3 failures; the same error for unknown email and wrong password (D11). CORS only for registered app origins; cookie-authenticated POSTs check Origin and `X-MM-App` (D12).
 - **Email flows:** email verification and password reset by one-time, expiring links, sent through Gmail SMTP behind an `EmailSender` interface; resend at most 1/min and 5/day per email (D3).
 - **Organizations:** optional per app (`org_mode`); one `organizations` table owned by this Identity module (D10, D15, USR-06).
@@ -145,7 +145,7 @@ Org members view, per-org feature flags, announcements, impersonation (heavily a
 - [ ] Q1. Which mmlabs products are in scope first?
 - [x] Q2. Staff login — **answered 2026-11-11:** email + password managed by this service (§5.8); staff are §5.8 users with RBAC roles. 2FA for staff: see OQ3.
 - [ ] Q3. Is this API the **source of truth** for orgs/users, or does it aggregate data owned by each product?
-- [ ] Q4. How do products consume admin decisions — pull (API with service keys), push (webhooks/events), or both?
+- [x] Q4. How do products consume admin decisions — pull (API with service keys), push (webhooks/events), or both? **Answered 2026-11-17 (owner):** through an additive `ent` claim (`{plan, limits}`) in the access token, added only when the `org` claim is present; staleness up to the token TTL (12 h) is accepted. No pull endpoint and no app-credential widening for now (R3 class 4 unchanged). **2026-11-18:** with `org` but no active entitlement (none, disabled, app disabled) the token carries `"ent": null`; issuance is never gated on entitlements. See ADR-0017.
 - [x] Q5. Deployment target — **answered 2026-11-10:** same Mac self-hosted runner as stoktok, Docker Compose, Cloudflare Tunnel; Postgres runs as a service in the same compose stack on that Mac. Hostname `api.mmlabs.online` (renamed from `api-admin.mmlabs.online` on 2026-11-11).
 - [ ] Q6. Compliance needs (audit retention period, PII handling)?
 - [x] Q7. Sign-up — **answered 2026-11-11 (D2):** open self-registration with Turnstile + per-IP limit; verified email required to join an app.

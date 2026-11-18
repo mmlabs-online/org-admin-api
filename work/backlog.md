@@ -56,7 +56,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-05 | Apps self-register their permission manifest — slice 05a (app credentials) | DONE | P2 | api, auth, security | 0 | 2026-11-17 |
 | USR-05b | Manifest push endpoint (app credential auth) | DONE | P2 | api, auth, security | 1 | 2026-11-17 |
 | ADM-006 | Org product entitlements | DONE | P2 | architecture, db, api | 0 | 2026-11-17 |
-| ADM-018 | Service read of org entitlements (`ent` token claim) | BACKLOG | P3 | architecture, auth, security, api | 0 | 2026-11-17 |
+| ADM-018 | Service read of org entitlements (`ent` token claim) | DONE | P3 | architecture, auth, security, api | 0 | 2026-11-18 |
 | USR-14 | Admin tokens end on logout, password reset and staff session revoke | DONE | P2 | architecture, auth, security, api | 1 | 2026-11-17 |
 | USR-15 | Join requests hardening | DONE | P3 | api, auth, security, db | 0 | 2026-11-18 |
 | ADM-019 | Guard org_mode required → none while org data exists | BACKLOG | P3 | api, db | 0 | 2026-11-17 |
