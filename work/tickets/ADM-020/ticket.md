@@ -7,7 +7,7 @@
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/64 |
 
 ## Goal
 Staff can find an organization by name/slug and status, sorted server-side, instead of paging through `GET /api/v1/organizations` (today `limit`/`offset` only, fixed order).
