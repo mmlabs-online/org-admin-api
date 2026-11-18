@@ -112,6 +112,15 @@ class RbacRepository:
         )
         return bool(await self.session.scalar(stmt))
 
+    async def app_has_org_assignments(self, app_id: uuid.UUID) -> bool:
+        stmt = select(
+            exists()
+            .where(RoleAssignment.role_id == Role.id)
+            .where(Role.app_id == app_id)
+            .where(RoleAssignment.org_id.is_not(None))
+        )
+        return bool(await self.session.scalar(stmt))
+
     async def app_has_entitlements(self, app_id: uuid.UUID) -> bool:
         stmt = select(exists().where(OrgEntitlement.app_id == app_id))
         return bool(await self.session.scalar(stmt))

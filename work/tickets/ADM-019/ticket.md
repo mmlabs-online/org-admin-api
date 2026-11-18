@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P3 |
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/59 |
 
 ## Goal
 Changing an app from `org_mode=required` to `none` must not silently orphan org-scoped data.

@@ -10,6 +10,7 @@ from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
+from app.modules.entitlements.models import OrgEntitlement
 from app.modules.rbac.models import App, Permission, Role
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import RoleCatalogService
@@ -609,6 +610,136 @@ async def test_patch_org_mode_none_while_owner_set_422(
         f"{BASE}/calechip", json={"org_mode": "none", "org_owner_role_id": None}
     )
     assert both.status_code == 200, both.text
+
+
+async def _app_updated_rows(db_session: AsyncSession) -> list[AuditLog]:
+    rows = await db_session.scalars(select(AuditLog).where(AuditLog.action == "app.updated"))
+    return list(rows)
+
+
+async def _add_entitlement(db_session: AsyncSession, app: App) -> None:
+    org = await make_org(db_session)
+    db_session.add(OrgEntitlement(org_id=org.id, app_id=app.id, plan="pro", enabled=False))
+    await db_session.flush()
+
+
+async def _assert_org_mode_in_use(
+    rbac_client: AsyncClient, db_session: AsyncSession, app: App
+) -> None:
+    resp = await rbac_client.patch(f"{BASE}/{app.key}", json={"org_mode": "none"})
+    assert resp.status_code == 409, resp.text
+    err = resp.json()["error"]
+    assert err["code"] == "conflict"
+    assert err["details"] == [{"field": "org_mode", "reason": "org_mode_in_use"}]
+    await db_session.refresh(app)
+    assert app.org_mode == "required"
+    assert await _app_updated_rows(db_session) == []
+
+
+async def test_patch_org_mode_none_with_entitlement_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, _ = await _org_app(db_session)
+    await _add_entitlement(db_session, app)
+    await _assert_org_mode_in_use(rbac_client, db_session, app)
+
+
+async def test_patch_org_mode_none_with_org_assignment_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, role = await _org_app(db_session)
+    org = await make_org(db_session)
+    await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    await _assert_org_mode_in_use(rbac_client, db_session, app)
+
+
+async def test_patch_org_mode_none_with_expired_org_assignment_409(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, role = await _org_app(db_session)
+    org = await make_org(db_session)
+    past = datetime.now(UTC) - timedelta(days=1)
+    await assign(db_session, await make_user(db_session), role, org_id=org.id, expires_at=past)
+    await _assert_org_mode_in_use(rbac_client, db_session, app)
+
+
+async def test_patch_org_mode_none_with_only_app_scope_assignments_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, role = await _org_app(db_session)
+    await assign(db_session, await make_user(db_session), role)
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "none"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["org_mode"] == "none"
+
+
+async def test_patch_org_mode_none_without_org_data_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _org_app(db_session)
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "none"})
+    assert resp.status_code == 200, resp.text
+    rows = await _app_updated_rows(db_session)
+    assert len(rows) == 1
+    assert rows[0].changes == {"org_mode": {"from": "required", "to": "none"}}
+
+
+async def test_patch_org_mode_none_and_clear_owner_without_org_data_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, owner = await _org_app(db_session)
+    assert (
+        await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(owner.id)})
+    ).status_code == 200
+    resp = await rbac_client.patch(
+        f"{BASE}/calechip", json={"org_mode": "none", "org_owner_role_id": None}
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_patch_org_mode_none_owner_set_and_org_data_422_wins(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, owner = await _org_app(db_session)
+    assert (
+        await rbac_client.patch(f"{BASE}/calechip", json={"org_owner_role_id": str(owner.id)})
+    ).status_code == 200
+    await _add_entitlement(db_session, app)
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "none"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["reason"] == "org_mode_required"
+    both = await rbac_client.patch(
+        f"{BASE}/calechip", json={"org_mode": "none", "org_owner_role_id": None}
+    )
+    assert both.status_code == 409
+    assert both.json()["error"]["details"][0]["reason"] == "org_mode_in_use"
+    await db_session.refresh(app)
+    assert app.org_owner_role_id == owner.id
+    assert app.org_mode == "required"
+
+
+async def test_patch_org_mode_required_with_org_data_unaffected(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "calechip", org_mode="none")
+    role = await make_role(db_session, app, "calechip:member")
+    org = await make_org(db_session)
+    await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    resp = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "required"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["org_mode"] == "required"
+
+
+async def test_patch_org_mode_same_value_with_org_data_ok(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app, _ = await _org_app(db_session)
+    await _add_entitlement(db_session, app)
+    same = await rbac_client.patch(f"{BASE}/calechip", json={"org_mode": "required"})
+    assert same.status_code == 200, same.text
+    assert await _app_updated_rows(db_session) == []
+    other = await rbac_client.patch(f"{BASE}/calechip", json={"name": "Renamed"})
+    assert other.status_code == 200, other.text
 
 
 async def test_patch_org_owner_role_is_audited(

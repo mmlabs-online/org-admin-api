@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.audit.models import AuditLog
 from app.modules.entitlements.repository import EntitlementRepository
 from app.modules.organizations.models import Organization
+from app.modules.rbac.repository import RbacRepository
 from tests.conftest import MakeClient
 from tests.rbac_factories import make_app, make_org, make_user
 
@@ -153,6 +154,29 @@ async def test_ungrantable_app_409(
         resp = await client.post(_url(org.id), json={"app_key": key, "plan": "pro"})
     assert resp.status_code == 409
     assert resp.json()["error"]["details"][0]["reason"] == reason
+
+
+async def test_grant_locks_app_row(
+    make_client: MakeClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADM-019: a grant serialises with PATCH org_mode through the app row lock."""
+    keys: list[str] = []
+    original = RbacRepository.lock_app
+
+    async def spy(self: RbacRepository, key: str) -> Any:
+        keys.append(key)
+        return await original(self, key)
+
+    monkeypatch.setattr(RbacRepository, "lock_app", spy)
+    org, app = await make_org(db_session), await _app(db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        await _grant(client, org.id, app.key)
+        assert keys == [app.key]
+        keys.clear()
+        resp = await client.post(_url(org.id), json={"app_key": "admin", "plan": "pro"})
+    assert resp.status_code == 409
+    assert resp.json()["error"]["details"][0]["reason"] == "admin_app"
+    assert keys == []
 
 
 @pytest.mark.parametrize("plan", ["", "Pro", "a" * 64, "-pro"])
