@@ -91,6 +91,22 @@ def test_role_definitions_operations() -> None:
     }  # fmt: skip
 
 
+def test_role_holders_operation() -> None:
+    schema = _schema()
+    path = "/api/v1/apps/{key}/role-definitions/{role_id}/assignments"
+    op = schema["paths"][path]["get"]
+    ok = op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert ok == {"$ref": "#/components/schemas/Page_RoleHolderRead_"}
+    assert op["x-permission"] == "admin:users:read"
+    for code in ("401", "403", "404"):
+        assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
+    component = schema["components"]["schemas"]["RoleHolderRead"]
+    assert set(component["required"]) == {
+        "id", "app", "role_id", "role_key", "org_id", "granted_by", "expires_at", "active",
+        "created_at", "user_id", "email", "display_name", "user_status",
+    }  # fmt: skip
+
+
 def test_no_5xx_documented() -> None:
     for _, _, op in _operations(_schema()):
         assert all(int(code) < 500 for code in op["responses"])

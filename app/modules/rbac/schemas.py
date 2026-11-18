@@ -24,6 +24,7 @@ from app.modules.rbac.models import (
     PermissionScope,
 )
 from app.modules.rbac.origins import MAX_ORIGINS, normalize_origins
+from app.modules.users.models import UserStatus
 
 # Display text (input only): NFC, then length, then Unicode category check (ADR-0003 §11).
 AppName = Annotated[
@@ -289,6 +290,22 @@ class AssignmentRead(BaseModel):
     expires_at: datetime | None
     active: bool  # computed with the database clock
     created_at: datetime
+
+
+class RoleHolderRead(AssignmentRead):
+    """One assignment of a role with its holder (USR-17). `total` of the list counts
+    assignments, not distinct users: a user can appear once per org and once at app scope."""
+
+    user_id: uuid.UUID
+    email: str
+    display_name: str | None
+    user_status: UserStatus = Field(description="Account status; disabled users are listed.")
+    active: bool = Field(
+        description=(
+            "Not expired (database clock); ignores user, org and app status, "
+            "so not 'effective in tokens'."
+        )
+    )
 
 
 class ManifestPermission(BaseModel):

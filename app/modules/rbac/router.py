@@ -5,9 +5,9 @@ change across the `is_admin` boundary, also needs `admin:*` (ADM-002b guards in 
 """
 
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.api.deps import PageDep, SessionDep
 from app.core.config import Settings
@@ -25,6 +25,7 @@ from app.modules.rbac.schemas import (
     PermissionUpdate,
     RoleCreate,
     RoleDefinitionRead,
+    RoleHolderRead,
     RolePermissionsReplace,
     RoleRead,
     RoleUpdate,
@@ -37,6 +38,12 @@ router = APIRouter(prefix="/apps", tags=["apps"], dependencies=[Depends(current_
 def _with_409(key: str, description: str) -> dict[str, Any]:
     kwargs = require_permission(key)
     kwargs["responses"][409] = {"description": description}
+    return kwargs
+
+
+def _with_404(key: str, description: str) -> dict[str, Any]:
+    kwargs = require_permission(key)
+    kwargs["responses"][404] = {"description": description}
     return kwargs
 
 
@@ -205,6 +212,36 @@ async def get_role_definition(
     session: SessionDep, key: str, role_id: uuid.UUID
 ) -> RoleDefinitionRead:
     return await RoleService(session).get_definition(key, role_id)
+
+
+@router.get(
+    "/{key}/role-definitions/{role_id}/assignments",
+    response_model=Page[RoleHolderRead],
+    description=(
+        "Assignments of one role with their holders. `total` counts assignments, not distinct "
+        "users: a user can appear once per org and once at app scope."
+    ),
+    **_with_404("admin:users:read", "Unknown app, or role not of that app"),
+)
+async def list_role_holders(
+    session: SessionDep,
+    response: Response,
+    key: str,
+    role_id: uuid.UUID,
+    page: PageDep,
+    active: Annotated[
+        bool | None,
+        Query(description="true: not expired; false: expired; omitted: all rows."),
+    ] = None,
+    org_id: Annotated[
+        uuid.UUID | None, Query(description="Only assignments in this organization.")
+    ] = None,
+) -> Page[RoleHolderRead]:
+    items, total = await RoleService(session).list_holders(
+        key, role_id, active=active, org_id=org_id, limit=page.limit, offset=page.offset
+    )
+    response.headers["Cache-Control"] = "no-store"  # rows carry emails
+    return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
 @router.post(

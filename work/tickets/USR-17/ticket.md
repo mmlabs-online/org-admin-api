@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/63 |
 
 ## Goal
 Staff can see who holds a given role (the "who holds this role" sheet in admin-pan) without one call per user; today assignments can only be listed per user.
@@ -18,7 +18,7 @@ Staff can see who holds a given role (the "who holds this role" sheet in admin-p
 ## Acceptance criteria
 - [ ] A Bearer admin endpoint listing a role's assignments (path chosen at PLAN, e.g. `GET /api/v1/apps/{key}/role-definitions/{role_id}/assignments`, consistent with USR-16), permission `admin:users:read` (or `admin:roles:assign` if the planner justifies it), declared in `x-permission`.
 - [ ] Returns `Page[T]` (`limit` ≤ 100, `offset`), order `created_at DESC, id`. Each item has the `AssignmentRead` fields plus the holder's `user_id`, `email` and `display_name`, read without N+1.
-- [ ] Filters: `active` (true/false; default includes expired rows marked `active=false`, like the per-user list) and `org_id`.
+- [ ] Filters: `active` (true/false; default includes expired rows marked `active=false`, the same computed `active` flag as the per-user list; that list has no `active` filter) and `org_id`.
 - [ ] 404 for an unknown app or a role that does not belong to that app.
 - [ ] Tests: 401, 403, 404 (unknown app, unknown role, role of another app), expired rows, org-scoped rows, each filter, paging.
 
