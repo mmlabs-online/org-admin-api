@@ -6,6 +6,7 @@ import logging
 import re
 import uuid
 from collections.abc import Mapping
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.core.errors import AppError, NotFoundError, UnprocessableError
 from app.modules.admin_auth.service import AdminPrincipal
 from app.modules.audit.actions import ActorKind, AuditAction, AuditOutcome, AuditTarget
 from app.modules.audit.context import AnonymousActor, AuditContext, EndUser
+from app.modules.audit.csv_export import render_csv
 from app.modules.audit.diff import to_json
 from app.modules.audit.models import AuditLog
 from app.modules.audit.repository import AuditLogFilter, AuditRepository
@@ -22,6 +24,7 @@ from app.modules.rbac.actor import Actor, SystemActor
 logger = logging.getLogger(__name__)
 
 USER_AGENT_MAX = 512
+EXPORT_MAX_ROWS = 10_000
 _FORBIDDEN_KEY = re.compile(r"hash|token|password|cookie|email|secret", re.IGNORECASE)
 # Table names of the retention summary: row counts, never values (`email_retention.purged` only).
 _ALLOWED_KEYS = frozenset({"email_send_log", "email_tokens"})
@@ -253,22 +256,58 @@ class AuditLogger:
             )
 
 
+@dataclass(frozen=True)
+class AuditExport:
+    content: str
+    row_count: int
+    truncated: bool
+
+
+def _check_range(filters: AuditLogFilter) -> None:
+    if (
+        filters.occurred_from is not None
+        and filters.occurred_to is not None
+        and filters.occurred_from > filters.occurred_to
+    ):
+        raise UnprocessableError(
+            "from must not be after to", details=[{"field": "from", "reason": "after_to"}]
+        )
+
+
 class AuditLogService:
     def __init__(self, session: AsyncSession) -> None:
+        self.session = session
         self.repo = AuditRepository(session)
 
     async def list(
         self, filters: AuditLogFilter, *, limit: int, offset: int
     ) -> tuple[list[AuditLog], int]:
-        if (
-            filters.occurred_from is not None
-            and filters.occurred_to is not None
-            and filters.occurred_from > filters.occurred_to
-        ):
-            raise UnprocessableError(
-                "from must not be after to", details=[{"field": "from", "reason": "after_to"}]
-            )
+        _check_range(filters)
         return await self.repo.list(filters, limit=limit, offset=offset)
+
+    async def export(
+        self, filters: AuditLogFilter, *, actor: AdminPrincipal, ctx: AuditContext
+    ) -> AuditExport:
+        """Newest `EXPORT_MAX_ROWS` rows as CSV. The audit row (filters and counts, no row data)
+        is written last in the request transaction, so a failure sends no file."""
+        _check_range(filters)
+        cap = EXPORT_MAX_ROWS
+        rows = await self.repo.export(filters, limit=cap + 1)
+        truncated = len(rows) > cap
+        rows = rows[:cap]
+        content = render_csv(rows)
+        await AuditLogger(self.session).record(
+            AuditAction.AUDIT_LOG_EXPORTED,
+            actor=actor,
+            ctx=ctx,
+            changes={
+                "row_count": len(rows),
+                "truncated": truncated,
+                "max_rows": cap,
+                **{k: to_json(v) for k, v in asdict(filters).items() if v is not None},
+            },
+        )
+        return AuditExport(content, len(rows), truncated)
 
     async def get(self, audit_log_id: uuid.UUID) -> AuditLog:
         row = await self.repo.get(audit_log_id)

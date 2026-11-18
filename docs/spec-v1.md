@@ -51,6 +51,7 @@ Membership (2026-11-11, D8–D10; details in [`identity-architecture.md`](identi
 
 ### §5.4 Audit log
 Append-only record of every mutating admin action: actor, action, target type/id, before/after (or diff), timestamp, request id. Read-only, filterable listing for auditors.
+> 2026-11-18 (ADM-022, owner): staff export the filtered audit log as CSV with GET /api/v1/audit-logs/export (admin:audit:read; same filters as the list; newest first, at most 10,000 rows, truncation signalled by X-Export-Truncated; each export writes an audit_log.exported entry). Part of the audit log, separate from the §5.11 reports, which stay undecided.
 
 ### §5.5 Products registry — merged into the apps registry of §5.3 (2026-11-11)
 The list of mmlabs products is the `apps` table of §5.3 (key, name, status).

@@ -26,7 +26,9 @@ LOCAL = "http://localhost:5173"
 APPS = "/api/v1/apps"
 ORGS = "/api/v1/organizations"
 TOKEN = "/api/v1/auth/token"
-EXPOSE = "Retry-After, ETag, X-Request-ID"
+EXPOSE = (
+    "Retry-After, ETag, X-Request-ID, Content-Disposition, X-Export-Truncated, X-Export-Row-Count"
+)
 PREFLIGHT_VARY = "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
 _PROD = {
     "app_env": "production",
@@ -156,6 +158,18 @@ async def test_unknown_origins_refused(
 
 
 # --- actual requests -------------------------------------------------------------------
+
+
+async def test_export_exposes_truncation_headers(
+    client: AsyncClient, db_session: AsyncSession, admin_origin: str
+) -> None:
+    resp = await client.get(
+        f"{APPS.removesuffix('apps')}audit-logs/export",
+        headers={"Origin": admin_origin, **await _token(db_session, "admin:audit:read")},
+    )
+    assert resp.status_code == 200, resp.text
+    exposed = resp.headers["access-control-expose-headers"]
+    assert "Content-Disposition, X-Export-Truncated, X-Export-Row-Count" in exposed
 
 
 async def test_actual_get_with_bearer(

@@ -1,5 +1,5 @@
-"""Append-only by shape (AC2): `add` is the only write; `list`, `get` and `count_actions_since`
-are reads; `rollback`,
+"""Append-only by shape (AC2): `add` is the only write; `list`, `export`, `get` and
+`count_actions_since` are reads; `rollback`,
 `commit` and `begin_nested` touch session state only (ADM-004b failure paths). The DB trigger
 backs this up."""
 
@@ -51,9 +51,8 @@ class AuditRepository:
     async def get(self, audit_log_id: uuid.UUID) -> AuditLog | None:
         return await self.session.get(AuditLog, audit_log_id)
 
-    async def list(
-        self, filters: AuditLogFilter, *, limit: int, offset: int
-    ) -> tuple[list[AuditLog], int]:
+    @staticmethod
+    def _where(filters: AuditLogFilter) -> list[ColumnElement[bool]]:
         where: list[ColumnElement[bool]] = []
         if filters.actor_user_id is not None:
             where.append(AuditLog.actor_user_id == filters.actor_user_id)
@@ -83,6 +82,12 @@ class AuditRepository:
             where.append(AuditLog.occurred_at >= filters.occurred_from)
         if filters.occurred_to is not None:
             where.append(AuditLog.occurred_at < filters.occurred_to)
+        return where
+
+    async def list(
+        self, filters: AuditLogFilter, *, limit: int, offset: int
+    ) -> tuple[list[AuditLog], int]:
+        where = self._where(filters)
         total = await self.session.scalar(select(func.count()).select_from(AuditLog).where(*where))
         result = await self.session.execute(
             select(AuditLog)
@@ -92,6 +97,15 @@ class AuditRepository:
             .offset(offset)
         )
         return list(result.scalars()), total or 0
+
+    async def export(self, filters: AuditLogFilter, *, limit: int) -> Sequence[AuditLog]:
+        result = await self.session.execute(
+            select(AuditLog)
+            .where(*self._where(filters))
+            .order_by(AuditLog.occurred_at.desc(), AuditLog.id.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
 
     async def count_actions_since(self, actions: Sequence[str], since: datetime) -> dict[str, int]:
         """Rows per action with `occurred_at >= since` (index range scan on `ix_audit_log_action`).

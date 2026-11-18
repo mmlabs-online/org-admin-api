@@ -69,6 +69,7 @@ class AuditAction(StrEnum):
     EMAIL_RETENTION_PURGED = "email_retention.purged"
     JOIN_REQUEST_RETENTION_PURGED = "join_request_retention.purged"
     AUDIT_LOG_PURGED = "audit_log.purged"
+    AUDIT_LOG_EXPORTED = "audit_log.exported"
     AUTH_LOGIN_SUCCEEDED = "auth.login_succeeded"
     AUTH_LOGIN_FAILED = "auth.login_failed"
     AUTH_LOGGED_OUT = "auth.logged_out"

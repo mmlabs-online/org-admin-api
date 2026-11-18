@@ -44,7 +44,10 @@ ADMIN_POLICY = CORSPolicy(
     allow_methods=frozenset({"GET", "POST", "PATCH", "PUT", "DELETE"}),
     allow_headers=frozenset({"authorization", "content-type"}),
     allow_headers_value="Authorization, Content-Type",
-    expose_headers="Retry-After, ETag, X-Request-ID",
+    expose_headers=(
+        "Retry-After, ETag, X-Request-ID, Content-Disposition, "
+        "X-Export-Truncated, X-Export-Row-Count"
+    ),
     max_age=600,
 )
 
