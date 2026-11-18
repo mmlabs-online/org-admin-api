@@ -303,27 +303,33 @@ class EmailRetentionRepository:
 
     async def purge_send_log(self, older_than: timedelta, batch: int) -> int:
         """Delete up to `batch` old rows, skipping rows another transaction holds."""
-        ids = (
+        # MATERIALIZED: select and lock the ids once (BUG-001).
+        batch_ids = (
             select(EmailSendLog.id)
             .where(self._send_log_where(older_than))
             .order_by(EmailSendLog.sent_at)
             .limit(batch)
             .with_for_update(skip_locked=True)
-            .scalar_subquery()
+            .cte("batch")
+            .prefix_with("MATERIALIZED")
         )
-        return await self._delete(delete(EmailSendLog).where(EmailSendLog.id.in_(ids)))
+        stmt = delete(EmailSendLog).where(EmailSendLog.id.in_(select(batch_ids.c.id)))
+        return await self._delete(stmt)
 
     async def purge_tokens(self, older_than: timedelta, batch: int) -> int:
         """Delete up to `batch` old used or expired tokens, skipping locked rows."""
-        ids = (
+        # MATERIALIZED: select and lock the ids once (BUG-001).
+        batch_ids = (
             select(EmailToken.id)
             .where(self._token_where(older_than))
             .order_by(EmailToken.created_at)
             .limit(batch)
             .with_for_update(skip_locked=True)
-            .scalar_subquery()
+            .cte("batch")
+            .prefix_with("MATERIALIZED")
         )
-        return await self._delete(delete(EmailToken).where(EmailToken.id.in_(ids)))
+        stmt = delete(EmailToken).where(EmailToken.id.in_(select(batch_ids.c.id)))
+        return await self._delete(stmt)
 
     async def _delete(self, stmt: Delete) -> int:
         result = await self.session.execute(stmt.execution_options(synchronize_session=False))

@@ -17,6 +17,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.audit.purge import AuditPurgeRepository, AuditPurgeService
 from app.modules.audit.service import AuditLogger
 from tests.conftest import TEST_DATABASE_URL
+from tests.purge_plan import force_rescanned_semijoin
 
 Scope = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
@@ -277,3 +278,19 @@ async def test_refuses_db_echo(capsys: pytest.CaptureFixture[str]) -> None:
     out, err = capsys.readouterr()
     assert out == ""
     assert err == MSG_DB_ECHO + "\n"
+
+
+async def test_delete_batch_respects_limit_when_subquery_rescanned(
+    db_session: AsyncSession,
+) -> None:
+    """BUG-001: a nested-loop semi join rescanned the `LIMIT ... FOR UPDATE` subquery per outer
+    row, and each rescan returned the next live rows, so one batch deleted far more than `batch`."""
+    ids = [await _aged(db_session, d) for d in (405, 404, 403, 402, 401)]  # oldest first
+    await force_rescanned_semijoin(db_session)
+    repo = AuditPurgeRepository(db_session)
+    cutoff = await repo.cutoff(365)
+    await repo.open_batch()
+    deleted = await repo.delete_batch(cutoff, 2)
+    await repo.close_batch()
+    assert deleted == 2
+    assert await _ids(db_session, ids) == set(ids[2:])

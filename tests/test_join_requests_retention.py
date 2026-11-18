@@ -14,6 +14,7 @@ from app.modules.join_requests.retention import JoinRequestRetentionService
 from app.modules.rbac.models import App
 from tests.auth_factories import make_login_user
 from tests.join_request_factories import make_approval_app, make_join_request
+from tests.purge_plan import force_rescanned_semijoin
 
 RETENTION = timedelta(days=180)
 COOLDOWN = 604800
@@ -129,3 +130,14 @@ async def test_retention_floor(db_session: AsyncSession) -> None:
         await repo.count(timedelta(hours=23), 0)
     with pytest.raises(ValueError, match="minimum"):
         await repo.purge(timedelta(hours=23), 0, 10)
+
+
+async def test_purge_respects_limit_when_subquery_rescanned(db_session: AsyncSession) -> None:
+    """BUG-001: a rescanned `LIMIT ... FOR UPDATE` subquery deleted more than one batch."""
+    app = await make_approval_app(db_session)
+    for days in (205, 204, 203, 202, 201):  # oldest first
+        await _row(db_session, app, "approved", timedelta(days=days))
+    await force_rescanned_semijoin(db_session)
+    repo = JoinRequestRetentionRepository(db_session)
+    assert await repo.purge(RETENTION, COOLDOWN, 2) == 2
+    assert len(await _ids(db_session)) == 3
