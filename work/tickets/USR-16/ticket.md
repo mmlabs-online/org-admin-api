@@ -7,7 +7,7 @@
 | Areas | api, auth, security |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/56 |
 
 ## Goal
 Staff can list an app's roles with their ids from a Bearer admin endpoint, so `admin-pan` can manage roles (every role write is addressed by `role_id`) for any app, the `admin` app and disabled apps included.
