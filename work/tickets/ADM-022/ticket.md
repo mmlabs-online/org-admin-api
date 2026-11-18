@@ -7,7 +7,7 @@
 | Areas | api, security |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/68 |
 
 ## Goal
 Staff can download a filtered audit log as CSV from the API (admin-pan removed its client-side export, PAN-016).
