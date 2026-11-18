@@ -50,6 +50,7 @@ from app.modules.rbac.schemas import (
     RoleCatalogEntry,
     RoleCreate,
     RoleDefinitionRead,
+    RoleHolderRead,
     RolePermissionsReplace,
     RoleRead,
     RoleUpdate,
@@ -1091,6 +1092,41 @@ class RoleService:
         app = await self._app(key)
         role = await self._get(app, role_id)
         return (await self._definitions(app, [role]))[0]
+
+    async def list_holders(
+        self,
+        key: str,
+        role_id: uuid.UUID,
+        *,
+        active: bool | None,
+        org_id: uuid.UUID | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[RoleHolderRead], int]:
+        app = await self._app(key)
+        role = await self._get(app, role_id)
+        rows, total = await self.repo.page_role_holders(
+            role.id, active=active, org_id=org_id, limit=limit, offset=offset
+        )
+        return [
+            RoleHolderRead(
+                id=ra.id,
+                app=app.key,
+                role_id=ra.role_id,
+                role_key=role.key,
+                org_id=ra.org_id,
+                granted_by=ra.granted_by,
+                expires_at=ra.expires_at,
+                active=is_active,
+                created_at=ra.created_at,
+                user_id=ra.user_id,
+                email=email,
+                display_name=display_name,
+                user_status=user_status,
+                email_verified=verified,
+            )
+            for ra, email, display_name, user_status, verified, is_active in rows
+        ], total
 
     async def create(
         self, key: str, data: RoleCreate, *, actor: Actor, ctx: AuditContext

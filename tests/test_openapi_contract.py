@@ -56,6 +56,7 @@ def test_every_error_response_references_envelope() -> None:
     assert "/api/v1/apps/{key}/roles" in checked
     assert "/api/v1/me/permissions" in checked
     assert "/api/v1/apps/{key}/role-definitions" in checked
+    assert "/api/v1/apps/{key}/role-definitions/{role_id}/assignments" in checked
 
 
 def test_me_permissions_operation() -> None:
@@ -88,6 +89,26 @@ def test_role_definitions_operations() -> None:
     assert set(component["required"]) == {
         "id", "app", "key", "name", "is_system", "is_default", "privileged",
         "permissions", "created_at", "updated_at",
+    }  # fmt: skip
+
+
+def test_role_holders_operation() -> None:
+    schema = _schema()
+    path = "/api/v1/apps/{key}/role-definitions/{role_id}/assignments"
+    op = schema["paths"][path]["get"]
+    ref = "#/components/schemas/Page_RoleHolderRead_"
+    assert op["responses"]["200"]["content"]["application/json"]["schema"] == {"$ref": ref}
+    assert op["x-permission"] == "admin:users:read"
+    for code in ("401", "403", "422"):
+        assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
+    params = {p["name"]: p for p in op["parameters"]}
+    for name in ("active", "org_id"):
+        assert params[name]["required"] is False
+        assert params[name]["description"]
+    component = schema["components"]["schemas"]["RoleHolderRead"]
+    assert set(component["required"]) == {
+        "id", "app", "role_id", "role_key", "org_id", "granted_by", "expires_at", "active",
+        "created_at", "user_id", "email", "display_name", "user_status", "email_verified",
     }  # fmt: skip
 
 

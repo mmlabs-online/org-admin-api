@@ -5,9 +5,9 @@ change across the `is_admin` boundary, also needs `admin:*` (ADM-002b guards in 
 """
 
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.api.deps import PageDep, SessionDep
 from app.core.config import Settings
@@ -25,6 +25,7 @@ from app.modules.rbac.schemas import (
     PermissionUpdate,
     RoleCreate,
     RoleDefinitionRead,
+    RoleHolderRead,
     RolePermissionsReplace,
     RoleRead,
     RoleUpdate,
@@ -203,6 +204,42 @@ async def get_role_definition(
     session: SessionDep, key: str, role_id: uuid.UUID
 ) -> RoleDefinitionRead:
     return await RoleService(session).get_definition(key, role_id)
+
+
+@router.get(
+    "/{key}/role-definitions/{role_id}/assignments",
+    response_model=Page[RoleHolderRead],
+    **require_permission("admin:users:read"),
+)
+async def list_role_holders(
+    session: SessionDep,
+    response: Response,
+    key: str,
+    role_id: uuid.UUID,
+    page: PageDep,
+    active: Annotated[
+        bool | None,
+        Query(
+            description="Omitted: all rows; expired rows have `active=false`. `true`: not "
+            "expired; `false`: expired only. Database clock; ignores user status."
+        ),
+    ] = None,
+    org_id: Annotated[
+        uuid.UUID | None,
+        Query(
+            description="Exact organization. App-scope rows cannot be selected on their own. "
+            "An unknown org returns an empty page."
+        ),
+    ] = None,
+) -> Page[RoleHolderRead]:
+    """Holders of one role, newest first. One row per assignment (app scope or one
+    organization), so a user can appear more than once and `total` counts rows. Rows carry
+    holder emails (PII)."""
+    items, total = await RoleService(session).list_holders(
+        key, role_id, active=active, org_id=org_id, limit=page.limit, offset=page.offset
+    )
+    response.headers["Cache-Control"] = "no-store"  # rows carry emails
+    return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
 @router.post(

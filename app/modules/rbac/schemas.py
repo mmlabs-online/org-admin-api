@@ -291,6 +291,25 @@ class AssignmentRead(BaseModel):
     created_at: datetime
 
 
+class RoleHolderRead(AssignmentRead):
+    """One holder row of a role; the same user can appear once per scope (app or org)."""
+
+    active: bool = Field(
+        description="Not expired (database clock). Does not reflect user status, email "
+        "verification or organization status."
+    )
+    user_id: uuid.UUID
+    email: str
+    display_name: str | None = Field(description="Untrusted user text: render as text only.")
+    user_status: str = Field(
+        description="Holder's account status (`active` or `disabled`). A disabled holder gets "
+        "no tokens."
+    )
+    email_verified: bool = Field(
+        description="Holder's email is verified. An unverified holder gets no app tokens."
+    )
+
+
 class ManifestPermission(BaseModel):
     """One declared permission. `scope` is required on `org_mode = required` apps unless the
     key is reserved (ADR-0015); an omitted `description` leaves the stored one."""

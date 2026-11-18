@@ -11,6 +11,7 @@ from sqlalchemy import (
     delete,
     exists,
     func,
+    not_,
     or_,
     select,
     update,
@@ -35,8 +36,15 @@ from app.modules.users.models import User, UserStatus
 # (assignment, app key, role key, active) — `active` is computed with the database clock.
 AssignmentRow = tuple[RoleAssignment, str, str, bool]
 
+# (assignment, email, display name, user status, email verified, active)
+RoleHolderRow = tuple[RoleAssignment, str, str | None, str, bool, bool]
+
 # `session.info` flag: an app was written; the CORS origin cache is invalidated after commit.
 APPS_CHANGED_KEY = "rbac_apps_changed"
+
+
+def _not_expired() -> ColumnElement[bool]:
+    return or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now())
 
 
 class RbacRepository:
@@ -486,12 +494,48 @@ class RbacRepository:
 
     @staticmethod
     def _assignment_rows() -> Select[RoleAssignment, str, str, bool]:
-        active = or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now())
         return (
-            select(RoleAssignment, App.key, Role.key, active.label("active"))
+            select(RoleAssignment, App.key, Role.key, _not_expired().label("active"))
             .join(Role, Role.id == RoleAssignment.role_id)
             .join(App, App.id == Role.app_id)
         )
+
+    async def page_role_holders(
+        self,
+        role_id: uuid.UUID,
+        *,
+        active: bool | None,
+        org_id: uuid.UUID | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[RoleHolderRow], int]:
+        conds = [RoleAssignment.role_id == role_id]
+        if org_id is not None:
+            conds.append(RoleAssignment.org_id == org_id)
+        if active is True:
+            conds.append(_not_expired())
+        elif active is False:
+            # The OR is never NULL (`expires_at IS NULL` is true for NULL), so NOT is NULL-safe.
+            conds.append(not_(_not_expired()))
+        total = await self.session.scalar(
+            select(func.count()).select_from(RoleAssignment).where(*conds)
+        )
+        result = await self.session.execute(
+            select(
+                RoleAssignment,
+                User.email,
+                User.display_name,
+                User.status,
+                User.email_verified_at.is_not(None),
+                _not_expired().label("active"),
+            )
+            .join(User, User.id == RoleAssignment.user_id)
+            .where(*conds)
+            .order_by(RoleAssignment.created_at.desc(), RoleAssignment.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return [(r[0], r[1], r[2], r[3], r[4], r[5]) for r in result.all()], total or 0
 
     async def page_assignments(
         self, user_id: uuid.UUID, *, app_key: str | None, limit: int, offset: int
