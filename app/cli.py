@@ -10,7 +10,8 @@
 - `python -m app.cli set-admin-origins (--origin <origin> ... | --clear) [--dry-run]` (ADM-002c):
   replaces the origins of the `admin` app through `AppService.set_admin_origins`; nothing else.
 - `python -m app.cli cleanup [--dry-run]` (USR-04d): deletes email send-log rows older than 48 h
-  and used or expired email tokens older than 7 d, in batches; prints counts only.
+  and used or expired email tokens older than 7 d, and decided join requests older than
+  `JOIN_REQUEST_RETENTION_DAYS` (USR-15), in batches; prints counts only.
 - `python -m app.cli audit-purge --older-than-days <90-3650> [--dry-run]` (ADM-004c): deletes
   audit rows older than N days (the trigger refuses 90 days or newer), in batches, each with its
   `audit_log.purged` summary row; prints counts and the cutoff only. Never an HTTP route.
@@ -682,12 +683,20 @@ async def _cleanup(
         parser.add_argument("--dry-run", action="store_true")
         dry_run = bool(parser.parse_args(argv).dry_run)
 
+        from datetime import timedelta
+
         from app.modules.auth.retention import EmailRetentionService
+        from app.modules.join_requests.retention import JoinRequestRetentionService
 
         settings = _load_settings(settings)
         scope = session_scope or (lambda: _cli_cleanup_scope(settings))
         async with scope() as session:
             counts = await EmailRetentionService(session).run(dry_run=dry_run)
+            counts += await JoinRequestRetentionService(
+                session,
+                retention=timedelta(days=settings.join_request_retention_days),
+                cooldown_seconds=settings.join_reject_cooldown_seconds,
+            ).run(dry_run=dry_run)
 
         verb = "would delete" if dry_run else "deleted"
         for count in counts:

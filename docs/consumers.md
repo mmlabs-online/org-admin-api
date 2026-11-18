@@ -353,6 +353,10 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
   interval or on the next app open; do not poll faster than the join rate limit. After a rejection
   the user cannot ask again for a cooldown (default 7 days): join answers 403 `join_rejected` with
   no reason, and `not_member.details.join_available` is false until it ends.
+- Each `approval` app holds a bounded queue of pending requests (`JOIN_MAX_PENDING_PER_APP`,
+  default 1000). When it is full, a new request answers 403 `join_queue_full` (no count, no
+  `Retry-After`); an existing pending request still answers 202. `join_available` does not reflect
+  the cap. Disabling a user cancels their pending requests (no cooldown).
 - `not_member.details.join_available` is true for `approval` apps with a default role, unless a rejection is inside the cooldown.
 
 | Status / code | Meaning |
@@ -363,6 +367,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 | 403 `join_closed` | The app does not accept joins (`admin` included). |
 | 202 `{"status":"pending","request_id"}` | Waiting for staff approval (`approval` apps): poll `/token`. |
 | 403 `join_rejected` | Rejected recently; try later. No reason is given. |
+| 403 `join_queue_full` | The app's request queue is full; try later, contact staff if it persists. No `Retry-After`. Treat unknown 403 codes as "cannot join now". |
 | 403 `join_unavailable` | The app is misconfigured (no usable default role): contact staff. |
 | 403 `app_mismatch` | Bug: the path key must equal `X-MM-App`. |
 | 403 `app_header_required` / `origin_not_allowed` | Bug or misconfiguration: header or origin. |

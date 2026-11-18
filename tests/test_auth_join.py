@@ -530,3 +530,31 @@ async def test_join_closed_no_audit_row(client: AsyncClient, db_session: AsyncSe
     resp = await _join(client, account.id, raw)
     assert resp.status_code == 403
     assert await _audit_rows(db_session) == []
+
+
+async def test_join_locks_user_for_share(
+    client: AsyncClient, db_session: AsyncSession, member_role: Role
+) -> None:
+    """USR-15: the open join reads the user `FOR SHARE` (after the app lock, before the write)."""
+    _, raw, account = await _signed_in(db_session)
+    statements: list[str] = []
+    conn = db_session.bind.sync_connection  # type: ignore[union-attr]
+    assert conn is not None
+
+    def _record(*args: Any) -> None:
+        statements.append(args[2])
+
+    event.listen(conn, "before_cursor_execute", _record)
+    try:
+        resp = await _join(client, account.id, raw)
+    finally:
+        event.remove(conn, "before_cursor_execute", _record)
+    assert resp.status_code == 200, resp.text
+    app_lock = next(
+        i for i, s in enumerate(statements) if "FROM apps" in s and "FOR NO KEY UPDATE" in s
+    )
+    user_lock = next(i for i, s in enumerate(statements) if "FROM users" in s and "FOR SHARE" in s)
+    insert = next(
+        i for i, s in enumerate(statements) if s.startswith("INSERT INTO role_assignments")
+    )
+    assert app_lock < user_lock < insert

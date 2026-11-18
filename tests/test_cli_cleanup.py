@@ -26,10 +26,12 @@ Scope = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 DELETED = [
     "email_send_log: deleted 1 (older than 48 h)",
     "email_tokens: deleted 2 (used or expired, older than 7 d)",
+    "join_requests: deleted 0 (decided, older than 180 d)",
 ]
 WOULD_DELETE = [
     "email_send_log: would delete 1 (older than 48 h)",
     "email_tokens: would delete 2 (used or expired, older than 7 d)",
+    "join_requests: would delete 0 (decided, older than 180 d)",
     "dry-run: nothing was deleted",
 ]
 

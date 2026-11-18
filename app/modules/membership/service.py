@@ -19,6 +19,7 @@ from app.modules.membership.errors import (
     AppMismatchError,
     JoinApprovalUnavailableError,
     JoinClosedError,
+    JoinQueueFullError,
     JoinRejectedError,
     JoinUnavailableError,
 )
@@ -93,8 +94,13 @@ async def join_available(
 
 
 class JoinService:
-    def __init__(self, session: AsyncSession, *, reject_cooldown_seconds: int) -> None:
+    """Lock order: app -> user (`FOR SHARE`, both policies) -> inserts."""
+
+    def __init__(
+        self, session: AsyncSession, *, reject_cooldown_seconds: int, max_pending_per_app: int
+    ) -> None:
         self.reject_cooldown_seconds = reject_cooldown_seconds
+        self.max_pending_per_app = max_pending_per_app
         self.requests = JoinRequestRepository(session)
         self.rbac = RbacRepository(session)
         self.authz = AuthzService(session)
@@ -122,7 +128,7 @@ class JoinService:
         )
         if account is None:
             raise SessionInvalidError("Session is invalid")
-        user = await self.users.get(account.user_id)
+        user = await self.users.get_for_share(account.user_id)  # vs a concurrent disable
         if user is None or user.status != UserStatus.ACTIVE.value:
             raise SessionInvalidError("Session is invalid")
         if user.email_verified_at is None:
@@ -161,6 +167,14 @@ class JoinService:
             app.id, user_id, self.reject_cooldown_seconds
         ):
             raise JoinRejectedError("Joining this app is not available right now")
+        if await self.requests.pending_at_least(app.id, self.max_pending_per_app):
+            logger.warning(
+                "join_queue_full app=%s user_id=%s cap=%s",
+                app.key,
+                user_id,
+                self.max_pending_per_app,
+            )
+            raise JoinQueueFullError("Joining this app is not available right now")
         try:
             row = await self.requests.add(
                 AppJoinRequest(

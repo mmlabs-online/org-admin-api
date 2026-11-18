@@ -93,6 +93,8 @@ async def _org_delete(s: AsyncSession) -> Call:
 
 
 async def _user_status(s: AsyncSession) -> Call:
+    # No pending requests, so exactly one row; with requests: see
+    # `test_user_disable_with_pending_requests_writes_multiple_rows`.
     return f"{V1}/users/{(await make_user(s)).id}", {"status": "disabled"}
 
 
@@ -780,3 +782,25 @@ async def test_app_credential_routes_are_audited(
     rows = (await _rows(db_session))[before:]
     assert [r.action for r in rows] == ["app.manifest_synced"]
     assert {r.action for r in rows} <= next(iter(APP_CREDENTIAL_AUDITED.values()))
+
+
+async def test_user_disable_with_pending_requests_writes_multiple_rows(
+    make_client: MakeClient, db_session: AsyncSession, actor: User
+) -> None:
+    user = await make_user(db_session)
+    for _ in range(2):
+        await make_join_request(db_session, await make_approval_app(db_session), user)
+    before = await _count(db_session)
+    async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
+        resp = await client.patch(f"{V1}/users/{user.id}", json={"status": "disabled"})
+    assert resp.status_code == 200, resp.text
+    assert await _count(db_session) == before + 3
+    rows = [r for r in await _rows(db_session) if r.actor_user_id == actor.id]
+    assert sorted(r.action for r in rows) == [
+        "app.join_request_cancelled",
+        "app.join_request_cancelled",
+        "user.disabled",
+    ]
+    for row in rows:
+        assert (row.outcome, row.actor_user_id) == ("success", actor.id)
+        assert "@" not in str(row.changes)

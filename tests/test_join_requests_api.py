@@ -345,3 +345,31 @@ async def test_staff_routes_401_403(
         resp = await limited.request(method, url)
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "permission_denied"
+
+
+async def test_approve_cancelled_409_not_pending(
+    make_client: MakeClient, db_session: AsyncSession, staff: User
+) -> None:
+    app = await make_approval_app(db_session)
+    row = await make_join_request(db_session, app, await make_login_user(db_session), "cancelled")
+    async with make_client(admin_permissions=STAFF, admin_user=staff) as client:
+        for verb in ("approve", "reject"):
+            resp = await client.post(_act(app, row.id, verb))
+            assert resp.status_code == 409, resp.text
+            assert resp.json()["error"]["details"][0]["reason"] == "not_pending"
+    await db_session.refresh(row)
+    assert row.status == "cancelled"
+
+
+async def test_list_status_cancelled(make_client: MakeClient, db_session: AsyncSession) -> None:
+    app = await make_approval_app(db_session)
+    cancelled = await make_join_request(
+        db_session, app, await make_login_user(db_session), "cancelled"
+    )
+    await make_join_request(db_session, app, await make_login_user(db_session))
+    async with make_client(admin_permissions=STAFF) as client:
+        resp = await client.get(_list(app), params={"status": "cancelled"})
+        assert resp.status_code == 200, resp.text
+        assert [i["id"] for i in resp.json()["items"]] == [str(cancelled.id)]
+        assert resp.json()["items"][0]["status"] == "cancelled"
+        assert (await client.get(_list(app), params={"status": "bogus"})).status_code == 422

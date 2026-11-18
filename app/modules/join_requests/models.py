@@ -18,6 +18,7 @@ class JoinRequestStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    CANCELLED = "cancelled"  # the user was disabled while pending (USR-15)
 
 
 class AppJoinRequest(UUIDPkMixin, Base):
@@ -25,7 +26,9 @@ class AppJoinRequest(UUIDPkMixin, Base):
 
     __tablename__ = "join_requests"
     __table_args__ = (
-        CheckConstraint("status IN ('pending', 'approved', 'rejected')", name="status_valid"),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'cancelled')", name="status_valid"
+        ),
         CheckConstraint(
             "(status = 'pending') = (decided_at IS NULL)", name="decided_iff_not_pending"
         ),

@@ -27,3 +27,9 @@ class JoinRejectedError(PermissionDeniedError):
     """A join request was rejected recently (cooldown). No reason, decider or date is revealed."""
 
     code = "join_rejected"
+
+
+class JoinQueueFullError(PermissionDeniedError):
+    """The app's pending join-request queue is at its cap. No count or cap is revealed."""
+
+    code = "join_queue_full"
