@@ -48,3 +48,28 @@ None.
 ### Scope self-check
 - Could the diff be smaller? No.
 - Diff size: roughly +330 / -10 lines (about 250 of them tests and the migration; the working tree is not a git repo here, so not measured).
+
+## Attempt 2 (REWORK: review Attempt 1, Issue 1)
+
+### Files touched
+- `tests/test_audit_org_index_migration.py`: the down/up cycle now runs in a throwaway database (`CREATE DATABASE adm021_<random>` via an AUTOCOMMIT connection to the `postgres` maintenance DB, `DROP DATABASE ... WITH (FORCE)` in `finally`). Required because the review asked that the shared test DB's `audit_log` is not touched by this test.
+- `tests/test_stats_repository.py` (OUT OF PLAN, see below): `test_login_count_uses_action_index` now runs `DROP INDEX ix_audit_log_occurred_at_id` inside its rolled-back transaction before the EXPLAIN.
+
+### Finding
+The throwaway database alone did NOT fix the flake: 4 full runs with only that change failed the same test (1 failed, 2550 passed), while the suite with the new migration test ignored passed once. Adding the extra database/test shifts autovacuum timing on the shared test DB, and the test's plan depends on that timing (competing `ix_audit_log_occurred_at_id` bitmap scan vs `ix_audit_log_action`; failing plan: Bitmap Heap Scan on `ix_audit_log_occurred_at_id`, cost 11.80). `ANALYZE audit_log` in the test (reviewer's alternative) still failed (1 full run); `REINDEX TABLE audit_log` in the test passed alone but still failed in a full run. Dropping the competing index inside the test transaction (rolled back by the fixture) is deterministic: the test still proves the action index serves the login-count query.
+
+### Checks (three back-to-back full `make check` runs, test DB otherwise idle)
+```
+RUN1: All checks passed! / 327 files already formatted / Success: no issues found in 148 source files / 2551 passed, 1 warning in 373.97s
+RUN2: All checks passed! / 327 files already formatted / Success: no issues found in 148 source files / 2551 passed, 1 warning in 358.36s
+RUN3: All checks passed! / 327 files already formatted / Success: no issues found in 148 source files / 2551 passed, 1 warning in 357.98s
+```
+
+### Out-of-plan files
+- `tests/test_stats_repository.py`: the review's preferred fix alone was insufficient (see Finding); this is the review's stated alternative (make the EXPLAIN test independent of statistics), justified by Issue 1.
+
+### Follow-ups
+- Other EXPLAIN-based tests (`test_outcome_partial_index_used`, `test_org_filter_uses_indexes`) may be similarly timing-sensitive; consider a shared approach.
+
+### Scope self-check
+- Two test files changed, nothing else; no commit made.
