@@ -199,3 +199,53 @@ async def test_real_error_bodies_match_envelope(
         assert resp.status_code == status
         ErrorEnvelope.model_validate(resp.json())
         assert set(resp.json()["error"]) == {"code", "message", "details"}
+
+
+def _param(op: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(p for p in op["parameters"] if p["name"] == name)
+
+
+def _flat(schema: dict[str, Any]) -> dict[str, Any]:
+    """The non-null branch of an optional parameter schema."""
+    if "anyOf" in schema:
+        return next(s for s in schema["anyOf"] if s.get("type") != "null")
+    return schema
+
+
+def test_organizations_list_query_params() -> None:
+    schema = _schema()
+    op = schema["paths"]["/api/v1/organizations"]["get"]
+    for name in ("limit", "offset", "status", "q", "sort"):
+        param = _param(op, name)
+        assert param["in"] == "query"
+        assert not param.get("required")
+    for name in ("status", "q", "sort"):
+        assert _param(op, name)["description"]
+    status = _flat(_param(op, "status")["schema"])
+    if "$ref" in status:
+        status = schema["components"]["schemas"][status["$ref"].rsplit("/", 1)[-1]]
+    assert status["enum"] == ["active", "suspended"]
+    q = _flat(_param(op, "q")["schema"])
+    assert (q["minLength"], q["maxLength"]) == (1, 100)
+    assert "422" in _param(op, "q")["description"]
+    sort = _param(op, "sort")["schema"]
+    assert sort["enum"] == ["created_at", "-created_at", "name", "-name", "slug", "-slug"]
+    assert sort["default"] == "-created_at"
+
+
+def test_organizations_declared_error_responses() -> None:
+    paths = _schema()["paths"]
+    item = paths["/api/v1/organizations/{org_id}"]
+    for method in ("get", "patch", "delete"):
+        assert item[method]["responses"]["404"]["content"]["application/json"]["schema"] == {
+            "$ref": REF
+        }
+    assert "409" not in item["patch"]["responses"]
+    for op in (item["delete"], paths["/api/v1/organizations"]["post"]):
+        assert op["responses"]["409"]["content"]["application/json"]["schema"] == {"$ref": REF}
+
+
+def test_organizations_list_422_is_envelope() -> None:
+    response = _schema()["paths"]["/api/v1/organizations"]["get"]["responses"]["422"]
+    assert response["content"]["application/json"]["schema"] == {"$ref": REF}
+    assert "validation_error" in response["description"]

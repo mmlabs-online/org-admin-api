@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.organizations.models import OrganizationStatus
 
 SLUG_PATTERN = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+
+OrganizationSort = Literal["created_at", "-created_at", "name", "-name", "slug", "-slug"]
+DEFAULT_ORGANIZATION_SORT: OrganizationSort = "-created_at"
 
 
 class OrganizationCreate(BaseModel):

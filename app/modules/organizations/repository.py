@@ -1,12 +1,20 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import ColumnElement, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.listing import ilike_any, sort_clauses
 from app.modules.entitlements.models import OrgEntitlement
-from app.modules.organizations.models import Organization
+from app.modules.organizations.models import Organization, OrganizationStatus
+from app.modules.organizations.schemas import OrganizationSort
 from app.modules.rbac.models import Role, RoleAssignment
+
+_SORT_COLUMNS = {
+    "created_at": Organization.created_at,
+    "name": Organization.name,
+    "slug": Organization.slug,
+}
 
 
 class OrganizationRepository:
@@ -20,11 +28,27 @@ class OrganizationRepository:
         result = await self.session.execute(select(Organization).where(Organization.slug == slug))
         return result.scalar_one_or_none()
 
-    async def list(self, *, limit: int, offset: int) -> tuple[list[Organization], int]:
-        total = await self.session.scalar(select(func.count()).select_from(Organization))
+    async def list(
+        self,
+        *,
+        status: OrganizationStatus | None,
+        q: str | None,
+        sort: OrganizationSort,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Organization], int]:
+        conditions: list[ColumnElement[bool]] = []
+        if status is not None:
+            conditions.append(Organization.status == status.value)
+        if q is not None:
+            conditions.append(ilike_any(q, Organization.name, Organization.slug))
+        total = await self.session.scalar(
+            select(func.count()).select_from(Organization).where(*conditions)
+        )
         result = await self.session.execute(
             select(Organization)
-            .order_by(Organization.created_at.desc(), Organization.id)
+            .where(*conditions)
+            .order_by(*sort_clauses(sort, _SORT_COLUMNS, Organization.id))
             .limit(limit)
             .offset(offset)
         )

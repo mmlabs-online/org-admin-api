@@ -13,9 +13,13 @@ from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
 from app.modules.audit.service import AuditLogger
-from app.modules.organizations.models import Organization
+from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.organizations.repository import OrganizationRepository
-from app.modules.organizations.schemas import OrganizationCreate, OrganizationUpdate
+from app.modules.organizations.schemas import (
+    OrganizationCreate,
+    OrganizationSort,
+    OrganizationUpdate,
+)
 from app.modules.rbac.actor import Actor
 
 
@@ -30,8 +34,16 @@ class OrganizationService:
             raise NotFoundError(f"Organization {org_id} not found")
         return org
 
-    async def list(self, *, limit: int, offset: int) -> tuple[list[Organization], int]:
-        return await self.repo.list(limit=limit, offset=offset)
+    async def list(
+        self,
+        *,
+        status: OrganizationStatus | None,
+        q: str | None,
+        sort: OrganizationSort,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Organization], int]:
+        return await self.repo.list(status=status, q=q, sort=sort, limit=limit, offset=offset)
 
     async def create(
         self, data: OrganizationCreate, *, actor: Actor, ctx: AuditContext

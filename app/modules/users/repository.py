@@ -3,12 +3,8 @@ import uuid
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.listing import escape_like
 from app.modules.users.models import User, UserStatus
-
-
-def escape_like(term: str) -> str:
-    """Escape LIKE wildcards so `term` matches literally (backslash first)."""
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class UserRepository:
