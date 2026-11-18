@@ -10,6 +10,7 @@ from httpx import AsyncClient, Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.app_credentials import codec
 from app.modules.audit.models import AuditLog
 from app.modules.rbac.actor import SYSTEM_CLI
 from app.modules.rbac.models import App, Permission, Role, RolePermission
@@ -521,8 +522,18 @@ async def test_etag_unchanged_on_repush_admin_only_and_description(
 # --- audit -------------------------------------------------------------------
 
 
-async def test_changing_push_writes_one_row(client: AsyncClient, db_session: AsyncSession) -> None:
-    env = await _env(db_session)
+def _assert_secret_not_in(env: Env, raw: str, dump: str) -> None:
+    prefix = f"mmak_{env.key_id}_"
+    assert raw.startswith(prefix)
+    secret = raw.removeprefix(prefix)
+    assert len(secret) == 43  # token_urlsafe(32); may itself contain "_"
+    assert raw not in dump
+    assert secret not in dump
+
+
+async def _assert_push_audited_without_secret(
+    client: AsyncClient, db_session: AsyncSession, env: Env
+) -> None:
     body = {
         "permissions": _perms(env, "a", "b", description="d"),
         "roles": [{"key": f"{env.key}:editor", "name": "E", "permissions": [env.perm("a")]}],
@@ -544,8 +555,24 @@ async def test_changing_push_writes_one_row(client: AsyncClient, db_session: Asy
     assert set(row.changes) >= {"permissions_added", "roles_added", "member_permissions"}
     raw = env.headers["Authorization"].removeprefix("Bearer ")
     dump = " ".join(str(getattr(row, c.name)) for c in AuditLog.__table__.columns)
-    assert raw not in dump
-    assert raw.rsplit("_", 1)[1] not in dump
+    _assert_secret_not_in(env, raw, dump)
+
+
+async def test_changing_push_writes_one_row(client: AsyncClient, db_session: AsyncSession) -> None:
+    env = await _env(db_session)
+    await _assert_push_audited_without_secret(client, db_session, env)
+
+
+async def test_audit_secret_check_handles_underscore_in_secret(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BUG-002: a secret containing "_" must be checked in full, not just its tail."""
+    secret = "A" * 35 + "_success"
+    monkeypatch.setattr(codec.secrets, "token_urlsafe", lambda _n: secret)
+    env = await _env(db_session)
+    monkeypatch.undo()
+    assert env.headers["Authorization"].endswith("_success")
+    await _assert_push_audited_without_secret(client, db_session, env)
 
 
 async def test_noop_writes_no_row(client: AsyncClient, db_session: AsyncSession) -> None:
