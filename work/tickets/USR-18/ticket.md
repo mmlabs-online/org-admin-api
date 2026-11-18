@@ -1,28 +1,28 @@
-# USR-18: Join requests — richer decision response
+# USR-18: Filters and sort for the staff apps list
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
-| Priority | P3 |
-| Areas | api, auth |
+| Priority | P1 |
+| Areas | api |
 | Attempts | 0 |
 | Created | 2026-11-17 |
 | PR | — |
 
 ## Goal
-admin-pan can tell whether approving a join request actually granted a role, and show who decided without resolving user ids.
+Staff can search and filter apps on the admin-pan Apps screen (PAN-015); `GET /api/v1/apps` today accepts only `limit`/`offset`.
 
 ## Spec reference
-§5.3 Membership (`join_policy = approval`, D8–D9); USR-03g follow-ups.
+§5.3 Authorization (apps registry); §5.9 context (admin-pan Apps screen).
 
 ## Acceptance criteria
-- [ ] The approve response carries `granted_role_key: string | null` (null when nothing was granted, e.g. the user was already a member). Additive field, no breaking change (R9).
-- [ ] Join-request reads carry a display value for the decider next to `decided_by` (display name, else masked email; never the full email, R11).
-- [ ] OpenAPI documents both fields.
-- [ ] Tests: approve that grants the default role, approve of an existing member (`null`), reject, decider display with and without display name.
+- [ ] Optional filters: `status` (`active` | `disabled`), `join_policy` (one value of the existing enum), `q` (trimmed, 1..100 chars; case-insensitive substring on `key` OR `name`, LIKE wildcards escaped).
+- [ ] Optional `sort` from an allow-list: `key`, `-key`, `name`, `-name`, `created_at`, `-created_at` (default = today's order); `id` always the tie-breaker.
+- [ ] `total` is the filtered count; `member_count` (ADM-016) still present; unknown or invalid values → 422. No breaking change (R9).
+- [ ] Same design (param names, empty-`q` rule, escaping helper) as ADM-020.
+- [ ] Tests: each filter alone and combined, escaping, sort order and tie-breaker, 422 cases, 403 without `admin:apps:read`.
 
 ## Dependencies
-USR-03g. Requested by admin-pan (batch 2026-11-17).
+USR-02b, ADM-016. Shares design with ADM-020 (plan together or after it). Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
-- 2026-11-17 (owner): join-request follow-ups split into USR-18, USR-19, USR-20; self-approval policy not ticketed now.

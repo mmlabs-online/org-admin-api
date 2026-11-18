@@ -1,28 +1,28 @@
-# USR-19: Join requests — reject cooldown controls and pending count per app
+# USR-19: Label and optional expiry for app credentials
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
 | Priority | P3 |
-| Areas | api, auth, security |
+| Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
 | PR | — |
 
 ## Goal
-Staff can see and clear a user's reject cooldown, and admin-pan can show a pending-requests badge per app cheaply.
+Staff can tell app credentials apart and let a credential expire on its own (ADR-0016 follow-ups: credential `expires_at` and `label`).
 
 ## Spec reference
-§5.3 Membership (`join_policy = approval`); USR-03g follow-ups (`JOIN_REJECT_COOLDOWN_SECONDS`).
+§5.3 Authorization (apps registry; D25 app credential auth class, ADR-0016 follow-ups).
 
 ## Acceptance criteria
-- [ ] The reject cooldown length is readable by staff (e.g. on app detail or the join-requests list; exact place chosen at PLAN).
-- [ ] A staff action clears the cooldown for one user on one app (permission `admin:roles:assign`, or as chosen at PLAN), audited in the same transaction (R4).
-- [ ] A pending count per app is available without listing requests (either `pending_join_requests` on `AppRead`, without N+1, or `GET …/join-requests/count`).
-- [ ] Tests: cooldown shown, clear cooldown lets the user request again, audit row, 401/403/404, pending count with pending/decided rows.
+- [ ] Optional `label` (short text, length cap and display-text rules from ADM-011) on issue; returned by the credentials list.
+- [ ] Optional `expires_at` (future `timestamptz`) on issue; returned by the list with `active=false` once expired.
+- [ ] An expired credential is refused on `PUT /api/v1/apps/{key}/manifest` exactly like a revoked one (same status and error, no extra detail).
+- [ ] Hand-reviewed migration with working `downgrade()` (R2); issue audit row records label and expiry (no secret).
+- [ ] Tests: issue with/without label and expiry, past `expires_at` → 422, expired key refused, list shows `active=false`.
 
 ## Dependencies
-USR-03g. Requested by admin-pan (batch 2026-11-17).
+USR-05, USR-05b. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
-- Optional, not in this ticket unless the planner finds it free: a cross-app "pending inbox" endpoint.

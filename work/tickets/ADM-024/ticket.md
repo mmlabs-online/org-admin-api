@@ -1,28 +1,29 @@
-# ADM-024: Grant admin:entitlements:* to a staff role
+# ADM-024: Optimistic concurrency (ETag / If-Match) on PATCH for organizations and entitlements
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
-| Priority | P2 |
-| Areas | db, auth, security |
+| Priority | P3 |
+| Areas | api, architecture |
 | Attempts | 0 |
 | Created | 2026-11-17 |
 | PR | — |
 
 ## Goal
-Staff other than `admin:*` holders can use the entitlements tab (admin-pan PAN-019); ADM-006 seeded `admin:entitlements:read|write` but granted them to no role.
+Two staff editing the same organization or entitlement no longer silently overwrite each other (entitlement PATCH replaces `limits` as a whole).
 
 ## Spec reference
-§5.6 Org product entitlements; §5.3 (roles hold permissions as data).
+§5.1 Organizations and §5.6 Org product entitlements (existing PATCH). The spec has no concurrency requirement; this is a contract improvement requested by admin-pan — owner to confirm it is in scope.
 
 ## Acceptance criteria
-- [ ] The owner names the role(s) that get `admin:entitlements:read` and/or `admin:entitlements:write`, or decides it stays data-only (documented, staff grant it via the roles API).
-- [ ] If seeded: an Alembic migration adds the role-permission rows idempotently, with a working `downgrade()` (R2).
-- [ ] spec §5.6 no longer calls ADM-006 "(backlog)" and states which role holds the keys.
-- [ ] Tests: a user holding the chosen role can read/write entitlements; a user without it gets 403.
+- [ ] GET and PATCH of an organization and of an entitlement return an `ETag` (e.g. derived from `updated_at` or a version).
+- [ ] PATCH accepts an optional `If-Match`; on mismatch it returns 412 with the error envelope and changes nothing (no audit row). Without `If-Match` behaviour is unchanged (R9).
+- [ ] The check and the update are atomic (no window between compare and write).
+- [ ] 412 is added to the error codes (R6) and declared in OpenAPI; CORS exposes `ETag` and allows `If-Match` for admin origins (ADM-012).
+- [ ] Tests: matching and stale `If-Match`, no header, ETag changes after update, 404/403 unchanged.
 
 ## Dependencies
-ADM-006. Requested by admin-pan (batch 2026-11-17).
+ADM-006, ADM-012, ADM-013. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
-- **Needs owner answer before PLAN:** which staff role(s) get which key (owner's call; do not seed without it).
+- R6 lists the allowed codes; adding 412 needs the owner's OK at PLAN.

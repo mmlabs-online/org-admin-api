@@ -1,27 +1,28 @@
-# USR-20: Join requests — optional reject reason and expiry of stale pending requests
+# USR-20: Join requests — richer decision response
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
 | Priority | P3 |
-| Areas | api, auth, security, db |
+| Areas | api, auth |
 | Attempts | 0 |
 | Created | 2026-11-17 |
 | PR | — |
 
 ## Goal
-Staff can give a reason when rejecting a join request, and pending requests no longer stay open forever (USR-03g security-review follow-up).
+admin-pan can tell whether approving a join request actually granted a role, and show who decided without resolving user ids.
 
 ## Spec reference
-§5.3 Membership (`join_policy = approval`); USR-03g security-review follow-ups.
+§5.3 Membership (`join_policy = approval`, D8–D9); USR-03g follow-ups.
 
 ## Acceptance criteria
-- [ ] Reject accepts an optional `reason` (length cap, ADM-011 display-text rules), stored and recorded in the audit row. Whether the user sees it is decided by the owner at PLAN.
-- [ ] Pending requests older than a configurable age (env via `app/core/config.py`, R5) are treated as expired/cancelled and no longer block a new request; mechanism (on-read check or CLI purge) chosen at PLAN.
-- [ ] Hand-reviewed migration with a working `downgrade()` if columns are added (R2).
-- [ ] Tests: reject with and without reason, reason too long → 422, stale request treated as expired, a fresh request after expiry works.
+- [ ] The approve response carries `granted_role_key: string | null` (null when nothing was granted, e.g. the user was already a member). Additive field, no breaking change (R9).
+- [ ] Join-request reads carry a display value for the decider next to `decided_by` (display name, else masked email; never the full email, R11).
+- [ ] OpenAPI documents both fields.
+- [ ] Tests: approve that grants the default role, approve of an existing member (`null`), reject, decider display with and without display name.
 
 ## Dependencies
 USR-03g. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
+- 2026-11-17 (owner): join-request follow-ups split into USR-20, USR-21, USR-22; self-approval policy not ticketed now.

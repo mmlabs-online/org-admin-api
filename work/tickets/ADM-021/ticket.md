@@ -1,29 +1,27 @@
-# ADM-021: Server-side CSV export of the audit log
+# ADM-021: Audit log — org filter and single-entry read
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
-| Priority | P3 |
-| Areas | api, security |
+| Priority | P2 |
+| Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
 | PR | — |
 
 ## Goal
-Staff can download a filtered audit log as CSV from the API (admin-pan removed its client-side export, PAN-016).
+Staff can open an organization's history from admin-pan and deep-link to one audit entry without paging the list.
 
 ## Spec reference
-§5.4 Audit log. ⚠️ Overlaps §5.11 report type `audit_activity` (scope **not decided**, OQ9–OQ18): "no ticket may implement reports before then". Owner must confirm before PLAN that this export is separate from §5.11.
+§5.4 Audit log ("Read-only, filterable listing for auditors").
 
 ## Acceptance criteria
-- [ ] An export endpoint (e.g. `GET /api/v1/audit-logs/export`) takes the same filters as the list and returns `text/csv` with a row cap (value set at PLAN; the response says when it was truncated).
-- [ ] Permission `admin:audit:read` or a new `admin:audit:export` (owner/PLAN decides; a new permission ships with a migration).
-- [ ] Each export writes an audit entry (filters and row count, no row data) in the same transaction (R4 spirit for a privileged read).
-- [ ] No PII beyond the list: same `user_agent` stripping; CSV cells are protected against formula injection.
-- [ ] Tests: happy path with filters, row cap, audit row written, 401/403, CSV-injection escaping.
+- [ ] `GET /api/v1/audit-logs` accepts an optional `org_id`: matches rows whose `target_type`/`target_id` is that organization OR whose `org_id` column equals it (entitlements, org-scoped assignments). Combines with the existing filters.
+- [ ] `GET /api/v1/audit-logs/{id}` with `admin:audit:read` returns one `AuditLogRead` (same `user_agent` handling as the list); 404 for an unknown id.
+- [ ] The `org_id` filter is index-backed or the planner shows it meets §6 (p95 < 200 ms).
+- [ ] Tests: `org_id` alone and with other filters (target match and column match), single read happy path, 404, 401/403 on both routes.
 
 ## Dependencies
-ADM-020 (shared filters), ADM-004b. Requested by admin-pan (batch 2026-11-17).
+ADM-004, ADM-004b. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
-- Needs owner answer before PLAN: is this in scope separately from §5.11 reports (blocked, ADM-017)?

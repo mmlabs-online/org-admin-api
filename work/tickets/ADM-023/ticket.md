@@ -1,29 +1,28 @@
-# ADM-023: Optimistic concurrency (ETag / If-Match) on PATCH for organizations and entitlements
+# ADM-023: Declare 404/409 responses and admin:* requirements in OpenAPI
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
-| Priority | P3 |
-| Areas | api, architecture |
+| Priority | P2 |
+| Areas | api |
 | Attempts | 0 |
 | Created | 2026-11-17 |
 | PR | — |
 
 ## Goal
-Two staff editing the same organization or entitlement no longer silently overwrite each other (entitlement PATCH replaces `limits` as a whole).
+`/openapi.json` lists every real error response and permission requirement, so admin-pan's generated types match the API.
 
 ## Spec reference
-§5.1 Organizations and §5.6 Org product entitlements (existing PATCH). The spec has no concurrency requirement; this is a contract improvement requested by admin-pan — owner to confirm it is in scope.
+Contract quality of existing §5.1, §5.3, §5.6, §5.8 endpoints; follows ADM-013 (OpenAPI contract clients can generate types from).
 
 ## Acceptance criteria
-- [ ] GET and PATCH of an organization and of an entitlement return an `ETag` (e.g. derived from `updated_at` or a version).
-- [ ] PATCH accepts an optional `If-Match`; on mismatch it returns 412 with the error envelope and changes nothing (no audit row). Without `If-Match` behaviour is unchanged (R9).
-- [ ] The check and the update are atomic (no window between compare and write).
-- [ ] 412 is added to the error codes (R6) and declared in OpenAPI; CORS exposes `ETag` and allows `If-Match` for admin origins (ADM-012).
-- [ ] Tests: matching and stale `If-Match`, no header, ETag changes after update, 404/403 unchanged.
+- [ ] 404 is declared on the organizations, entitlements, app-credentials and join-requests routes that can return it.
+- [ ] 409 is declared on every route that can return it (routes using `_with_409`: POST/PATCH apps, permission PATCH, role PUT, assignment DELETE, entitlement grant), with the error envelope schema (R6).
+- [ ] The `admin:*` requirement of `POST /api/v1/apps/{key}/credentials` (and any other route that needs `admin:*` beyond its declared permission) is machine-readable (e.g. `x-requires-super: true`).
+- [ ] POST /apps with a taken key returns 409 with a distinct reason/code (e.g. `app_key_taken`) so the UI can map it to the key field; documented in OpenAPI.
+- [ ] A test walks the OpenAPI document and asserts the declared responses above; existing tests still pass.
 
 ## Dependencies
-ADM-006, ADM-012, ADM-013. Requested by admin-pan (batch 2026-11-17).
+ADM-013. ADM-020 also declares 404/409 for organizations — whichever lands first does it, the other skips. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
-- R6 lists the allowed codes; adding 412 needs the owner's OK at PLAN.
