@@ -7,7 +7,7 @@
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/63 |
 
 ## Goal
 Staff can see who holds a given role (the "who holds this role" sheet in admin-pan) without one call per user; today assignments can only be listed per user.
