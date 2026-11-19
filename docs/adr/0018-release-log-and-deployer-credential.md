@@ -1,6 +1,6 @@
 # ADR-0018: Release log, app credential widening and the deployer credential
 
-Status: Proposed (2026-11-19)
+Status: Accepted (2026-11-19)
 Date: 2026-11-19
 
 ## Context
@@ -21,8 +21,8 @@ R3 class 4 (D25, ADR-0016) allows the app credential on exactly one route,
 entitlement pulls. The owner now decides to widen it, **for releases only** (2026-11-19). No
 existing class fits writer (b), which reports for any app: it is neither an app nor a person.
 
-Items marked *(proposed default)* are open in spec §8 OQ36–OQ49; this ADR becomes Accepted when
-the owner accepts them (or the answers are written back here).
+The owner accepted spec §8 OQ36–OQ49 on 2026-11-19 (proposed defaults, with OQ40 changed: a redeploy
+refreshes `last_deployed_at`). Items marked *(OQnn)* trace to those answers.
 
 ## Decision
 
@@ -34,25 +34,25 @@ The `mmak_` app credential is accepted on exactly two routes:
 
 Only for its own app: a valid key of another app gives 403 `app_credential_mismatch`, audited
 `denied`; a disabled app gives 403 `app_disabled` (ADR-0016 §4 unchanged). One key covers both
-routes; there are **no per-key scopes** in v1 *(proposed default, OQ44)*. Issuance, the 2-key
+routes; there are **no per-key scopes** in v1 *(OQ44)*. Issuance, the 2-key
 limit and revocation (ADR-0016 §3, §5) are unchanged. ADR-0017 §2 ("R3 class 4 unchanged") stays
 true for entitlements: no pull endpoint is added.
 
 ### 2. Deployer credential (new key type)
 - **Format** `mmdk_<key_id>_<secret>`, same shape as `mmak_`: `key_id` 16 hex (lookup), secret
   256 bits; only SHA-256(secret) stored, compared with `hmac.compare_digest`; no pepper (ADR-0016
-  §3 reasoning) *(prefix: proposed default, OQ43)*.
+  §3 reasoning) *(prefix: OQ43)*.
 - **Not bound to an app.** Its own table (`app_credentials.app_id` stays NOT NULL), at most
   **2 active** for rotation overlap, no expiry, `last_used_at`, immediate revoke (every request
-  reads the database) *(proposed default, OQ43)*.
+  reads the database) *(OQ43)*.
 - **Issued, listed and revoked by `admin:*` only** (Bearer, `aud=admin`), each write audited
   (`deployer_credential.issued`, `deployer_credential.revoked`). The value is shown once with
   `Cache-Control: no-store`; list returns metadata only. No CLI bootstrap: the first key is issued
-  through the admin API, like app credentials (`docs/deploy.md`) *(proposed default, OQ43)*.
+  through the admin API, like app credentials (`docs/deploy.md`) *(OQ43)*.
 - **Accepted on exactly one route:**
   `PATCH /api/v1/apps/{key}/releases/{environment}/{version}/deployment`, for any registered app
   (including disabled ones, since the deploy happened), except the `admin` app (404, as for the
-  role catalog) *(proposed default, OQ38, OQ48)*.
+  role catalog) *(OQ38, OQ48)*.
 
 ### 3. Machine-route rules (both credentials)
 - `Authorization: Bearer <key>` only. Each route accepts **only its own key type**: an `mmdk_` key
@@ -62,7 +62,7 @@ true for entitlements: no pull endpoint is added.
   are never accepted on any other route.
 - **No CORS** (server-to-server; outside `/api/v1/auth/`).
 - **Per-IP rate limit before authentication**, in-process (ADR-0002), one bucket per route:
-  30/min app write, 30/min report; body caps 256 KiB and 4 KiB *(proposed defaults, OQ46)*.
+  30/min app write, 30/min report; body caps 256 KiB and 4 KiB *(OQ46)*.
   A 429 is just a warning in CI.
 - Listed by exact (method, path) in `tests/test_route_auth_classes.py` (`APP_CREDENTIAL` gains the
   release route; new `DEPLOYER_CREDENTIAL` set).
@@ -71,7 +71,7 @@ true for entitlements: no pull endpoint is added.
 - **App write (`PUT`).** Creates the record as `pending` (201) or, while `pending`, replaces the
   whole document (200). An identical retry returns 200 with the stored record and writes no audit
   row. Once `deployed` or `failed`: 409 `release_not_pending`, including for a record created
-  from a report (no backfill) *(proposed default, OQ37)*. The app writer never sets `status`.
+  from a report (no backfill) *(OQ37)*. The app writer never sets `status`.
 - **Report (`PATCH …/deployment`).** Body `{status: deployed|failed, deployed_at, deploy_run_url}`.
   201 when it creates the record (§6), 200 otherwise.
 - **Races.** Unique (app, environment, version); concurrent first writes resolve through the
@@ -83,15 +83,15 @@ true for entitlements: no pull endpoint is added.
 | From \ report | `deployed` | `failed` |
 |---|---|---|
 | (no record) | create as `deployed` (201) | create as `failed` (201) |
-| `pending` | `deployed`, sets `deployed_at`, `deploy_run_url` | `failed`, sets `deploy_run_url` |
-| `failed` | `deployed` (redeploy; owner) | 200, updates `deploy_run_url` *(proposed, OQ39)* |
-| `deployed` | **no-op 200** (owner) | **409 `release_already_deployed`**, unchanged *(proposed, OQ39)* |
+| `pending` | `deployed`, sets `deployed_at`, `last_deployed_at`, `deploy_run_url` | `failed`, sets `deploy_run_url` |
+| `failed` | `deployed` (redeploy; owner), sets `deployed_at`, `last_deployed_at` | 200, updates `deploy_run_url` *(OQ39)* |
+| `deployed` | 200, refreshes `last_deployed_at` and `deploy_run_url` only; no audit row *(OQ40)* | **409 `release_already_deployed`**, unchanged *(OQ39)* |
 
 `deployed_at` is required with `deployed` and refused with `failed`; timezone-aware, at most 5 min
-in the future and at most 30 days in the past *(proposed default, OQ38)*. There is no
-`rolled_back` / `superseded` state in v1: a rollback to an older, already-deployed version is not
-visible (consequence of the `deployed → deployed` no-op); "live now" is read as the latest
-`deployed_at` per app and environment *(proposed default, OQ40)*.
+in the future and at most 30 days in the past *(OQ38)*. There is no
+`rolled_back` / `superseded` state in v1. "Live now" per app and environment is the `deployed` record
+with the latest `last_deployed_at`; because a redeploy of an older version refreshes it, rollbacks
+are visible *(OQ40, owner 2026-11-19)*.
 
 ### 6. Report before the release record
 If writer (a) failed, the report creates the record with what is known: app, environment and
@@ -115,7 +115,7 @@ One audit row per write that changes something, in the same transaction (R4), id
 (app key, environment, version, release id, status, change count), never titles or URLs:
 `release.created`, `release.updated`, `release.deployment_reported`, `release.deleted`. Actors
 `SystemActor("app:{key}/{key_id}")` and `SystemActor("deployer:{key_id}")`, `actor_kind = system`
-(no audit-schema migration) *(proposed default, OQ47)*.
+(no audit-schema migration) *(OQ47)*.
 
 ### 9. Staff routes and permission
 `admin:*` only — no new leaf permission (owner). `GET /api/v1/releases` (`Page[T]`, filters app,
@@ -128,7 +128,7 @@ environment, status, date range, newest first), `GET /api/v1/releases/{id}`,
 (environment + version) instead of a UUID, and `…/deployment` is a singular sub-document (like
 D18/D25). Staff routes follow R9 normally.
 
-### 11. Proposed R3 class 4 text for `CLAUDE.md` (applied by the implementing ticket after the owner accepts)
+### 11. R3 class 4 text for `CLAUDE.md` (applied by the implementing ticket)
 > (4) **machine credential** (D25, D28; ADR-0016, ADR-0018) — opaque keys issued by staff
 > (`admin:*`), stored only as a SHA-256 hash, sent as `Authorization: Bearer …`, no CORS, per-IP
 > rate-limited, never accepted on any other route; a key of the wrong type → 401:
@@ -175,11 +175,13 @@ and in R9's exception list: "`/api/v1/apps/{key}/releases/{environment}/{version
 - The API is now on the release path of every app, but only as a warning-only side call: an API
   outage loses log entries, never releases. The deployer's per-IP bucket is shared by all apps'
   deploys from the one runner IP.
-- Rollbacks to an already-deployed version are not visible in v1 (§5); a `last_deployed_at`
-  column or deployment-event table is the follow-up if needed.
+- Rollbacks are visible through `last_deployed_at`; only the first (`deployed_at`) and latest deploy
+  of a version are kept, not a full deployment history.
+- Bug reports (§5.12) link to a release (`release_id`, `release_match`); deleting a release sets the
+  link to null and keeps the reported version string (spec §5.13).
 - Releases of this API and admin-pan are not recorded in v1 (the `admin` app has no app
   credential).
 - `CLAUDE.md` R3 and R9, `docs/identity-architecture.md` (D28) and `tests/test_route_auth_classes.py`
   change in the implementing tickets; ADR-0016 §1 is amended by §1 above.
-- Follow-ups: per-key scopes, credential `expires_at`/`label` (shared with ADR-0016), rollback
-  tracking, staging retention purge, release records for the `admin` app.
+- Follow-ups: per-key scopes, credential `expires_at`/`label` (shared with ADR-0016), a deployment-event
+  history, staging retention purge, release records for the `admin` app.
