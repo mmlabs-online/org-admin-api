@@ -1,0 +1,28 @@
+# USR-24: Optimistic concurrency on PUT role permissions
+
+| Field | Value |
+|---|---|
+| State | BACKLOG |
+| Priority | P2 |
+| Areas | api, db |
+| Attempts | 0 |
+| Created | 2026-11-19 |
+| PR | — |
+
+## Goal
+Two staff editing the same role's permissions no longer silently overwrite each other: `PUT /api/v1/apps/{key}/roles/{role_id}/permissions` is a full replace with no version check today, and `RoleDefinitionRead.updated_at` is not bumped by a permission replace (only by rename), so clients cannot use it as a version.
+
+## Spec reference
+§5.3 Authorization (roles and permissions are data managed by staff). Extends ADM-024 (same precondition shape for organizations, entitlements and roles).
+
+## Acceptance criteria
+- [ ] Every permission replace bumps a version visible on `RoleDefinitionRead` and `RoleRead` (bump `updated_at`, or an integer `version`; chosen at PLAN, consistent with ADM-024).
+- [ ] The PUT accepts an optional precondition (`If-Match` with an ETag from `GET …/role-definitions/{role_id}`, or a body `expected_version`; chosen at PLAN with ADM-024). On mismatch: 412 (owner OK'd 412 for ADM-024, 2026-11-18) or 409 with `details: [{"reason": "role_changed"}]` — one choice, documented; nothing written, no audit row.
+- [ ] Without a precondition the PUT behaves as today (R9).
+- [ ] Compare and write are atomic (no window between check and replace).
+- [ ] Tests: matching version succeeds and bumps it; stale version → 412/409 with the reason, permissions unchanged, no audit row; no precondition still works.
+
+## Dependencies
+USR-02d, USR-16. Shape shared with ADM-024 (plan together or after it). Consumer: admin-pan roles screen (PAN-030). Requested by admin-pan (batch 2026-11-19).
+
+## Notes / answers from owner
