@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | REWORK |
 | Priority | P1 |
 | Areas | api, auth, security, db |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-19 |
 | Gate | plan-approval |
 | Claimed by | claude@2026-11-19T07:36Z |
