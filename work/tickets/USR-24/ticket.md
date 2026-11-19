@@ -2,12 +2,13 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P2 |
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | PR | — |
+| Claimed by | claude@2026-11-19T03:47Z |
 
 ## Goal
 Two staff editing the same role's permissions no longer silently overwrite each other: `PUT /api/v1/apps/{key}/roles/{role_id}/permissions` is a full replace with no version check today, and `RoleDefinitionRead.updated_at` is not bumped by a permission replace (only by rename), so clients cannot use it as a version.

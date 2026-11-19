@@ -2,12 +2,13 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P1 |
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | PR | — |
+| Claimed by | claude@2026-11-19T03:47Z |
 
 ## Goal
 Staff can see, in an organization's detail, who its members are (with roles and joined date) and its invitations with their status (admin-pan PAN-018). Today the only membership/invitation routes are the cookie routes under `/api/v1/auth/orgs/*` and `/api/v1/auth/invitations/accept`.
