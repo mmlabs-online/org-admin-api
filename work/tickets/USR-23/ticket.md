@@ -2,12 +2,13 @@
 
 | Field | Value |
 |---|---|
-| State | BLOCKED |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | Gate | plan-approval |
+| Claimed by | claude@2026-11-19T07:36Z |
 | PR | — |
 
 ## Goal
@@ -28,8 +29,7 @@ USR-06, USR-06b (invitations), ADM-002b, ADM-012. Consumer: admin-pan PAN-018 (b
 
 ## Notes / answers from owner
 - 2026-11-19 (owner): **no masked email hint** — the invitations list shows no invitee email; no new column. The list carries app, role, inviter, timestamps and status only.
-
-Waiting for Ming: plan approval (High tier) — batch 2026-11-19-1, blocking questions 1–5 in plan.md.
+- 2026-11-19 (owner): Plan approved (2026-11-19, batch 2026-11-19-1); questions 1–5 (batch numbering) per the defaults in plan.md — "duyệt hết; câu 1–9 theo mặc định".
 
 ## Handoff
 ### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-1)

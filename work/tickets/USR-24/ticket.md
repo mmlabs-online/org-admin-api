@@ -28,7 +28,7 @@ USR-02d, USR-16. Shape shared with ADM-024 (plan together or after it). Consumer
 
 ## Notes / answers from owner
 
-Waiting for Ming: plan approval (High tier) — batch 2026-11-19-1, blocking questions 6–9 (plan.md questions 1–4).
+- 2026-11-19 (owner): Plan approved (2026-11-19, batch 2026-11-19-1); questions 6–9 (batch numbering; plan.md questions 1–4) per the defaults in plan.md — "duyệt hết; câu 1–9 theo mặc định".
 
 ## Handoff
 ### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-1)
