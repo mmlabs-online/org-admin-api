@@ -57,4 +57,4 @@ single use, expiring, hashed at rest, and must not become an account or membersh
 - Residual risk (moved to ADR-0015): a staff-granted app-scope role carrying org-level permissions
   still reaches every org token through `roles`; consumers must authorize from `org_roles`.
 - Gmail dots and plus tags are not folded: the invitee signs in with exactly the invited address.
-- Follow-ups: retention purge of `org_invitations`, list/revoke endpoints and member management.
+- Follow-ups: retention purge of `org_invitations`, cookie-side list/revoke endpoints and member management. Staff list and revoke (Bearer, `/api/v1/organizations/{org_id}/invitations`) shipped in USR-23.

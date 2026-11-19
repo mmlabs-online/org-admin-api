@@ -7,7 +7,7 @@ does the same for identity routes (ADM-004b): audited (with a success scenario) 
 
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -35,6 +35,7 @@ from tests.auth_factories import (
     sha256,
 )
 from tests.conftest import MakeClient
+from tests.invitation_factories import make_invitation
 from tests.join_request_factories import make_approval_app, make_join_request
 from tests.rbac_factories import (
     assign,
@@ -147,6 +148,16 @@ async def _perm_update(s: AsyncSession) -> Call:
 async def _perm_delete(s: AsyncSession) -> Call:
     app, perm = await _perm(s)
     return f"{V1}/apps/{app.key}/permissions/{perm.id}", None
+
+
+async def _inv_revoke(s: AsyncSession) -> Call:
+    _, role = await _role(s)
+    org = await _org(s)
+    now = datetime.now(UTC)
+    inv, _ = await make_invitation(
+        s, org, role, created_at=now - timedelta(hours=1), expires_at=now + timedelta(days=1)
+    )
+    return f"{V1}/organizations/{org.id}/invitations/{inv.id}", None
 
 
 async def _role_create(s: AsyncSession) -> Call:
@@ -287,6 +298,10 @@ async def _role_create_dup(s: AsyncSession) -> Call:
     return f"{V1}/apps/{app.key}/roles", {"key": role.key, "name": "Dup"}
 
 
+async def _inv_revoke_unknown(s: AsyncSession) -> Call:
+    return f"{V1}/organizations/{(await _org(s)).id}/invitations/{uuid.uuid4()}", None
+
+
 async def _role_unknown(s: AsyncSession) -> Call:
     app = await _app(s)
     return f"{V1}/apps/{app.key}/roles/{uuid.uuid4()}", {"name": "Renamed"}
@@ -351,6 +366,12 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
     ("POST", ORG): ({"organization.created"}, _org_create, _org_create_dup, 409),
     ("PATCH", ORG_ID): ({"organization.updated"}, _org_update, _org_unknown, 404),
     ("DELETE", ORG_ID): ({"organization.deleted"}, _org_delete, _org_unknown_delete, 404),
+    ("DELETE", f"{ORG_ID}/invitations/{{invitation_id}}"): (
+        {"organization.invitation_revoked"},
+        _inv_revoke,
+        _inv_revoke_unknown,
+        404,
+    ),
     ("PATCH", USER): ({"user.disabled", "user.enabled"}, _user_status, _user_unknown, 404),
     ("DELETE", f"{USER}/sessions/{{session_id}}"): (
         {"user.session_revoked"},
@@ -465,7 +486,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 25
+    assert len(AUDITED) == 26
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")

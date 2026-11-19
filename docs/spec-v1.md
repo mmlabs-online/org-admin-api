@@ -194,7 +194,7 @@ Design facts and decisions carried into PLAN:
 No §3 non-goal conflicts with §5.12: it is not billing, social login, an OIDC provider or a hosted login UI (each app keeps its own report form; this API only receives and stores). It widens the API surface for end users beyond identity (§5.8); the owner confirmed it belongs in this API (OQ33, 2026-11-19).
 
 ### §5.7 Later (not v1)
-Org members view, per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
+Org members view (member management; the read-only staff view of an org's members and invitations ships in v1 as USR-23, owner-approved 2026-11-19), per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
 Bug reports (§5.12), deferred by the owner on 2026-11-19: **video attachments** (MP4/WebM/MOV ≤ 50 MB, Drive resumable upload; max video length to be set then); a reporter **"my reports"** view (list own reports and status); **staff delete** of a report or an attachment (permanent Drive delete); **notifications** (email to the reporter when done, staff alerts on new reports); a **dashboard tile** / Apps-screen count of open reports.
 
 ## §6 Non-functional

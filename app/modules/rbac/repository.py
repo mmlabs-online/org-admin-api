@@ -43,6 +43,8 @@ _APP_SORT_COLUMNS = {"key": App.key, "name": App.name, "created_at": App.created
 AssignmentRow = tuple[RoleAssignment, str, str, bool]
 # (assignment, app key, role key, active, holder email, holder display name, holder status)
 RoleHolderRow = tuple[RoleAssignment, str, str, bool, str, str | None, str]
+# (assignment, app key, role key, active, role name, email, display name, user status)
+OrgMemberRow = tuple[RoleAssignment, str, str, bool, str, str, str | None, str]
 
 # `session.info` flag: an app was written; the CORS origin cache is invalidated after commit.
 APPS_CHANGED_KEY = "rbac_apps_changed"
@@ -504,6 +506,9 @@ class RbacRepository:
     async def user_exists(self, user_id: uuid.UUID) -> bool:
         return bool(await self.session.scalar(select(exists().where(User.id == user_id))))
 
+    async def org_exists(self, org_id: uuid.UUID) -> bool:
+        return bool(await self.session.scalar(select(exists().where(Organization.id == org_id))))
+
     async def role_with_app(self, role_id: uuid.UUID) -> tuple[Role, App] | None:
         """Unlocked read: tells the caller which app to lock."""
         row = (
@@ -569,6 +574,43 @@ class RbacRepository:
             .offset(offset)
         )
         return [(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in result.all()], total or 0
+
+    async def page_org_members(
+        self,
+        org_id: uuid.UUID,
+        *,
+        app_key: str | None,
+        active: bool | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[OrgMemberRow], int]:
+        """Org-scoped assignments of one org with their holders; two statements (count + rows).
+        Explicit `User` columns: never the entity, so `password_hash` cannot reach the result."""
+        filters: list[ColumnElement[bool]] = [RoleAssignment.org_id == org_id]
+        if app_key is not None:
+            filters.append(App.key == app_key)
+        if active is True:
+            filters.append(self._is_active())
+        elif active is False:
+            filters.append(not_(self._is_active()))
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(RoleAssignment)
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(App, App.id == Role.app_id)
+            .where(*filters)
+        )
+        result = await self.session.execute(
+            self._assignment_rows()
+            .add_columns(Role.name, User.email, User.display_name, User.status)
+            .join(User, User.id == RoleAssignment.user_id)
+            .where(*filters)
+            .order_by(RoleAssignment.created_at.desc(), RoleAssignment.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]) for r in result.all()]
+        return rows, total or 0
 
     async def page_assignments(
         self, user_id: uuid.UUID, *, app_key: str | None, limit: int, offset: int

@@ -1,0 +1,49 @@
+# Consult — api-platform-engineer — USR-24 (2026-11-19)
+
+### Findings
+1. **ADM-024 precedent is on main and reusable.** `app/core/etag.py` has `version_etag`, `parse_if_match`, `IfMatch`, `IF_MATCH_DESCRIPTION` and `ETAG_RESPONSE_HEADER`. `app/core/errors.py` has `PreconditionFailedError(current)` (412 `precondition_failed`, carries the current `ETag`). `app/db/base.py` has `bumped_updated_at`. `app/core/cors.py` already allows `If-Match` and exposes `ETag`. R6 already lists 412. The orgs/entitlements routers show the declaration pattern (`_with_etag`, the `If-Match` header param, the 412 entry). The ticket's "412 or 409" choice is already settled: use 412. The owner approved it on 2026-11-18, and one error code across all resources is the point of ADM-024.
+2. **The roles PUT cannot copy ADM-024's conditional `UPDATE ... WHERE updated_at = :v` as is.** `replace_permissions` (`app/modules/rbac/service.py` ~L1258–1348) diffs rows in the `role_permissions` join table through `_set_role_permissions` and `repo.apply_role_permission_diff`. It never writes the `roles` row. So `roles.updated_at` is not bumped, and the schema description on `RoleDefinitionRead.updated_at` says so (`schemas.py` L248).
+3. **Atomicity already exists through the app lock.** Every role mutation starts with `_locked_app` → `repo.lock_app(key)`, a row lock on the app. Role PUT, PATCH, DELETE, manifest apply (`rbac/manifest.py` L107, L219), the default-role builder and permission create/delete all take it. Reading the role's version after the lock, comparing, and then writing is therefore serialized. This replaces the conditional UPDATE. No extra `FOR UPDATE` on the role row is needed, provided every writer of `role_permissions` bumps the version (finding 4).
+4. **The version must move on every path that changes a role's permission set, not only the staff PUT.** Writers of `role_permissions`:
+   - `_set_role_permissions` (service.py L187), shared by the staff PUT, the default-role builder (L322) and the manifest PUT (manifest.py L219);
+   - the permission delete cascade, and anything else that removes join rows. I did not trace L888/L938/L1025 in detail. The planner should confirm which of them remove `role_permissions` rows.
+   If only the PUT bumps, a manifest sync between GET and PUT would go undetected, and that is exactly the lost update this ticket exists to prevent.
+5. **`RoleRead` has no `updated_at` today.** `RoleRead` (schemas L221) is returned by the PUT, POST and PATCH. `RoleDefinitionRead` already has `updated_at`. The AC says the version must be visible on both.
+6. **The router has no ETag or If-Match handling yet for roles.** `get_role_definition` (router L282) and `replace_role_permissions` (L380) need the `Response` param, the `If-Match` header and the 412 entry. The existing 409 text stays.
+
+### Recommendations
+1. **Version source: bump `roles.updated_at`, no new column and no migration.** This matches ADM-024's "ETag derived from `updated_at`" and the ticket's first option. Add a repository method, for example `touch_role(role_id) -> datetime`, that runs `UPDATE roles SET updated_at = <bumped_updated_at(Role.updated_at)> WHERE id = :id RETURNING updated_at`. Call it from `_set_role_permissions` only when `to_add or to_remove` is non-empty. That one hook covers the PUT, the manifest and the default builder (finding 4). Add the same bump to any permission-delete cascade that strips a role. Use `bumped_updated_at`, not `now()`, because `now()` is constant inside a transaction and can repeat the old value, and the tests run in one outer transaction. A no-op PUT (same set) must not bump. This keeps today's "unchanged re-PUT" behaviour and the idempotent ETag.
+2. **Move the shared mechanics into the roles flow (R1).**
+   - Router: `If-Match: Annotated[list[str] | None, Header(alias="If-Match", description=IF_MATCH_DESCRIPTION)]`, pass `parse_if_match(...)`, and set `response.headers["ETag"] = version_etag(updated_at)` on `GET /role-definitions/{role_id}` and on the PUT. Also set it on PATCH and POST roles for consistency with ADM-024. Declare 412 and the `ETag` response header in OpenAPI.
+   - Service: `replace_permissions(..., precondition: IfMatch | None = None)`. After `_locked_app` and `_get` (404 first), if `precondition` is not `None` and not `any`, and `role.updated_at not in precondition.versions`, raise `PreconditionFailedError(role.updated_at)`. No separate retry or lost-race branch is needed because the app lock serializes writers. `*` and no header take the existing path unchanged (R9).
+3. **Order of checks.** Order: 401/403 from the dependency, then 422 on body shape, then 404, then the precondition (412), then the existing 422 (unknown permissions or wildcard) and the privilege checks (`require_super`, the 409 default-role rules). Put the 412 immediately after `_get`. A stale client then learns first that its view is out of date. A 412 never leaks whether the caller may perform the change, and a stale write never reaches `record_denied`. Do not add 412 to `DENIED_ERRORS`, and write no audit row on 412 (the AC requires none). Note the exact order in the plan.
+4. **Return the new version on the PUT.** Add `updated_at` to `RoleRead` (additive, R9) and refresh the role after `touch_role` (`session.refresh(role)`, as `update` already does). Build the returned `RoleRead` from `role.updated_at`. Also set the new `ETag` on the PUT response, so admin-pan can chain edits without a re-GET. Update the `RoleDefinitionRead.updated_at` description: "Last change to the role row, including permission changes (ETag source, USR-24)". The current wording becomes false. `_read` and `create` need `updated_at` too.
+5. **ETag header on GET `role-definitions/{role_id}` only in the item route.** The list items already carry `updated_at`, so `version_etag` is derivable (same position as ADM-024: no ETag on lists).
+6. **Docs.** Add a bullet to `docs/consumers.md` near the ADM-024 bullet. Add a dated note in `docs/spec-v1.md` §5.3. If the planner wants the CORS ADR text touched, it needs nothing: ADM-024 already allowed `If-Match`.
+7. **Tests** (R8). Mirror ADM-024:
+   - GET role-definition returns an `ETag` equal to `version_etag(updated_at)`.
+   - PUT with the matching tag: 200, the permissions are replaced, the new ETag differs and is strictly greater, one `role.permissions_replaced` audit row.
+   - Stale tag: 412 envelope with the current `ETag`, permissions unchanged, audit count unchanged.
+   - Two-client scenario: both hold A, client 1 PUTs, client 2 PUTs with A and gets 412.
+   - A manifest sync or a permission-delete between GET and PUT also makes the tag stale.
+   - No header: behaves as today. `*`: succeeds. Weak or malformed tag: 412.
+   - No-op PUT with the matching tag: 200, the same ETag, no audit row, no bump.
+   - 404 beats 412. 403 and 401 are unchanged. A stale tag combined with a request that would also return 422 or 409 returns 412.
+   - OpenAPI contract: the 412, `If-Match` and `ETag` declarations on the PUT and the GET, and the existing `_EXPECTED_ERRORS` table updated in `tests/test_openapi_contract.py`.
+   - Existing tests that assert `updated_at` is unchanged after a permission replace must be found (`grep updated_at tests/test_roles*`) and updated.
+
+### Risks
+- **Silent miss of a writer (finding 4).** If one path that edits `role_permissions` forgets the bump, the tag stays valid across a real change. The hook belongs in `_set_role_permissions` plus the delete cascade, not in each caller.
+- **Behaviour change for the no-precondition path:** `updated_at` on `RoleDefinitionRead` now moves on permission changes. That is additive and documented as a fix. A consumer that used it as a "renamed at" timestamp is the only one affected. The ticket asks for this explicitly.
+- **Manifest sync churn:** apps that push manifests on every deploy bump a role only when the set changes, because the hook is conditional. Check that the manifest path does not call `touch_role` for unchanged roles.
+- **App-lock coverage:** atomicity depends on every writer taking `lock_app`. All the writers I found do. A future writer that skips it breaks this guarantee, so note it in the code comment next to `_set_role_permissions`.
+- **Audit-row separation:** `record_denied` is currently written before the checks that can follow. Keeping the 412 before the privilege block avoids a denied-audit row for a stale request.
+- Size: about 80 production lines and 250 test lines. No migration, so R2 does not apply. The ticket is Areas `api, db` only nominally. It is a High path only if the planner counts RBAC (CLAUDE.md lists RBAC as High), so expect the PLAN approval gate.
+
+### Open questions
+1. Is a permission-delete cascade (or any other path besides `_set_role_permissions`) removing `role_permissions` rows? The planner should confirm at service.py ~L888–1025 and add the bump there.
+2. Should PATCH `/roles/{role_id}` (rename) and DELETE also accept `If-Match`? Recommended as a follow-up, not in this diff (R7). The ticket names only the PUT.
+3. Should `RoleRead` on `POST /roles` carry `updated_at` and `ETag` as well? Recommended for consistency (same pattern as ADM-024 POST 201), at the cost of a few lines.
+4. Does the owner accept the changed meaning of `RoleDefinitionRead.updated_at` (now includes permission changes)? Recommended yes, with the schema description updated.
+
+Key files: app/modules/rbac/service.py (L187–203, L1181–1215, L1258–1348), app/modules/rbac/router.py (L282–290, L380–403), app/modules/rbac/schemas.py (L221–250), app/modules/rbac/repository.py (L78 `lock_app`, L388), app/modules/rbac/manifest.py (L107, L219), app/core/etag.py, app/core/errors.py (L136), app/db/base.py (L17), app/modules/organizations/service.py (L62+, reference), work/tickets/ADM-024/plan.md.

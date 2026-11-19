@@ -9,6 +9,8 @@ from app.core.listing import SearchTerm
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
 from app.modules.audit.deps import AuditContextDep
+from app.modules.invitations.admin_service import InvitationAdminService
+from app.modules.invitations.schemas import InvitationStatus, OrgInvitationRead
 from app.modules.organizations.models import OrganizationStatus
 from app.modules.organizations.schemas import (
     DEFAULT_ORGANIZATION_SORT,
@@ -18,6 +20,9 @@ from app.modules.organizations.schemas import (
     OrganizationUpdate,
 )
 from app.modules.organizations.service import OrganizationService
+from app.modules.rbac.models import APP_KEY_RE
+from app.modules.rbac.schemas import OrgMemberRead
+from app.modules.rbac.service import AssignmentService
 
 # Admin (Bearer) endpoints — R3 class 1.
 router = APIRouter(
@@ -163,3 +168,75 @@ async def delete_organization(
     session: SessionDep, principal: AdminDep, ctx: AuditContextDep, org_id: uuid.UUID
 ) -> None:
     await OrganizationService(session).delete(org_id, actor=principal, ctx=ctx)
+
+
+@router.get(
+    "/{org_id}/members",
+    response_model=Page[OrgMemberRead],
+    description=(
+        "Org-scoped role assignments of this organization with their holders. `total` counts "
+        "assignments, not distinct users: a user with two roles in the org appears twice."
+    ),
+    **_route("admin:users:read", _NOT_FOUND),
+)
+async def list_org_members(
+    session: SessionDep,
+    response: Response,
+    org_id: uuid.UUID,
+    page: PageDep,
+    app: Annotated[
+        str | None, Query(pattern=APP_KEY_RE, description="Only roles of this app key.")
+    ] = None,
+    active: Annotated[
+        bool | None,
+        Query(description="true: not expired; false: expired; omitted: all rows."),
+    ] = None,
+) -> Page[OrgMemberRead]:
+    items, total = await AssignmentService(session).list_org_members(
+        org_id, app_key=app, active=active, limit=page.limit, offset=page.offset
+    )
+    response.headers["Cache-Control"] = "no-store"  # rows carry emails
+    return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@router.get(
+    "/{org_id}/invitations",
+    response_model=Page[OrgInvitationRead],
+    description="Invitations of this organization, newest first. No invitee email or token.",
+    **_route(READ, _NOT_FOUND),
+)
+async def list_org_invitations(
+    session: SessionDep,
+    response: Response,
+    org_id: uuid.UUID,
+    page: PageDep,
+    status: Annotated[
+        InvitationStatus | None, Query(description="Only invitations with this status.")
+    ] = None,
+) -> Page[OrgInvitationRead]:
+    items, total = await InvitationAdminService(session).list_for_org(
+        org_id, status=status, limit=page.limit, offset=page.offset
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@router.delete(
+    "/{org_id}/invitations/{invitation_id}",
+    status_code=204,
+    **_route(
+        WRITE,
+        {
+            404: "Organization or invitation not found",
+            409: "Invitation already accepted (code conflict, reason invitation_accepted)",
+        },
+    ),
+)
+async def revoke_org_invitation(
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    org_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+) -> None:
+    await InvitationAdminService(session).revoke(org_id, invitation_id, actor=principal, ctx=ctx)
