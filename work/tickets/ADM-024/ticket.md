@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P3 |
 | Areas | api, architecture |
 | Attempts | 0 |
@@ -27,3 +27,7 @@ ADM-006, ADM-012, ADM-013. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
 - R6 lists the allowed codes; adding 412 needs the owner's OK at PLAN.
+- **Answered (owner, 2026-11-19):**
+  - In scope.
+  - 412 is added to the R6 codes (CLAUDE.md and spec). `If-Match` stays optional; a mismatch returns 412 `precondition_failed` and changes nothing.
+  - The ETag is derived from `updated_at`, so no migration. The check is atomic via a conditional UPDATE (`WHERE updated_at = :v`).

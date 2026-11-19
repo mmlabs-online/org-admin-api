@@ -70,7 +70,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-023 | Declare 404/409 responses and admin:* requirements in OpenAPI | DONE | P2 | api | 0 | 2026-11-18 |
 | ADM-025 | Grant admin:entitlements:* to a staff role (needs owner) | BACKLOG | P2 | db, auth, security | 0 | 2026-11-17 |
 | ADM-022 | Server-side CSV export of the audit log | DONE | P3 | api, security | 0 | 2026-11-18 |
-| ADM-024 | Optimistic concurrency (ETag / If-Match) on PATCH for organizations and entitlements | BACKLOG | P3 | api, architecture | 0 | 2026-11-17 |
+| ADM-024 | Optimistic concurrency (ETag / If-Match) on PATCH for organizations and entitlements | PLANNING | P3 | api, architecture | 0 | 2026-11-17 |
 | USR-19 | Label and optional expiry for app credentials | BACKLOG | P3 | api, auth, security, db | 0 | 2026-11-17 |
 | USR-20 | Join requests: richer decision response | BACKLOG | P3 | api, auth | 0 | 2026-11-17 |
 | USR-21 | Join requests: reject cooldown controls and pending count per app | BACKLOG | P3 | api, auth, security | 0 | 2026-11-17 |
