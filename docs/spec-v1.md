@@ -1,6 +1,6 @@
 # org-admin-api — Product spec v1
 
-Status: **Draft** — written while bootstrapping the repo (2026-11-10); §5.9–§5.11 and OQ4–OQ18 added 2026-11-16 for the admin UI `admin-pan`. Everything below is a proposal for the owner to confirm, cut or change, especially §8 Open questions.
+Status: **Draft** — written while bootstrapping the repo (2026-11-10); §5.9–§5.11 and OQ4–OQ18 added 2026-11-16 for the admin UI `admin-pan`; §5.12 and OQ19–OQ33 (bug reports from apps) added 2026-11-19 as a draft. Everything below is a proposal for the owner to confirm, cut or change, especially §8 Open questions.
 Source of truth for scope: if `CLAUDE.md`, a ticket and this spec disagree on scope, **this spec wins** — flag the conflict.
 
 ## §1 Problem
@@ -130,6 +130,41 @@ Facts the decision should weigh (not decisions):
 
 No §3 non-goal conflicts with §5.9–§5.11 (no billing, no social login / OIDC provider / hosted login UI involved).
 
+### §5.12 Bug reports from apps (owner idea, 2026-11-19; draft, **scope not decided**)
+Owner's idea (2026-11-19, translated from Vietnamese): *"I want to add an API so users can report bugs for mmlabs apps. E.g. from the ricotdin app, a report calls the API with app name = ricotdin. This API is accessed by everyone who has an admin role. In admin-pan, staff see all reports from every app. For a report, the user can describe the bug, paste a screenshot, or upload videos/images. Record the account that reported it. When it is handled, mark it done and record the account that marked it done (the handler)."*
+
+Everything below is a **draft for the owner to confirm**. Points marked "proposed" are readings of the idea, not decisions; the open choices are §8 OQ19–OQ33. No ticket may implement this section until the blocking questions are answered (OQ19, OQ20, OQ22, OQ23 at minimum).
+
+Not to be confused with the internal `BUG-XXX` workflow tickets of this repo (ADR-0012): those are developer tickets in `work/`; §5.12 is end-user feedback stored by the API.
+
+**Problem (to confirm, OQ19).** End users of mmlabs apps have no in-app way to report a problem, and staff have no single place to see and close reports across apps. Who reads the reports and what "handled" means (fixed? triaged?) decides how much workflow is needed.
+
+**Two sides (proposed reading):**
+- **Submit — end users inside an app** (e.g. ricotdin). The app is the one the user is using; the reporter is the signed-in mmlabs account. "This API is accessed by everyone who has an admin role" is read as applying to the **staff side**, not to submission (OQ20).
+- **Triage — staff in admin-pan** with Bearer `aud=admin` tokens (R3 class 1): list all reports from every app, open one, view its attachments, mark it done. Which permission: OQ22.
+
+**A report (proposed minimum):**
+- `id` (UUID), `app_key` (a registered app), reporter account (`user_id`), description (text; length limit set at PLAN), attachments (0..N images or videos, including a pasted screenshot), `status`, `created_at`.
+- On "done": the handler account (`handled_by`) and `handled_at`.
+- Possible extra context, only if wanted (OQ26): org (for `org_mode = required` apps), page / route, app version, browser user agent.
+- **App binding (proposed):** the app should come from the authenticated context (e.g. `X-MM-App` or the token audience), not from a free body field, so a user cannot file reports under another app; the `admin` app and disabled/unknown apps refused. Whether the reporter must be a member of the app: OQ21.
+
+**Lifecycle.** Minimum from the idea: `open` → `done`, recording who marked it done and when. Further states (in progress, won't fix, duplicate, reopen), assignment to a handler, staff notes/comments and replies to the reporter are **not** in the idea: OQ25. Whether the reporter can see their own reports and status, and whether they are notified when it is done: OQ27.
+
+**Staff side (proposed):** list as `Page[T]` (newest first; filters app, status, reporter, date range), detail, attachment download, mark done (and reopen, if OQ25 says so). Every staff state change writes an audit entry in the same transaction (R4, §5.4); audit `changes` carry ids and status only, never the description or attachment content. The reports themselves are user content in their own table, **not** audit rows. Reading reports is not audited unless the owner asks (OQ28, PII).
+
+Facts the decision should weigh (not decisions):
+- **Submit auth class — none of the R3 classes fits as is** (OQ20). (a) **Cookie class** — a new endpoint under `/api/v1/auth/*` acting for the signed-in account, with `mm_device` cookie, `Origin` check and `X-MM-App: <app>` (R11); works for browser apps using `@mmlabs/auth-client`; the route sits under `/auth/*` although it is not an identity action, and multipart uploads with cookies need the same CORS/CSRF checks. (b) **Per-app access token** (`aud=<app>`) as Bearer — this API accepts only `aud=admin` today, so this is a new auth class (R3 and ADR change). (c) **App backend with the app credential** (`mmak_…`) — ADR-0016 limits it to `PUT /api/v1/apps/{key}/manifest`; widening it is an ADR change, and the reporter identity would then be asserted by the app backend rather than verified here. (d) **Anonymous / public** — contradicts "record the account that reported it" and invites spam. Any choice is an architecture decision (ADR) for the owner.
+- **No file storage exists today.** The runtime is one uvicorn container on the Mac runner with the shared Postgres (§6.1). Options (OQ23): a local Docker volume (needs its own backups; the `pgdata` volume is backed up nightly and offsite, a new volume is not), object storage such as Cloudflare R2 / S3 (new external service, credentials and probably a client library), or Postgres `bytea` / large objects (bloats the shared database and its backups; poor fit for video). Uploads also need a multipart parser (`python-multipart` is not a dependency today) or direct-to-storage presigned uploads. Any new dependency or service is a stack change (owner's decision).
+- **Upload limits** (OQ24): uploads pass through Cloudflare Tunnel, which caps request body size per plan (100 MB on Free/Pro); videos can exceed that. Max size per file and per report, max count and allowed types are not set. Unvalidated uploads are an attack surface: content-type must be checked by content, not by header; SVG/HTML must not be served inline (stored XSS against staff in admin-pan); downloads served with `Content-Disposition: attachment` / `nosniff`; image metadata (EXIF GPS) may leak location; malware scanning is not available today.
+- **Showing attachments in admin-pan:** the SPA authenticates with an `Authorization` header, so a plain `<img src>` / `<video src>` cannot load a protected file; it needs authenticated fetch-to-blob or short-lived signed URLs (part of OQ23).
+- **PII** (§8 Q6): descriptions and screenshots may contain emails, other people's data or secrets. Retention of reports and attachments, and what happens to them when the reporter's account is disabled, is not set (OQ29).
+- **Abuse** (OQ30): per-account and per-IP rate limits, size quotas, possibly Turnstile; existing identity abuse controls run in-process (ADR-0002).
+- **Notifications** (OQ27, OQ31): emailing the reporter or staff competes with the Gmail SMTP daily limits (D3).
+- **Overlap:** a dashboard tile (e.g. open reports per app, §5.9) would be a separate, later addition (OQ32).
+
+No §3 non-goal conflicts with §5.12: it is not billing, social login, an OIDC provider or a hosted login UI (each app keeps its own report form; this API only receives and stores). It does widen the API surface for end users beyond identity (§5.8), which the owner should confirm is wanted here rather than in each app or a separate service (OQ33).
+
 ### §5.7 Later (not v1)
 Org members view, per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
 
@@ -179,5 +214,22 @@ Admin UI `admin-pan` (added 2026-11-16, §5.9–§5.11):
 - [ ] OQ16. Reports — storage and retention of generated files (DB, volume, none — regenerate on download), and how long they are kept.
 - [ ] OQ17. Reports — PII: may exports contain full emails, IPs or user agents? Who may run and download each type (`admin:*` only, as for the audit log?), and is each run/download audited?
 - [ ] OQ18. Reports — time zone and date boundaries for date-based reports (same answer as OQ6?).
+
+Bug reports from apps (added 2026-11-19, §5.12):
+- [ ] OQ19. Bug reports — the problem and the users: who triages reports (support staff, developers, the owner), what does "done" mean (fixed, triaged, closed without action), and roughly how many reports per week are expected? Should this live in this API at all (see OQ33)?
+- [ ] OQ20. Bug reports — who may submit and how: is "accessed by everyone who has an admin role" about the staff side only (proposed), with submission by end users of each app? Which R3 auth class for submission: (a) cookie class under `/api/v1/auth/*` with `X-MM-App`, (b) a new class accepting the app's own access token (`aud=<app>`), (c) the app backend with its app credential (widens ADR-0016), or (d) anonymous/public? Is the app taken from the auth context (proposed) or from a body field?
+- [ ] OQ21. Bug reports — submitter requirements: any signed-in account, only accounts with a verified email, only members of that app (holding a role on it)? May unverified or non-member users report sign-in or join problems? Can staff (`admin` app) or the `admin` app itself be a report target?
+- [ ] OQ22. Bug reports — staff permission: "everyone who has an admin role" = any staff user holding any `admin` role, new leaves such as `admin:bug_reports:read` / `admin:bug_reports:write` (granted to which roles), or `admin:*`? Is reading separate from marking done?
+- [ ] OQ23. Bug reports — attachment storage: local Docker volume on the Mac runner (with what backup), object storage (Cloudflare R2 / S3; new service and dependency), or Postgres? Upload through the API (multipart, new dependency) or direct to storage with presigned URLs? How does admin-pan display them (authenticated fetch vs. signed URLs)?
+- [ ] OQ24. Bug reports — attachment limits: allowed types (PNG/JPEG/WebP/GIF? MP4/WebM/MOV?), max size per file and per report, max count, max video length? Are videos needed in the first version, or screenshots/images only? Strip image metadata (EXIF)?
+- [ ] OQ25. Bug reports — states and workflow: only `open` → `done`, or also `in_progress`, `wont_fix`, `duplicate`, reopen? Assignment to a handler? Internal staff notes, or replies to the reporter?
+- [ ] OQ26. Bug reports — extra context captured with a report: org (for org apps), page/route, app version, browser user agent, severity/category chosen by the user? Any of it automatic?
+- [ ] OQ27. Bug reports — reporter visibility: can the reporter list their own reports and see the status? Notified (email) when done?
+- [ ] OQ28. Bug reports — staff reads: is viewing a report or downloading an attachment audited (PII), or only state changes (R4 minimum)?
+- [ ] OQ29. Bug reports — retention and PII: how long are reports and attachments kept (and after `done`)? What happens to them when the reporter's account is disabled or deleted? Can staff delete a report or an attachment (e.g. one containing secrets)?
+- [ ] OQ30. Bug reports — abuse: rate limits per account and per IP (e.g. N reports/hour), storage quota per account, Turnstile on submit?
+- [ ] OQ31. Bug reports — staff notifications on new reports (email, chat webhook, none — admin-pan only)? Email competes with the Gmail SMTP limits (D3).
+- [ ] OQ32. Bug reports — admin-pan extras: dashboard tile (open reports per app) or counts on the Apps screen — wanted now or later?
+- [ ] OQ33. Bug reports — placement: in this API (identity + admin), or a separate mmlabs service / third-party tool (e.g. an issue tracker) that apps post to? This API would then own user-uploaded files and an end-user write surface beyond identity.
 
 Answers go here with date, and into the relevant ticket's "Notes / answers from owner".
