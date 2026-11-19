@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | BLOCKED |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api, auth, security |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-19T09:38Z |
+| Claimed by | — |
 | PR | — |
 
 ## Goal
@@ -48,4 +48,11 @@ A signed-in member of an mmlabs app (e.g. ricotdin) can file a bug report from t
 
 ## Notes / answers from Ming
 
+Waiting for Ming: plan approval (High tier) — batch 2026-11-19-2, blocking questions 7–15.
+
 ## Handoff
+### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-2)
+- Agent calls: 5, tokens ~223k for consults + planner (database-optimizer×1 38k, api-platform-engineer×1 44k, security-architect×1 67k, identity-access-engineer×1 75k, planner×1 opus — usage pending)
+- Done: consult (4), plan.md READY, predicted tier high (migration, `app/db/models.py`, `app/core/*`, `.env.example`).
+- In progress / next: Ming answers batch questions 7–15 + plan approval → `/run-batch --resume`.
+- Gotchas: plan's ADR-0018 becomes ADR-0019 (ADM-027 builds first). AC2 conflict: disabled user 401 vs ticket's 403.

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | BLOCKED |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, security |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-19T09:38Z |
+| Claimed by | — |
 | PR | — |
 
 ## Goal
@@ -48,4 +48,11 @@ This API can store and read bug-report attachments in Google Drive, the way TuDo
 
 ## Notes / answers from Ming
 
+Waiting for Ming: plan approval (High tier) — batch 2026-11-19-2, blocking questions 1–6.
+
 ## Handoff
+### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-2)
+- Agent calls: 3, tokens ~238k (software-architect×1 63k, security-architect×1 66k, planner×1 opus 109k)
+- Done: consult (2), plan.md READY, predicted tier high (`app/core/config.py`, `.env.example`).
+- In progress / next: Ming answers batch questions 1–6 + plan approval → `/run-batch --resume`.
+- Gotchas: TuDoCuaTui reference repo not reachable in this session. Shares `app/core/config.py`, `.env.example`, `app/main.py`, `docs/deploy.md` with ADM-028; ADR number collision (both plans say 0018) — ADM-027 keeps 0018, ADM-028 renumbers to 0019 when built second.
