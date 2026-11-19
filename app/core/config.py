@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     orgs_list_rate_limit: int = Field(default=60, ge=1)
     orgs_list_rate_window_seconds: int = Field(default=60, ge=1)
     org_create_max_per_user: int = Field(default=20, ge=1)
+    # Bug reports (ADM-028, ADR-0019): per-IP window, per-user in-process burst, DB-backed caps.
+    bug_report_rate_limit: int = Field(default=20, ge=1)
+    bug_report_rate_window_seconds: int = Field(default=3600, ge=1)
+    bug_report_user_rate_limit: int = Field(default=3, ge=1)
+    bug_report_user_rate_window_seconds: int = Field(default=60, ge=1)
+    bug_report_max_per_user_day: int = Field(default=10, ge=1)
+    bug_report_max_open_per_user_app: int = Field(default=10, ge=1)
     join_reject_cooldown_seconds: int = Field(default=604800, ge=0)  # 0 = no cooldown
     # Join-request queue (USR-15): pending cap per approval app; retention of decided rows.
     join_max_pending_per_app: int = Field(default=1000, ge=1)
