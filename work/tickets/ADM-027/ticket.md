@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BLOCKED |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, security |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-19T09:58Z |
 | PR | — |
 
 ## Goal
@@ -47,8 +47,7 @@ This API can store and read bug-report attachments in Google Drive, the way TuDo
 - Manual: smoke script against the real Drive after M-1.
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval (High tier) — batch 2026-11-19-2, blocking questions 1–6.
+- 2026-11-19 (Ming): Plan approved (2026-11-19, batch 2026-11-19-2); questions 1–6 (batch numbering) per the defaults in plan.md — "duyệt hết; câu 1–15 theo mặc định".
 
 ## Handoff
 ### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-2)

@@ -47,8 +47,7 @@ A signed-in member of an mmlabs app (e.g. ricotdin) can file a bug report from t
 - API tests for each acceptance criterion, including CORS preflight and audit row content.
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval (High tier) — batch 2026-11-19-2, blocking questions 7–15.
+- 2026-11-19 (Ming): Plan approved (2026-11-19, batch 2026-11-19-2); questions 7–15 (batch numbering) per the defaults in plan.md — "duyệt hết; câu 1–15 theo mặc định".
 
 ## Handoff
 ### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-2)
