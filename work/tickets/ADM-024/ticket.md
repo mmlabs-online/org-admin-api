@@ -7,7 +7,7 @@
 | Areas | api, architecture |
 | Attempts | 0 |
 | Created | 2026-11-17 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/70 |
 
 ## Goal
 Two staff editing the same organization or entitlement no longer silently overwrite each other (entitlement PATCH replaces `limits` as a whole).
