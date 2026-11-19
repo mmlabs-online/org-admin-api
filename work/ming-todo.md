@@ -8,3 +8,4 @@ Never write a secret value here: name the secret and where Ming puts it.
 - Review and merge the PRs that `/run` opens (`/status` lists them). Agents never merge.
 
 ## Open
+- [ ] M-1 (2026-11-19, for ADM-027/ADM-030 in production): in the Google account TuDoCuaTui uses, create a separate OAuth client for org-admin-api (scope `drive.file`), obtain its refresh token, and create a new root Drive folder for bug-report attachments. Put the four values as repository secrets in `mmlabs-online/deployment` (names set by ADM-027's plan). Never paste values here.
