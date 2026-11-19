@@ -121,7 +121,9 @@ of each release is kept (no deployment-event history in v1).
 ### 6. Report before the release record
 If writer (a) failed, the report creates the record with what is known: app, environment and
 version from the path (same grammar as the app write: production strict `vX.Y.Z`, staging
-`sha-<7 hex>`, OQ36), `status`, `deployed_at`, `deploy_run_url`. `git_sha`, `deployment_pr` and
+`sha-<7 hex>`, OQ36), `status`, `deployed_at`, `deploy_run_url`. The production version is the git
+tag `vX.Y.Z`, not the branch name: the release branch is `release/vX.Y.Z` today and
+`release/X.Y.Z` in spaceM project-kit 2.0; the API grammar stays `vX.Y.Z`. `git_sha`, `deployment_pr` and
 `has_migrations` are null; `images` and `changes` are empty, and a late app PUT may fill them
 (§4). The audit row records that the record was created from a report.
 
@@ -227,5 +229,9 @@ and in R9's exception list: "`/api/v1/apps/{key}/releases/{environment}/{version
   between the two is settled at PLAN (§11).
 - `CLAUDE.md` R3 and R9, `docs/identity-architecture.md` (D28) and `tests/test_route_auth_classes.py`
   change in the first implementing ticket; ADR-0016 §1, §3 and §5 are amended by §1 above.
+- Bug reports (spec §5.12) link to the release the reporter ran — report app version first, else
+  the release live at report time — exposed as `release_match` = `reported` | `inferred` | `none`
+  (owner, 2026-11-19). Because only the latest deploy is kept, an `inferred` link can drift after
+  a later redeploy/rollback; compute-at-read vs store-at-create is PLAN's.
 - Follow-ups: credential `expires_at`/`label` (shared with ADR-0016), deployment-event history,
   staging retention purge (~1 GB or ~100k rows, OQ41).
