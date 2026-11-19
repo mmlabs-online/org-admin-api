@@ -53,3 +53,20 @@ acceptable after, other org 404, unknown 404, accepted 409, idempotent, expired,
 
 ### Scope self-check
 Only plan files plus the one test registry file above; no migration, no model change, no `app/core/` change.
+
+## Attempt 3 (REWORK 2) — fix review Issue 1 (R4 audit-coverage registry)
+
+### Files touched
+- `tests/test_audit_coverage.py`: added `_inv_revoke` (success) and `_inv_revoke_unknown` (404) scenarios, the `AUDITED` entry for `DELETE /organizations/{org_id}/invitations/{invitation_id}` (`organization.invitation_revoked`), and `len(AUDITED)` 25 -> 26. Required because the review found the mutating Bearer route missing from the registry.
+
+### Checks
+- `make test`: 2714 passed, 1 warning in 349.87s
+- `make typecheck`: Success: no issues found in 150 source files
+- `uv run ruff check . --exclude .github/scripts`: All checks passed!
+- `uv run ruff format --check app tests`: 270 files already formatted
+
+### Out-of-plan files
+- `tests/test_audit_coverage.py` (the R4 registry, as the review instructed).
+
+### Scope self-check
+Only the review-listed file changed; no app code touched.
