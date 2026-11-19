@@ -75,9 +75,9 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-20 | Join requests: richer decision response | BACKLOG | P3 | api, auth | 0 | 2026-11-17 |
 | USR-21 | Join requests: reject cooldown controls and pending count per app | BACKLOG | P3 | api, auth, security | 0 | 2026-11-17 |
 | USR-22 | Join requests: optional reject reason and expiry of stale pending requests | BACKLOG | P3 | api, auth, security, db | 0 | 2026-11-17 |
-| USR-23 | Staff read of an organization's members and invitations (needs owner: masked email hint) | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-19 |
+| USR-23 | Staff read of an organization's members and invitations | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-19 |
 | USR-24 | Optimistic concurrency on PUT role permissions | BACKLOG | P2 | api, db | 0 | 2026-11-19 |
-| USR-25 | Scope of `self_assignment_forbidden` beyond the admin app (needs owner: a/b/c) | BACKLOG | P2 | auth, security | 0 | 2026-11-19 |
+| USR-25 | Scope of `self_assignment_forbidden` beyond the admin app | BACKLOG | P2 | auth, security | 0 | 2026-11-19 |
 | USR-26 | Role definitions: assignment count, org-owner flag, stable reasons on 409 conflicts | BACKLOG | P3 | api, db | 0 | 2026-11-19 |
 | USR-27 | Role assignments: return role and org names | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | USR-28 | Exact email lookup for staff user search | BACKLOG | P3 | api, security | 0 | 2026-11-19 |

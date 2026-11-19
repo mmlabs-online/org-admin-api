@@ -25,4 +25,4 @@ Close (or deliberately accept) a separation-of-duties gap: today `self_assignmen
 USR-02c, ADM-002b, USR-03g. Requested by admin-pan (batch 2026-11-19).
 
 ## Notes / answers from owner
-- **Needs owner answer before PLAN:** option (a), (b) or (c).
+- 2026-11-19 (owner): **option (b)** — forbid self-grant and self-revoke of privileged roles (any role holding an `is_admin` permission, plus every admin-app role as today) in every app; non-privileged roles (e.g. `<app>:member`) may still be self-assigned.
