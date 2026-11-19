@@ -131,7 +131,7 @@ Facts the decision should weigh (not decisions):
 No §3 non-goal conflicts with §5.9–§5.11 (no billing, no social login / OIDC provider / hosted login UI involved).
 
 ### §5.7 Later (not v1)
-Org members view, per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
+Org members view (member management; the read-only staff view of an org's members and invitations ships in v1 as USR-23, owner-approved 2026-11-19), per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
 
 ## §6 Non-functional
 

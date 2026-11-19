@@ -2,11 +2,12 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | BLOCKED |
 | Priority | P2 |
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
+| Gate | plan-approval |
 | PR | — |
 
 ## Goal
@@ -26,3 +27,12 @@ Two staff editing the same role's permissions no longer silently overwrite each 
 USR-02d, USR-16. Shape shared with ADM-024 (plan together or after it). Consumer: admin-pan roles screen (PAN-030). Requested by admin-pan (batch 2026-11-19).
 
 ## Notes / answers from owner
+
+- 2026-11-19 (owner): Plan approved (2026-11-19, batch 2026-11-19-1); questions 6–9 (batch numbering; plan.md questions 1–4) per the defaults in plan.md — "duyệt hết; câu 1–9 theo mặc định".
+
+## Handoff
+### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-1)
+- Agent calls: 3, tokens ~215k (api-platform-engineer×1 53k, database-optimizer×1 59k, planner×1 opus 103k)
+- Done: consult (2), plan.md READY (builds on ADM-024), predicted tier high (app/modules/rbac/**).
+- In progress / next: Ming answers batch questions 6–9 + plan approval → `/run-batch --resume`.
+- Gotchas: same rbac files as USR-23 — rebase needed. Session-mandated branch used instead of `ticket/USR-24`.

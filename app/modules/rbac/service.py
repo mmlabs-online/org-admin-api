@@ -37,7 +37,7 @@ from app.modules.rbac.models import (
     RoleAssignment,
 )
 from app.modules.rbac.origins import is_loopback_origin
-from app.modules.rbac.repository import AssignmentRow, RbacRepository, RoleHolderRow
+from app.modules.rbac.repository import AssignmentRow, OrgMemberRow, RbacRepository, RoleHolderRow
 from app.modules.rbac.schemas import (
     AdminOriginsSet,
     AppCreate,
@@ -46,6 +46,7 @@ from app.modules.rbac.schemas import (
     AppUpdate,
     AssignmentCreate,
     AssignmentRead,
+    OrgMemberRead,
     PermissionCreate,
     PermissionUpdate,
     RoleCatalog,
@@ -1378,6 +1379,25 @@ def _role_holder_read(row: RoleHolderRow) -> RoleHolderRead:
     )
 
 
+def _org_member_read(row: OrgMemberRow) -> OrgMemberRead:
+    ra, app_key, role_key, active, role_name, email, display_name, user_status = row
+    return OrgMemberRead(
+        assignment_id=ra.id,
+        user_id=ra.user_id,
+        email=email,
+        display_name=display_name,
+        user_status=UserStatus(user_status),
+        app=app_key,
+        role_id=ra.role_id,
+        role_key=role_key,
+        role_name=role_name,
+        granted_by=ra.granted_by,
+        created_at=ra.created_at,
+        expires_at=ra.expires_at,
+        active=active,
+    )
+
+
 def _is_super_admin(app: App, role: Role) -> bool:
     return app.key == ADMIN_APP_KEY and role.key == SUPER_ADMIN_ROLE
 
@@ -1417,6 +1437,22 @@ class AssignmentService:
             user_id, app_key=app_key, limit=limit, offset=offset
         )
         return [_assignment_read(r) for r in rows], total
+
+    async def list_org_members(
+        self,
+        org_id: uuid.UUID,
+        *,
+        app_key: str | None,
+        active: bool | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[Sequence[OrgMemberRead], int]:
+        if not await self.repo.org_exists(org_id):
+            raise NotFoundError(f"Organization {org_id} not found")
+        rows, total = await self.repo.page_org_members(
+            org_id, app_key=app_key, active=active, limit=limit, offset=offset
+        )
+        return [_org_member_read(r) for r in rows], total
 
     async def assign(
         self, user_id: uuid.UUID, data: AssignmentCreate, *, actor: Actor, ctx: AuditContext

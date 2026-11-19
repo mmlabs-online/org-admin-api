@@ -311,6 +311,35 @@ class RoleHolderRead(AssignmentRead):
     )
 
 
+class OrgMemberRead(BaseModel):
+    """One org-scoped assignment with its holder (USR-23). `total` of the list counts
+    assignments, not distinct users: a user with two roles in the org appears twice."""
+
+    assignment_id: uuid.UUID
+    user_id: uuid.UUID
+    email: str
+    display_name: str | None
+    user_status: UserStatus = Field(description="Account status; disabled users are listed.")
+    app: str  # app key
+    role_id: uuid.UUID
+    role_key: str
+    role_name: str
+    granted_by: uuid.UUID | None
+    created_at: datetime = Field(
+        description=(
+            "When the assignment was first granted; kept when an expired assignment is "
+            "re-granted in place."
+        )
+    )
+    expires_at: datetime | None
+    active: bool = Field(
+        description=(
+            "Not expired (database clock); ignores user, org and app status, "
+            "so not 'effective in tokens'."
+        )
+    )
+
+
 class ManifestPermission(BaseModel):
     """One declared permission. `scope` is required on `org_mode = required` apps unless the
     key is reserved (ADR-0015); an omitted `description` leaves the stored one."""
