@@ -62,3 +62,41 @@ None — appsec-engineer attempt 1: PASS, no 🔴 (see security-review.md).
 - A `user_status` filter on members (from impl-log).
 - Cookie-side list/revoke of invitations, and a retention purge of `org_invitations` (ADR-0014).
 - USR-24 touches the same rbac files, so expect a rebase.
+
+## Attempt 2 — 2026-11-19
+Verdict: PASS
+
+### Checks (run by reviewer)
+Run by the reviewer on branch `claude/festive-volta-rikup7` at `236e429`. The rework commit is `f7ab3fb`. Local Postgres, default `TEST_DATABASE_URL`.
+- `make typecheck`: `Success: no issues found in 150 source files`
+- `uv run ruff check . --exclude .github/scripts`: `All checks passed!`
+- `uv run ruff format --check app tests migrations`: `292 files already formatted`
+- `make test`: `2714 passed, 1 warning in 364.84s`. This matches the impl-log claim of `2714 passed`.
+- `uv run alembic check`: `No new upgrade operations detected.`
+- I also ran `pytest tests/test_audit_coverage.py -k invitation -v`. Both `test_success_writes_one_row[DELETE …/invitations/{invitation_id}]` and `test_failure_writes_no_row[…]` PASSED.
+- The full `ruff check .` still fails only on `.github/scripts/risk_tier.py`. That failure is pre-existing on main (a kit file) and is not a ticket blocker.
+
+### Acceptance criteria
+- [x] AC1–AC5 and AC7: no app code changed since attempt 1 (`git diff 9a9bc73..HEAD` touches only `tests/test_audit_coverage.py` and ticket files), so the attempt-1 evidence still holds, and the cited tests pass in the full green run.
+- [x] AC6: DELETE revoke returns 204 and is audited in the same transaction, with `admin:organizations:write`. Attempt-1 behaviour tests still pass. The route is now in the R4 registry: `tests/test_audit_coverage.py` `AUDITED[("DELETE", f"{ORG_ID}/invitations/{{invitation_id}}")]` = `({"organization.invitation_revoked"}, _inv_revoke, _inv_revoke_unknown, 404)`, and `len(AUDITED) == 26`. `test_every_mutating_bearer_route_is_mapped` passes.
+- [x] AC8: `make check` green. The components are listed above.
+
+Ming verification after merge (for the PR): admin-pan PAN-018 renders the members and invitations tabs against the deployed API.
+
+### Issues
+None. Attempt-1 Issue 1 is resolved: every step of the fix instruction was done, including recording the out-of-plan file in impl-log and the full `make test` summary.
+
+### Rules (CLAUDE.md)
+No violations found. R4 and R8 are now satisfied. The rework touches only `tests/test_audit_coverage.py` (out of plan, justified in impl-log as instructed by the review), so R7 holds.
+
+### Blockers from review agents
+None. appsec-engineer attempt 1: PASS, no 🔴 (security-review.md). The rework is test-only, so no new security review is needed.
+
+### Nits (do not block)
+- 💭 `_inv_revoke` builds `created_at`/`expires_at` from the Python clock `datetime.now(UTC)`, while `status` uses the DB `now()`. The ±1h/+1d margins make this safe. Other suites use DB-now for consistency.
+- 💭 The two attempt-1 nits still stand (substring asserts in `test_invitations_body_has_no_secrets`, and the full entity load in `_require_org`).
+
+### Follow-ups (out of scope)
+- Pre-existing: `ruff check .` / `ruff format --check .` fail on the kit-managed `.github/scripts/risk_tier.py`. Fix it in spaceM project-kit and re-sync.
+- A `user_status` filter on members. Cookie-side list/revoke of invitations. A retention purge of `org_invitations` (ADR-0014).
+- USR-24 touches the same rbac files, so expect a rebase.
