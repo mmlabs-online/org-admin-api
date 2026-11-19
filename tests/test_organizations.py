@@ -7,10 +7,11 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.etag import version_etag
 from app.core.listing import sort_clauses
 from app.modules.audit.models import AuditLog
 from app.modules.organizations.models import Organization
-from app.modules.organizations.repository import _SORT_COLUMNS
+from app.modules.organizations.repository import _SORT_COLUMNS, OrganizationRepository
 from app.modules.organizations.schemas import OrganizationSort
 from tests.admin_auth_factories import bearer, make_staff, mint
 from tests.rbac_factories import assign, make_app, make_role, make_user
@@ -309,3 +310,191 @@ async def test_list_without_permission_403(client: AsyncClient, db_session: Asyn
         assert resp.status_code == 403
         assert resp.json()["error"]["code"] == "permission_denied"
         assert resp.json()["error"]["details"] == {"required": "admin:organizations:read"}
+
+
+# --- ADM-024: ETag / If-Match -------------------------------------------------------------
+
+
+def _tag(body: dict) -> str:
+    return version_etag(datetime.fromisoformat(body["updated_at"]))
+
+
+async def _updated_audits(db: AsyncSession, org_id: str) -> int:
+    return (
+        await db.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.org_id == uuid.UUID(org_id), AuditLog.action == "organization.updated")
+        )
+    ) or 0
+
+
+async def test_create_org_returns_etag(admin_client: AsyncClient) -> None:
+    resp = await admin_client.post(BASE, json={"slug": "acme", "name": "Acme"})
+    assert resp.status_code == 201
+    assert resp.headers["etag"] == _tag(resp.json())
+
+
+async def test_get_org_returns_etag(admin_client: AsyncClient) -> None:
+    org = await _create(admin_client)
+    resp = await admin_client.get(f"{BASE}/{org['id']}")
+    assert resp.headers["etag"] == _tag(resp.json())
+
+
+async def test_patch_org_returns_etag(admin_client: AsyncClient) -> None:
+    org = await _create(admin_client)
+    resp = await admin_client.patch(f"{BASE}/{org['id']}", json={"name": "New"})
+    assert resp.status_code == 200
+    assert resp.headers["etag"] == _tag(resp.json())
+
+
+async def test_patch_org_matching_if_match_changes_etag(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = await _create(admin_client)
+    url = f"{BASE}/{org['id']}"
+    a = (await admin_client.get(url)).headers["etag"]
+    resp = await admin_client.patch(url, json={"name": "One"}, headers={"If-Match": a})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "One"
+    b = resp.headers["etag"]
+    assert b != a and b == _tag(resp.json())
+    assert await _updated_audits(db_session, org["id"]) == 1
+    resp = await admin_client.patch(url, json={"name": "Two"}, headers={"If-Match": b})
+    assert resp.status_code == 200
+    assert resp.headers["etag"] not in {a, b}
+
+
+async def test_patch_org_stale_if_match_412(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = await _create(admin_client)
+    url = f"{BASE}/{org['id']}"
+    a = (await admin_client.get(url)).headers["etag"]
+    resp = await admin_client.patch(url, json={"name": "One"}, headers={"If-Match": a})
+    b = resp.headers["etag"]
+    before = (await admin_client.get(url)).json()
+    audits = await _updated_audits(db_session, org["id"])
+
+    resp = await admin_client.patch(url, json={"name": "Two"}, headers={"If-Match": a})
+    assert resp.status_code == 412
+    error = resp.json()["error"]
+    assert error["code"] == "precondition_failed"
+    assert error["details"] is None
+    assert resp.headers["etag"] == b
+    assert (await admin_client.get(url)).json() == before
+    assert await _updated_audits(db_session, org["id"]) == audits
+
+
+async def test_patch_org_if_match_list_containing_current(admin_client: AsyncClient) -> None:
+    org = await _create(admin_client)
+    url = f"{BASE}/{org['id']}"
+    current = (await admin_client.get(url)).headers["etag"]
+    resp = await admin_client.patch(
+        url, json={"name": "One"}, headers={"If-Match": f'"0", {current}'}
+    )
+    assert resp.status_code == 200
+
+
+async def test_patch_org_if_match_star(admin_client: AsyncClient) -> None:
+    org = await _create(admin_client)
+    resp = await admin_client.patch(
+        f"{BASE}/{org['id']}", json={"name": "One"}, headers={"If-Match": "*"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "One"
+
+
+@pytest.mark.parametrize("weak", [True, False])
+async def test_patch_org_weak_or_malformed_if_match_412(
+    admin_client: AsyncClient, weak: bool
+) -> None:
+    org = await _create(admin_client)
+    url = f"{BASE}/{org['id']}"
+    current = (await admin_client.get(url)).headers["etag"]
+    resp = await admin_client.patch(
+        url, json={"name": "One"}, headers={"If-Match": f"W/{current}" if weak else "garbage"}
+    )
+    assert resp.status_code == 412
+    assert (await admin_client.get(url)).json()["name"] == "Acme"
+
+
+async def test_patch_org_noop_with_matching_if_match(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = await _create(admin_client)
+    url = f"{BASE}/{org['id']}"
+    current = (await admin_client.get(url)).headers["etag"]
+    for body in ({}, {"name": "Acme", "status": "active"}):
+        resp = await admin_client.patch(url, json=body, headers={"If-Match": current})
+        assert resp.status_code == 200
+        assert resp.headers["etag"] == current
+    assert await _updated_audits(db_session, org["id"]) == 0
+
+
+async def test_patch_org_without_if_match_unchanged(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = await _create(admin_client)
+    resp = await admin_client.patch(f"{BASE}/{org['id']}", json={"name": "One"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "One"
+    assert resp.headers["etag"] == _tag(resp.json())
+    assert await _updated_audits(db_session, org["id"]) == 1
+
+
+async def test_patch_org_unknown_id_404_beats_412(admin_client: AsyncClient) -> None:
+    resp = await admin_client.patch(
+        f"{BASE}/{uuid.uuid4()}", json={"name": "x"}, headers={"If-Match": '"1"'}
+    )
+    assert resp.status_code == 404
+
+
+async def test_patch_org_if_match_403_and_401(
+    client: AsyncClient, admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org = await _create(admin_client)
+    url = f"{BASE}/{org['id']}"
+    staff = await make_staff(db_session)
+    resp = await client.patch(
+        url, json={"name": "x"}, headers={**bearer(mint(staff)), "If-Match": '"1"'}
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "permission_denied"
+    resp = await client.patch(url, json={"name": "x"}, headers={"If-Match": '"1"'})
+    assert resp.status_code == 401
+
+
+async def test_patch_org_lost_race_412(
+    admin_client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org = await _create(admin_client)
+    url = f"{BASE}/{org['id']}"
+    current = (await admin_client.get(url)).headers["etag"]
+
+    async def lost(*_: object, **__: object) -> bool:
+        return False
+
+    monkeypatch.setattr(OrganizationRepository, "update_if_version", lost)
+    resp = await admin_client.patch(url, json={"name": "x"}, headers={"If-Match": current})
+    assert resp.status_code == 412
+    assert resp.headers["etag"] == current
+    assert await _updated_audits(db_session, org["id"]) == 0
+
+
+async def test_repo_update_if_version_mismatch_returns_false(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    created = await _create(admin_client)
+    org_id = uuid.UUID(created["id"])
+    repo = OrganizationRepository(db_session)
+    org = await repo.get(org_id)
+    assert org is not None
+    old = org.updated_at
+    wrong = old + timedelta(microseconds=1)
+    assert await repo.update_if_version(org_id, wrong, {"name": "x"}) is False
+    await db_session.refresh(org)
+    assert (org.name, org.updated_at) == ("Acme", old)
+    assert await repo.update_if_version(org_id, old, {"name": "x"}) is True
+    await db_session.refresh(org)
+    assert org.name == "x" and org.updated_at > old

@@ -33,6 +33,8 @@ those origins only, **without** credentials. ADR-0008 §1: admin auth is Bearer 
    3-part `Vary`. Actual: `ACAO: <origin>`, `Expose-Headers: Retry-After, ETag, X-Request-ID`.
    **Never** `Access-Control-Allow-Credentials`, on preflight or actual. `X-MM-App`, `Cookie` and
    `If-Match` are not allowed request headers.
+   > Amendment (ADM-024): `Allow-Headers: Authorization, Content-Type, If-Match`; `If-Match` is now
+   > allowed (optimistic concurrency on PATCH of organizations and entitlements).
 5. **Every admin response** carries `Vary: Origin` (merged) and `Cache-Control: no-store` when the
    route set none, with or without `Origin`.
 6. **`Max-Age: 600` is an upper bound.** After `set-admin-origins --clear`, a browser's cached

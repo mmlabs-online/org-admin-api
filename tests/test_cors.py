@@ -308,7 +308,7 @@ async def test_admin_policy_preflight_allowed(admin_client: AsyncClient, inner: 
     assert h["access-control-allow-origin"] == ORIGIN
     assert "access-control-allow-credentials" not in h
     assert h["access-control-allow-methods"] == "DELETE, GET, PATCH, POST, PUT"
-    assert h["access-control-allow-headers"] == "Authorization, Content-Type"
+    assert h["access-control-allow-headers"] == "Authorization, Content-Type, If-Match"
     assert h["access-control-max-age"] == "600"
     assert h["vary"] == PREFLIGHT_VARY
     assert inner.calls == []
@@ -320,6 +320,7 @@ async def test_admin_policy_preflight_allowed(admin_client: AsyncClient, inner: 
         ("AUTHORIZATION", True),
         ("Content-Type", True),
         ("authorization, content-type", True),
+        ("authorization, if-match", True),
         ("authorization, x-mm-app", False),
     ],
 )

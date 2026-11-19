@@ -92,6 +92,13 @@ the `admin` app's origins (set with `set-admin-origins`).
   after any 403, not on every navigation.
 - 401/403/404/409/422 envelopes are readable; `Retry-After`, `ETag` and `X-Request-ID` are
   exposed. A 500 is not readable cross-origin. Responses carry `Cache-Control: no-store`.
+- **Optimistic concurrency (ADM-024).** GET, PATCH and POST 201 of an organization or an
+  entitlement return a strong `ETag` (`"<microseconds since epoch of updated_at>"`). Send it back as
+  `If-Match` on PATCH (optional; `*` = any): a stale, weak or malformed value gives 412
+  `precondition_failed` with the current `ETag`, and nothing changes. The tag covers the stored row
+  only (derived fields such as an entitlement's `active` can change under the same tag); lists carry
+  no `ETag` and `If-None-Match`/304 is not supported. New `GET
+  /api/v1/organizations/{org_id}/entitlements/{entitlement_id}` (`admin:entitlements:read`).
 - `admin-portal` cannot host the sign-up or forgot-password screens (ADM-002d); it is exempt from
   `/reset-password`, but must serve `/verify-email`.
 - **Unverified staff email (USR-12).** `/auth/token` answers 403 `email_unverified`. The UI may

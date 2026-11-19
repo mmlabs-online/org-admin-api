@@ -69,6 +69,9 @@ BEARER = {
     ("GET", f"{V1}/stats/dashboard"): "admin:stats:read",
     ("GET", f"{V1}/organizations/{{org_id}}/entitlements"): "admin:entitlements:read",
     ("POST", f"{V1}/organizations/{{org_id}}/entitlements"): "admin:entitlements:write",
+    ("GET", f"{V1}/organizations/{{org_id}}/entitlements/{{entitlement_id}}"): (
+        "admin:entitlements:read"
+    ),
     ("PATCH", f"{V1}/organizations/{{org_id}}/entitlements/{{entitlement_id}}"): (
         "admin:entitlements:write"
     ),

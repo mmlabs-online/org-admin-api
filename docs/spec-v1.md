@@ -36,6 +36,7 @@ mmlabs runs several products/services. Admin tasks (managing customer orgs, user
 
 ### §5.1 Organizations — *done (ADM-001)*
 CRUD for organizations (slug, name, description, status `active`/`suspended`). Paginated list.
+> 2026-11-19 (ADM-024, owner): GET/PATCH (and POST 201) return a strong ETag derived from updated_at; PATCH accepts optional If-Match (strong comparison, * = any) and answers 412 precondition_failed with the current ETag when stale, changing nothing; without If-Match behaviour is unchanged. 412 joins the error codes (R6).
 > 2026-11-11 (D10, D15): this table moves to the Identity module (USR-06), gains `created_by`, keeps `description` and `status`; apps use it per `apps.org_mode`.
 > 2026-11-17 (USR-06a, done): owned by Identity (D15 = ownership; code stays in `app/modules/organizations/`), `created_by` added, FK from `role_assignments.org_id` (RESTRICT; admin delete with assignments answers 409 `org_has_assignments`). End-user create/list and org-scoped tokens: ADR-0013. Invitations: USR-06b.
 
@@ -58,6 +59,8 @@ The list of mmlabs products is the `apps` table of §5.3 (key, name, status).
 
 ### §5.6 Org product entitlements
 Which org can use which product, with plan and limits; enable/disable per org. Readable by mmlabs services through the `ent` access-token claim (§8 Q4, ADR-0017).
+
+> 2026-11-19 (ADM-024, owner): GET/PATCH (and POST 201) return a strong ETag derived from updated_at; PATCH accepts optional If-Match (strong comparison, * = any) and answers 412 precondition_failed with the current ETag when stale, changing nothing; without If-Match behaviour is unchanged. 412 joins the error codes (R6). New GET /api/v1/organizations/{org_id}/entitlements/{entitlement_id} (admin:entitlements:read).
 
 > 2026-11-17 (ADM-006): staff Bearer endpoints under /api/v1/organizations/{org_id}/entitlements (admin:entitlements:read|write). Active = enabled AND org active AND app active (?active=true). Only non-admin, active, org_mode=required apps can be granted. ADM-018: services read it through the `ent` claim (Q4, ADR-0017).
 

@@ -3,9 +3,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, func, not_, select
+from sqlalchemy import ColumnElement, and_, func, not_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.base import bumped_updated_at
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App
@@ -110,6 +111,26 @@ class EntitlementRepository:
         return await self.session.scalar(
             select(OrgEntitlement).where(
                 OrgEntitlement.org_id == org_id, OrgEntitlement.app_id == app_id
+            )
+        )
+
+    async def update_if_version(
+        self, ent_id: uuid.UUID, expected: datetime, values: dict[str, Any]
+    ) -> bool:
+        """One conditional UPDATE: atomic compare-and-write on `updated_at` (ADM-024)."""
+        result = await self.session.execute(
+            update(OrgEntitlement)
+            .where(OrgEntitlement.id == ent_id, OrgEntitlement.updated_at == expected)
+            .values(**values, updated_at=bumped_updated_at(OrgEntitlement.updated_at))
+            .returning(OrgEntitlement.id)
+            .execution_options(synchronize_session=False)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def current_version(self, org_id: uuid.UUID, ent_id: uuid.UUID) -> datetime | None:
+        return await self.session.scalar(
+            select(OrgEntitlement.updated_at).where(
+                OrgEntitlement.org_id == org_id, OrgEntitlement.id == ent_id
             )
         )
 

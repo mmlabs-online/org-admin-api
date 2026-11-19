@@ -8,7 +8,9 @@ from app.core.errors import (
     NotFoundError,
     OrgHasAssignmentsError,
     OrgHasEntitlementsError,
+    PreconditionFailedError,
 )
+from app.core.etag import IfMatch
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
@@ -58,13 +60,37 @@ class OrganizationService:
         return org
 
     async def update(
-        self, org_id: uuid.UUID, data: OrganizationUpdate, *, actor: Actor, ctx: AuditContext
+        self,
+        org_id: uuid.UUID,
+        data: OrganizationUpdate,
+        *,
+        actor: Actor,
+        ctx: AuditContext,
+        precondition: IfMatch | None = None,
     ) -> Organization:
         org = await self.get(org_id)
         before = diff.snapshot(org, diff.ORG)
-        for field, value in data.model_dump(exclude_unset=True).items():
-            if field in {"name", "status"} and value is None:
-                continue  # non-nullable columns: treat explicit null as "no change"
+        fields = {
+            field: value
+            for field, value in data.model_dump(exclude_unset=True).items()
+            if not (field in {"name", "status"} and value is None)
+            # non-nullable columns: treat explicit null as "no change"
+        }
+        if precondition is not None and not precondition.any:
+            if org.updated_at not in precondition.versions:
+                raise PreconditionFailedError(org.updated_at)
+            values = {f: v for f, v in fields.items() if getattr(org, f) != v}
+            if not values:
+                return org
+            if not await self.repo.update_if_version(org_id, org.updated_at, values):
+                current = await self.repo.current_version(org_id)
+                if current is None:
+                    raise NotFoundError(f"Organization {org_id} not found")
+                raise PreconditionFailedError(current)
+            await self.repo.session.refresh(org)
+            await self._record(AuditAction.ORGANIZATION_UPDATED, org, before, actor, ctx)
+            return org
+        for field, value in fields.items():
             setattr(org, field, value)
         await self.repo.session.flush()
         await self.repo.session.refresh(org)
