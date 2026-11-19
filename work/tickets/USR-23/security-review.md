@@ -50,3 +50,20 @@
 1. Add a real two-connection concurrency test for revoke vs accept (`asyncio.gather` on separate sessions). The current tests only check the order "revoke, then accept". The guarantee above rests on the `FOR UPDATE` plus conditional `UPDATE` design, and no test proves it under true concurrency.
 2. The existing role-holders list (`rbac/router.py:~302`) returns emails but, unlike the new members route and `users/router.py:116`, doesn't appear to set `Cache-Control: no-store`. This was not introduced here; I'd file it as a small bug to make the email-bearing admin lists consistent.
 3. `page_for_org` inner-joins `Role` and `App` but counts `total` without those joins. Today the cascading `fk_org_invitations_role_same_app` foreign key keeps the two consistent, so this only matters if that FK changes. It's a data-integrity note, not a security issue.
+
+## Attempt 2
+USR-23 security re-review, attempt 2: f7ab3fb does not change the security posture. No blockers, no should-fix items.
+
+I read the full diff with `git show f7ab3fb`. It touches two files and I did not run the tests myself.
+
+**🟢 Findings**
+- tests/test_audit_coverage.py: the only code change. It adds an audit-coverage registry entry for `DELETE /organizations/{org_id}/invitations/{invitation_id}` (expected event `organization.invitation_revoked`).
+  - It adds two test scenarios: `_inv_revoke` for success and `_inv_revoke_unknown` for the 404 case.
+  - It changes the `AUDITED` count assertion from 25 to 26.
+  - The registry test `test_every_mutating_bearer_route_is_mapped` asserts that the registry matches the mutating Bearer routes. That makes it a guard on R4 (every mutating admin action writes an audit entry).
+  - The change closes the gap the earlier review found, where this route was missing from the registry. It strengthens audit assurance and does not weaken it.
+- No `app/` code, migration, model, config or `app/core/` file changed. Auth classes (R3), token handling, rate limits and CORS are untouched.
+- The test imports `tests.invitation_factories.make_invitation` and builds fixtures with random UUIDs and hours-scale timestamps. It contains no secrets, no hardcoded credentials and no network access.
+- work/tickets/USR-23/impl-log.md: only an "Attempt 3 (REWORK 2)" section was added. It reports `make test` at 2714 passed, plus typecheck and ruff clean. It also states "no app code touched", which matches the diff.
+
+**Follow-ups:** none from this commit. The attempt 1 verdict (PASS) stands.
