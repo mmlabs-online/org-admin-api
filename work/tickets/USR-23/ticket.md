@@ -7,6 +7,7 @@
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
+| Gate | plan-approval |
 | PR | — |
 | Claimed by | claude@2026-11-19T03:47Z |
 
