@@ -78,14 +78,14 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-21 | Join requests: reject cooldown controls and pending count per app | BACKLOG | P3 | api, auth, security | 0 | 2026-11-17 |
 | USR-22 | Join requests: optional reject reason and expiry of stale pending requests | BACKLOG | P3 | api, auth, security, db | 0 | 2026-11-17 |
 | USR-23 | Staff read of an organization's members and invitations | MERGED | P1 | api, auth, security, db | 1 | 2026-11-19 |
-| USR-24 | Optimistic concurrency on PUT role permissions | DONE | P2 | api, db | 0 | 2026-11-19 |
+| USR-24 | Optimistic concurrency on PUT role permissions | MERGED | P2 | api, db | 0 | 2026-11-19 |
 | USR-25 | Scope of `self_assignment_forbidden` beyond the admin app | BACKLOG | P2 | auth, security | 0 | 2026-11-19 |
 | USR-26 | Role definitions: assignment count, org-owner flag, stable reasons on 409 conflicts | BACKLOG | P3 | api, db | 0 | 2026-11-19 |
 | USR-27 | Role assignments: return role and org names | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | USR-28 | Exact email lookup for staff user search | BACKLOG | P3 | api, security | 0 | 2026-11-19 |
 | ADM-026 | Organizations and apps lists: name sort collation and member_count sort | BACKLOG | P3 | api, db | 0 | 2026-11-19 |
-| ADM-027 | Google Drive attachment client for bug reports | BACKLOG | P2 | architecture, security | 0 | 2026-11-19 |
-| ADM-028 | Bug reports: data model and text submit from apps (cookie class) | BACKLOG | P2 | db, api, auth, security | 0 | 2026-11-19 |
+| ADM-027 | Google Drive attachment client for bug reports | DONE | P2 | architecture, security | 0 | 2026-11-19 |
+| ADM-028 | Bug reports: data model and text submit from apps (cookie class) | BLOCKED | P2 | db, api, auth, security | 0 | 2026-11-19 |
 | ADM-029 | Bug reports: staff list, detail, mark done and reopen | BACKLOG | P2 | api, auth, db | 0 | 2026-11-19 |
 | ADM-030 | Bug reports: image attachments (upload from apps, download for staff) | BACKLOG | P2 | api, security | 0 | 2026-11-19 |
 | ADM-031 | Bug reports: retention purge | BACKLOG | P3 | db, security | 0 | 2026-11-19 |

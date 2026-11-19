@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | BLOCKED |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api, auth, security |
@@ -47,5 +47,11 @@ A signed-in member of an mmlabs app (e.g. ricotdin) can file a bug report from t
 - API tests for each acceptance criterion, including CORS preflight and audit row content.
 
 ## Notes / answers from Ming
+- 2026-11-19 (Ming): Plan approved (2026-11-19, batch 2026-11-19-2); questions 7–15 (batch numbering) per the defaults in plan.md — "duyệt hết; câu 1–15 theo mặc định".
 
 ## Handoff
+### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-2)
+- Agent calls: 5, tokens ~346k (database-optimizer×1 38k, api-platform-engineer×1 44k, security-architect×1 67k, identity-access-engineer×1 75k, planner×1 opus 123k)
+- Done: consult (4), plan.md READY, predicted tier high (migration, `app/db/models.py`, `app/core/*`, `.env.example`).
+- In progress / next: Ming answers batch questions 7–15 + plan approval → `/run-batch --resume`.
+- Gotchas: plan's ADR-0018 becomes ADR-0019 (ADM-027 builds first). AC2 conflict: disabled user 401 vs ticket's 403.

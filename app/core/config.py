@@ -14,6 +14,15 @@ _ARGON2_MIN_MEMORY_KIB = 19456
 _ARGON2_MIN_TIME_COST = 2
 _IDENTITY_HMAC_KEY_MIN_LENGTH = 32
 _JWT_ISSUER_RE = r"^https://[a-z0-9.-]+$"  # staging/production: no path, port or trailing slash
+_DRIVE_KEY_NAMES = (
+    "GOOGLE_DRIVE_CLIENT_ID",
+    "GOOGLE_DRIVE_CLIENT_SECRET",
+    "GOOGLE_DRIVE_REFRESH_TOKEN",
+    "GOOGLE_DRIVE_ROOT_FOLDER_ID",
+)
+_DRIVE_CLIENT_ID_RE = re.compile(r"[A-Za-z0-9.-]+\.apps\.googleusercontent\.com")
+_DRIVE_SECRET_RE = re.compile(r"[\x21-\x7e]{1,2048}")
+_DRIVE_FOLDER_ID_RE = re.compile(r"[A-Za-z0-9_-]{10,128}")
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
 
@@ -118,6 +127,12 @@ class Settings(BaseSettings):
     forgot_rate_window_seconds: int = Field(default=60, ge=1)
     reset_rate_limit: int = Field(default=10, ge=1)
     reset_rate_window_seconds: int = Field(default=60, ge=1)
+
+    # Bug-report attachments in Google Drive (ADM-027, ADR-0018): all four or none.
+    google_drive_client_id: str | None = None
+    google_drive_client_secret: SecretStr | None = None
+    google_drive_refresh_token: SecretStr | None = None
+    google_drive_root_folder_id: SecretStr | None = None
 
     password_min_length: int = Field(default=6, ge=6)  # owner, 2026-11-16: minimum 6 (was 12)
 
@@ -259,6 +274,46 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"{', '.join(missing)} must be set in staging/production")
+        return self
+
+    @property
+    def drive_enabled(self) -> bool:
+        return all(
+            (
+                self.google_drive_client_id,
+                self.google_drive_client_secret,
+                self.google_drive_refresh_token,
+                self.google_drive_root_folder_id,
+            )
+        )
+
+    @model_validator(mode="after")
+    def _drive_gate(self) -> Self:
+        values = (
+            self.google_drive_client_id,
+            self.google_drive_client_secret,
+            self.google_drive_refresh_token,
+            self.google_drive_root_folder_id,
+        )
+        present = [bool(v) for v in values]
+        if not any(present):
+            return self
+        if not all(present):
+            missing = [n for n, ok in zip(_DRIVE_KEY_NAMES, present, strict=True) if not ok]
+            raise ValueError(
+                f"{', '.join(missing)} must be set together with the other GOOGLE_DRIVE_* keys"
+                " (or none of them)"
+            )
+        raw = [v if isinstance(v, str) else v.get_secret_value() for v in values if v]
+        checks = (
+            (len(raw[0]) <= 255 and _DRIVE_CLIENT_ID_RE.fullmatch(raw[0])),
+            _DRIVE_SECRET_RE.fullmatch(raw[1]),
+            _DRIVE_SECRET_RE.fullmatch(raw[2]),
+            _DRIVE_FOLDER_ID_RE.fullmatch(raw[3]),
+        )
+        for name, ok in zip(_DRIVE_KEY_NAMES, checks, strict=True):
+            if not ok:
+                raise ValueError(f"{name} is malformed")
         return self
 
 
