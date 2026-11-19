@@ -1,8 +1,9 @@
 import hashlib
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from app.core.etag import if_none_match, strong_etag
+from app.core.etag import IfMatch, if_none_match, parse_if_match, strong_etag, version_etag
 
 TAG = strong_etag(b"{}")
 
@@ -61,3 +62,39 @@ def test_if_none_match_no_match(values: list[str]) -> None:
 )
 def test_if_none_match_malformed(values: list[str]) -> None:
     assert not if_none_match(values, TAG)
+
+
+def test_version_etag_is_quoted_epoch_microseconds() -> None:
+    dt = datetime(2025, 11, 19, 7, 0, 0, 123456, tzinfo=UTC)
+    assert version_etag(dt) == '"1763535600123456"'
+    assert version_etag(dt.astimezone(timezone(timedelta(hours=7)))) == version_etag(dt)
+
+
+@pytest.mark.parametrize("values", [None, [], [""], ["  "]])
+def test_parse_if_match_absent(values: list[str] | None) -> None:
+    assert parse_if_match(values) is None
+
+
+@pytest.mark.parametrize("values", [["*"], [" * "]])
+def test_parse_if_match_star(values: list[str]) -> None:
+    assert parse_if_match(values) == IfMatch(any=True)
+
+
+def test_parse_if_match_round_trip() -> None:
+    dt = datetime(2025, 11, 19, 7, 0, 0, 123456, tzinfo=UTC)
+    parsed = parse_if_match([version_etag(dt)])
+    assert parsed is not None and parsed.versions == {dt}
+
+
+@pytest.mark.parametrize("values", [['"1", "2"'], ['"1"', '"2"']])
+def test_parse_if_match_list_and_multiple_lines(values: list[str]) -> None:
+    parsed = parse_if_match(values)
+    assert parsed is not None and len(parsed.versions) == 2
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['W/"1"', '"abc"', "1", '*, "1"', '"999999999999999999"', '""', '"' + "1" * 2048 + '"'],
+)
+def test_parse_if_match_never_matches(value: str) -> None:
+    assert parse_if_match([value]) == IfMatch(any=False, versions=frozenset())

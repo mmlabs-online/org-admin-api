@@ -10,7 +10,8 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, PreconditionFailedError
+from app.core.etag import IfMatch
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
@@ -49,6 +50,13 @@ class EntitlementService:
     async def _view(self, org_id: uuid.UUID, ent_id: uuid.UUID) -> EntitlementView:
         view = await self.repo.get_view(org_id, ent_id)
         assert view is not None  # noqa: S101 (just written in this transaction)
+        return view
+
+    async def get(self, org_id: uuid.UUID, ent_id: uuid.UUID) -> EntitlementView:
+        await self._require_org(org_id)
+        view = await self.repo.get_view(org_id, ent_id)
+        if view is None:
+            raise NotFoundError("Entitlement not found")
         return view
 
     async def list(
@@ -106,14 +114,32 @@ class EntitlementService:
         *,
         actor: Actor,
         ctx: AuditContext,
+        precondition: IfMatch | None = None,
     ) -> EntitlementView:
         ent = await self._get(org_id, ent_id)
         before = diff.snapshot(ent, diff.ENTITLEMENT)
-        for field, value in data.model_dump(exclude_unset=True).items():
-            if value is not None:  # explicit null: no change
+        fields = {
+            field: value
+            for field, value in data.model_dump(exclude_unset=True).items()
+            if value is not None  # explicit null: no change
+        }
+        if precondition is not None and not precondition.any:
+            if ent.updated_at not in precondition.versions:
+                raise PreconditionFailedError(ent.updated_at)
+            values = {f: v for f, v in fields.items() if getattr(ent, f) != v}
+            if not values:
+                return await self._view(org_id, ent_id)
+            if not await self.repo.update_if_version(ent_id, ent.updated_at, values):
+                current = await self.repo.current_version(org_id, ent_id)
+                if current is None:
+                    raise NotFoundError("Entitlement not found")
+                raise PreconditionFailedError(current)
+            await self.repo.session.refresh(ent)
+        else:
+            for field, value in fields.items():
                 setattr(ent, field, value)  # a new dict for `limits` (no MutableDict)
-        await self.repo.session.flush()
-        await self.repo.session.refresh(ent)
+            await self.repo.session.flush()
+            await self.repo.session.refresh(ent)
         changes = diff.diff(before, diff.snapshot(ent, diff.ENTITLEMENT))
         if changes:
             await self.audit.record(

@@ -1,10 +1,12 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.etag import version_etag
 from app.modules.audit.models import AuditLog
 from app.modules.entitlements.repository import EntitlementRepository
 from app.modules.organizations.models import Organization
@@ -417,3 +419,183 @@ async def test_app_delete_with_entitlements_409(
     error = resp.json()["error"]
     assert error["code"] == "conflict"
     assert error["details"][0]["reason"] == "app_has_entitlements"
+
+
+# --- ADM-024: ETag / If-Match -------------------------------------------------------------
+
+
+def _tag(body: dict[str, Any]) -> str:
+    return version_etag(datetime.fromisoformat(body["updated_at"]))
+
+
+async def _updated_audits(db: AsyncSession, org_id: uuid.UUID) -> int:
+    return len([r for r in await _audit(db, org_id) if r.action == "entitlement.updated"])
+
+
+async def _setup(
+    make_client: MakeClient, db: AsyncSession, **grant: Any
+) -> tuple[Any, Any, dict[str, Any]]:
+    org, app = await make_org(db), await _app(db)
+    async with make_client(admin_permissions=SUPER) as client:
+        ent = await _grant(client, org.id, app.key, **grant)
+    return org, app, ent
+
+
+async def test_grant_entitlement_returns_etag(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, app = await make_org(db_session), await _app(db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        resp = await client.post(_url(org.id), json={"app_key": app.key, "plan": "pro"})
+    assert resp.status_code == 201
+    assert resp.headers["etag"] == _tag(resp.json())
+
+
+async def test_get_entitlement_returns_etag(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session)
+    async with make_client(admin_permissions=["admin:entitlements:read"]) as client:
+        resp = await client.get(_url(org.id, ent["id"]))
+        listed = (await client.get(_url(org.id))).json()["items"]
+    assert resp.status_code == 200
+    assert resp.json() == listed[0]
+    assert resp.headers["etag"] == _tag(resp.json())
+
+
+async def test_get_entitlement_404s(make_client: MakeClient, db_session: AsyncSession) -> None:
+    org, other, app = await make_org(db_session), await make_org(db_session), await _app(db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        ent = await _grant(client, other.id, app.key)
+        for org_id, ent_id in (
+            (uuid.uuid4(), ent["id"]),  # unknown org
+            (org.id, uuid.uuid4()),  # unknown entitlement
+            (org.id, ent["id"]),  # another org's entitlement
+        ):
+            resp = await client.get(_url(org_id, ent_id))
+            assert resp.status_code == 404
+            assert resp.json()["error"]["code"] == "not_found"
+
+
+async def test_get_entitlement_401_and_403(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session)
+    async with make_client(admin_permissions=["admin:organizations:read"]) as client:
+        resp = await client.get(_url(org.id, ent["id"]))
+    assert resp.status_code == 403
+    assert resp.json()["error"]["details"]["required"] == "admin:entitlements:read"
+    async with make_client() as client:
+        assert (await client.get(_url(org.id, ent["id"]))).status_code == 401
+
+
+async def test_patch_entitlement_returns_etag(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        resp = await client.patch(_url(org.id, ent["id"]), json={"plan": "max"})
+    assert resp.status_code == 200
+    assert resp.headers["etag"] == _tag(resp.json())
+
+
+async def test_patch_entitlement_matching_if_match_changes_etag(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session, limits={"seats": 5})
+    async with make_client(admin_permissions=SUPER) as client:
+        url = _url(org.id, ent["id"])
+        a = (await client.get(url)).headers["etag"]
+        resp = await client.patch(url, json={"limits": {"seats": 9}}, headers={"If-Match": a})
+    assert resp.status_code == 200
+    assert resp.json()["limits"] == {"seats": 9}
+    assert resp.headers["etag"] not in {a, _tag(ent)}
+    assert resp.headers["etag"] == _tag(resp.json())
+    assert await _updated_audits(db_session, org.id) == 1
+
+
+async def test_patch_entitlement_stale_if_match_412(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session, limits={"seats": 5})
+    async with make_client(admin_permissions=SUPER) as client:
+        url = _url(org.id, ent["id"])
+        a = (await client.get(url)).headers["etag"]  # both clients hold A
+        first = await client.patch(url, json={"limits": {"seats": 9}}, headers={"If-Match": a})
+        assert first.status_code == 200
+        audits = await _updated_audits(db_session, org.id)
+        second = await client.patch(url, json={"limits": {"api": 1}}, headers={"If-Match": a})
+        assert second.status_code == 412
+        error = second.json()["error"]
+        assert (error["code"], error["details"]) == ("precondition_failed", None)
+        assert second.headers["etag"] == first.headers["etag"]
+        assert (await client.get(url)).json()["limits"] == {"seats": 9}
+    assert await _updated_audits(db_session, org.id) == audits
+
+
+async def test_patch_entitlement_if_match_star(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        resp = await client.patch(
+            _url(org.id, ent["id"]), json={"plan": "max"}, headers={"If-Match": "*"}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["plan"] == "max"
+
+
+async def test_patch_entitlement_weak_if_match_412(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        resp = await client.patch(
+            _url(org.id, ent["id"]),
+            json={"plan": "max"},
+            headers={"If-Match": f"W/{_tag(ent)}"},
+        )
+    assert resp.status_code == 412
+
+
+async def test_patch_entitlement_noop_with_matching_if_match(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session, limits={"a": 1})
+    async with make_client(admin_permissions=SUPER) as client:
+        resp = await client.patch(
+            _url(org.id, ent["id"]),
+            json={"plan": "pro", "limits": {"a": 1}},
+            headers={"If-Match": _tag(ent)},
+        )
+    assert resp.status_code == 200
+    assert resp.headers["etag"] == _tag(ent)
+    assert await _updated_audits(db_session, org.id) == 0
+
+
+async def test_patch_entitlement_without_if_match_unchanged(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        resp = await client.patch(_url(org.id, ent["id"]), json={"plan": "max"})
+    assert resp.status_code == 200
+    assert resp.headers["etag"] == _tag(resp.json())
+    assert await _updated_audits(db_session, org.id) == 1
+
+
+async def test_patch_entitlement_404_beats_412_and_403_unchanged(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    org, _, ent = await _setup(make_client, db_session)
+    async with make_client(admin_permissions=SUPER) as client:
+        resp = await client.patch(
+            _url(org.id, uuid.uuid4()), json={"plan": "max"}, headers={"If-Match": '"1"'}
+        )
+    assert resp.status_code == 404
+    async with make_client(admin_permissions=["admin:entitlements:read"]) as client:
+        resp = await client.patch(
+            _url(org.id, ent["id"]), json={"plan": "max"}, headers={"If-Match": '"1"'}
+        )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "permission_denied"

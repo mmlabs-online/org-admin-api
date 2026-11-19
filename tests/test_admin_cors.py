@@ -98,10 +98,22 @@ async def test_preflight_admin_origin_allowed(
     h = resp.headers
     assert h["access-control-allow-origin"] == admin_origin
     assert h["access-control-allow-methods"] == "DELETE, GET, PATCH, POST, PUT"
-    assert h["access-control-allow-headers"] == "Authorization, Content-Type"
+    assert h["access-control-allow-headers"] == "Authorization, Content-Type, If-Match"
     assert h["access-control-max-age"] == "600"
     assert h["vary"] == PREFLIGHT_VARY
     assert "access-control-allow-credentials" not in h
+
+
+async def test_preflight_admin_origin_allowed_if_match(
+    client: AsyncClient, admin_origin: str
+) -> None:
+    resp = await client.options(
+        f"{ORGS}/{uuid.uuid4()}",
+        headers=_preflight(method="PATCH", req_headers="authorization,content-type,if-match"),
+    )
+    assert resp.status_code == 204
+    assert resp.headers["access-control-allow-origin"] == admin_origin
+    assert resp.headers["access-control-allow-headers"] == "Authorization, Content-Type, If-Match"
 
 
 async def test_preflight_never_reaches_auth(client: AsyncClient, admin_origin: str) -> None:
@@ -113,7 +125,7 @@ async def test_preflight_never_reaches_auth(client: AsyncClient, admin_origin: s
 
 
 @pytest.mark.parametrize(
-    "req_headers", ["x-mm-app", "cookie", "if-match", "authorization,x-mm-app"]
+    "req_headers", ["x-mm-app", "cookie", "if-none-match", "authorization,x-mm-app"]
 )
 async def test_preflight_disallowed_method_or_header(
     client: AsyncClient, admin_origin: str, req_headers: str

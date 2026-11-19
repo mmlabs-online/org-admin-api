@@ -1,10 +1,12 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import ColumnElement, exists, func, or_, select
+from sqlalchemy import ColumnElement, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.listing import ilike_any, sort_clauses
+from app.db.base import bumped_updated_at
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.organizations.schemas import OrganizationSort
@@ -53,6 +55,24 @@ class OrganizationRepository:
             .offset(offset)
         )
         return list(result.scalars()), total or 0
+
+    async def update_if_version(
+        self, org_id: uuid.UUID, expected: datetime, values: dict[str, object]
+    ) -> bool:
+        """One conditional UPDATE: atomic compare-and-write on `updated_at` (ADM-024)."""
+        result = await self.session.execute(
+            update(Organization)
+            .where(Organization.id == org_id, Organization.updated_at == expected)
+            .values(**values, updated_at=bumped_updated_at(Organization.updated_at))
+            .returning(Organization.id)
+            .execution_options(synchronize_session=False)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def current_version(self, org_id: uuid.UUID) -> datetime | None:
+        return await self.session.scalar(
+            select(Organization.updated_at).where(Organization.id == org_id)
+        )
 
     async def add(self, org: Organization) -> Organization:
         self.session.add(org)

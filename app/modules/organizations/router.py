@@ -1,9 +1,10 @@
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Header, Query, Response, status
 
 from app.api.deps import PageDep, SessionDep
+from app.core.etag import ETAG_RESPONSE_HEADER, IF_MATCH_DESCRIPTION, parse_if_match, version_etag
 from app.core.listing import SearchTerm
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
@@ -36,6 +37,17 @@ def _route(key: str, errors: dict[int, str]) -> dict[str, Any]:
 
 
 _NOT_FOUND = {404: "Organization not found"}
+_PRECONDITION = {
+    412: "Stale If-Match (code precondition_failed); nothing changed; carries the current ETag"
+}
+
+
+def _with_etag(kwargs: dict[str, Any], code: int, description: str) -> dict[str, Any]:
+    kwargs["responses"][code] = {
+        "description": description,
+        "headers": {"ETag": ETAG_RESPONSE_HEADER},
+    }
+    return kwargs
 
 
 @router.get("", response_model=Page[OrganizationRead], **require_permission(READ))
@@ -79,30 +91,58 @@ async def list_organizations(
     "",
     response_model=OrganizationRead,
     status_code=status.HTTP_201_CREATED,
-    **_route(WRITE, {409: "Slug already taken (code conflict)"}),
+    **_with_etag(_route(WRITE, {409: "Slug already taken (code conflict)"}), 201, "Created"),
 )
 async def create_organization(
-    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, body: OrganizationCreate
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    body: OrganizationCreate,
+    response: Response,
 ) -> OrganizationRead:
-    org = await OrganizationService(session).create(body, actor=principal, ctx=ctx)
-    return OrganizationRead.model_validate(org)
+    org = OrganizationRead.model_validate(
+        await OrganizationService(session).create(body, actor=principal, ctx=ctx)
+    )
+    response.headers["ETag"] = version_etag(org.updated_at)
+    return org
 
 
-@router.get("/{org_id}", response_model=OrganizationRead, **_route(READ, _NOT_FOUND))
-async def get_organization(session: SessionDep, org_id: uuid.UUID) -> OrganizationRead:
-    return OrganizationRead.model_validate(await OrganizationService(session).get(org_id))
+@router.get(
+    "/{org_id}",
+    response_model=OrganizationRead,
+    **_with_etag(_route(READ, _NOT_FOUND), 200, "Successful Response"),
+)
+async def get_organization(
+    session: SessionDep, org_id: uuid.UUID, response: Response
+) -> OrganizationRead:
+    org = OrganizationRead.model_validate(await OrganizationService(session).get(org_id))
+    response.headers["ETag"] = version_etag(org.updated_at)
+    return org
 
 
-@router.patch("/{org_id}", response_model=OrganizationRead, **_route(WRITE, _NOT_FOUND))
+@router.patch(
+    "/{org_id}",
+    response_model=OrganizationRead,
+    **_with_etag(_route(WRITE, {**_NOT_FOUND, **_PRECONDITION}), 200, "Successful Response"),
+)
 async def update_organization(
     session: SessionDep,
     principal: AdminDep,
     ctx: AuditContextDep,
     org_id: uuid.UUID,
     body: OrganizationUpdate,
+    response: Response,
+    if_match: Annotated[
+        list[str] | None, Header(alias="If-Match", description=IF_MATCH_DESCRIPTION)
+    ] = None,
 ) -> OrganizationRead:
-    org = await OrganizationService(session).update(org_id, body, actor=principal, ctx=ctx)
-    return OrganizationRead.model_validate(org)
+    org = OrganizationRead.model_validate(
+        await OrganizationService(session).update(
+            org_id, body, actor=principal, ctx=ctx, precondition=parse_if_match(if_match)
+        )
+    )
+    response.headers["ETag"] = version_etag(org.updated_at)
+    return org
 
 
 @router.delete(

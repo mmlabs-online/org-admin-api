@@ -4,6 +4,7 @@ Services raise `AppError` subclasses; the handlers below turn them into
 `{"error": {"code": ..., "message": ..., "details": ...}}` responses.
 """
 
+from datetime import datetime
 from http import HTTPStatus
 from typing import Any
 
@@ -14,6 +15,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
+
+from app.core.etag import version_etag
 
 
 class AppError(Exception):
@@ -129,13 +132,26 @@ class RateLimitedError(AppError):
         )
 
 
+class PreconditionFailedError(AppError):
+    """A stale `If-Match` (ADM-024); the response carries the current `ETag`."""
+
+    status_code = status.HTTP_412_PRECONDITION_FAILED
+    code = "precondition_failed"
+
+    def __init__(self, current: datetime) -> None:
+        super().__init__(
+            "Resource was modified; re-fetch and retry",
+            headers={"ETag": version_etag(current)},
+        )
+
+
 class ErrorBody(BaseModel):
     """The error object of every non-2xx JSON response."""
 
     code: str = Field(
         description=(
             "Machine-readable code, e.g. validation_error, unprocessable, not_found, conflict,"
-            " unauthorized, permission_denied, rate_limited."
+            " unauthorized, permission_denied, precondition_failed, rate_limited."
         )
     )
     message: str
@@ -190,6 +206,7 @@ _HTTP_CODES = {
     404: "not_found",
     405: "method_not_allowed",
     406: "not_acceptable",
+    412: "precondition_failed",
     413: "payload_too_large",
     415: "unsupported_media_type",
     429: "rate_limited",

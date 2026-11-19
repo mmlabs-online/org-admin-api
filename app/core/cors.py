@@ -42,8 +42,8 @@ IDENTITY_POLICY = CORSPolicy(
 ADMIN_POLICY = CORSPolicy(
     credentials=False,
     allow_methods=frozenset({"GET", "POST", "PATCH", "PUT", "DELETE"}),
-    allow_headers=frozenset({"authorization", "content-type"}),
-    allow_headers_value="Authorization, Content-Type",
+    allow_headers=frozenset({"authorization", "content-type", "if-match"}),
+    allow_headers_value="Authorization, Content-Type, If-Match",
     expose_headers=(
         "Retry-After, ETag, X-Request-ID, Content-Disposition, "
         "X-Export-Truncated, X-Export-Row-Count"

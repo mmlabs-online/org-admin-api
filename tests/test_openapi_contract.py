@@ -329,6 +329,7 @@ _EXPECTED_ERRORS: dict[tuple[str, str], set[str]] = {
     ("post", f"{_JR}/reject"): {"404", "409"},
     ("get", _E): {"404"},
     ("post", _E): {"404", "409"},
+    ("get", f"{_E}/{{entitlement_id}}"): {"404"},
     ("patch", f"{_E}/{{entitlement_id}}"): {"404"},
     ("delete", f"{_E}/{{entitlement_id}}"): {"404"},
     ("get", f"{_U}/role-assignments"): {"404"},
@@ -409,3 +410,29 @@ def test_require_permission_rejects_bad_arguments() -> None:
     assert second["responses"][401] != first["responses"][401]
     assert _ERROR_RESPONSES[401]["description"] != "changed"
     assert 404 not in _ERROR_RESPONSES
+
+
+_ORG_ITEM = "/api/v1/organizations/{org_id}"
+_ENT_ITEM = "/api/v1/organizations/{org_id}/entitlements/{entitlement_id}"
+
+
+def test_patch_412_and_if_match_declared() -> None:
+    paths = _schema()["paths"]
+    for path in (_ORG_ITEM, _ENT_ITEM):
+        op = paths[path]["patch"]
+        assert op["responses"]["412"]["content"]["application/json"]["schema"] == {"$ref": REF}
+        param = _param(op, "If-Match")
+        assert param["in"] == "header"
+        assert not param.get("required")
+        assert "ETag" in op["responses"]["200"]["headers"]
+
+
+def test_etag_header_declared() -> None:
+    paths = _schema()["paths"]
+    for path, method, code in (
+        (_ORG_ITEM, "get", "200"),
+        (_ENT_ITEM, "get", "200"),
+        ("/api/v1/organizations", "post", "201"),
+        ("/api/v1/organizations/{org_id}/entitlements", "post", "201"),
+    ):
+        assert "ETag" in paths[path][method]["responses"][code]["headers"], (path, method)
