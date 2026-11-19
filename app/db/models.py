@@ -4,6 +4,7 @@ from app.db.base import Base
 from app.modules.app_credentials.models import AppCredential
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import EmailSendLog, EmailToken, LoginFailure
+from app.modules.bug_reports.models import BugReport
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.invitations.models import OrgInvitation
 from app.modules.join_requests.models import AppJoinRequest
@@ -19,6 +20,7 @@ __all__ = [
     "AppJoinRequest",
     "AuditLog",
     "Base",
+    "BugReport",
     "DeviceSession",
     "EmailSendLog",
     "EmailToken",

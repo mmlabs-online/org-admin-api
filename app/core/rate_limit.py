@@ -76,6 +76,7 @@ Scope = Literal[
     "accounts",
     "join",
     "org_create",
+    "bug_report_create",
     "orgs_list",
     "invitation_create",
     "invitation_accept",
@@ -97,6 +98,9 @@ _LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
     "accounts": lambda s: RateLimit(s.accounts_rate_limit, s.accounts_rate_window_seconds),
     "join": lambda s: RateLimit(s.join_rate_limit, s.join_rate_window_seconds),
     "org_create": lambda s: RateLimit(s.org_create_rate_limit, s.org_create_rate_window_seconds),
+    "bug_report_create": lambda s: RateLimit(
+        s.bug_report_rate_limit, s.bug_report_rate_window_seconds
+    ),
     "orgs_list": lambda s: RateLimit(s.orgs_list_rate_limit, s.orgs_list_rate_window_seconds),
     "invitation_create": lambda s: RateLimit(
         s.invitation_create_rate_limit, s.invitation_create_rate_window_seconds
