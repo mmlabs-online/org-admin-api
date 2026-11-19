@@ -1,8 +1,10 @@
 """Shared setup for the org invitation tests (USR-06b): app `calechip`, roles, an org, people."""
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -93,3 +95,35 @@ def token_hash(token: str) -> bytes:
 
 async def invitations(db_session: AsyncSession) -> list[OrgInvitation]:
     return list(await db_session.scalars(select(OrgInvitation).order_by(OrgInvitation.created_at)))
+
+
+async def make_invitation(
+    db_session: AsyncSession,
+    org: Organization,
+    role: Role,
+    *,
+    created_at: datetime,
+    expires_at: datetime,
+    accepted_by: User | None = None,
+    revoked_at: datetime | None = None,
+    invited_by: User | None = None,
+) -> tuple[OrgInvitation, str]:
+    """Insert an invitation directly (random hashes); returns it and its raw token.
+    `accepted_by` set means accepted (at `created_at`); `revoked_at` means revoked."""
+    raw = os.urandom(16).hex()
+    invitation = OrgInvitation(
+        org_id=org.id,
+        app_id=role.app_id,
+        role_id=role.id,
+        email_hmac=os.urandom(32),
+        token_hash=hashlib.sha256(raw.encode()).digest(),
+        invited_by=invited_by.id if invited_by else None,
+        created_at=created_at,
+        expires_at=expires_at,
+        accepted_at=created_at if accepted_by else None,
+        accepted_by=accepted_by.id if accepted_by else None,
+        revoked_at=revoked_at,
+    )
+    db_session.add(invitation)
+    await db_session.flush()
+    return invitation, raw

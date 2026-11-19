@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -31,3 +32,32 @@ class InvitationAccept(BaseModel):
 class InvitationAccepted(BaseModel):
     org_id: uuid.UUID
     roles: list[str]  # the caller's role keys in this org
+
+
+class InvitationStatus(StrEnum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
+class OrgInvitationRead(BaseModel):
+    """Staff view of one invitation (USR-23). No invitee email, token, token hash or email HMAC."""
+
+    id: uuid.UUID
+    app: str  # app key
+    role_id: uuid.UUID
+    role_key: str
+    invited_by: uuid.UUID | None
+    created_at: datetime
+    expires_at: datetime
+    accepted_at: datetime | None
+    accepted_by: uuid.UUID | None
+    revoked_at: datetime | None
+    status: InvitationStatus = Field(
+        description=(
+            "Computed at read time on the database clock: accepted > revoked > expired > "
+            "pending. An invitation can read pending while its inviter has since lost the "
+            "right to invite; accepting it is then refused."
+        )
+    )
