@@ -15,10 +15,13 @@ from app.core.errors import (
     ConflictError,
     LastSuperAdminError,
     NotFoundError,
+    PreconditionFailedError,
     RoleHasAssignmentsError,
     SelfAssignmentForbiddenError,
     UnprocessableError,
 )
+from app.core.etag import IfMatch
+from app.db.base import bumped_updated_at
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
@@ -192,6 +195,7 @@ async def _set_role_permissions(
 
     Shared by the default-role builder and the role PUT. No write when nothing changes; the diff
     is applied in one savepoint and a racing change (e.g. a permission deleted meanwhile) is a 409.
+    A change bumps `roles.updated_at` (ETag, USR-24); callers must hold `lock_app`.
     """
     current = await repo.role_permission_keys(role.id)
     to_add = target.keys() - current.keys()
@@ -201,6 +205,7 @@ async def _set_role_permissions(
             await repo.apply_role_permission_diff(role.id, role.app_id, to_add, to_remove)
         except IntegrityError as exc:
             raise ConflictError("Role permissions changed concurrently") from exc
+        await repo.touch_role(role)
     return sorted(target[p] for p in to_add), sorted(current[p] for p in to_remove)
 
 
@@ -1083,6 +1088,7 @@ class RoleService:
             name=role.name,
             is_system=role.is_system,
             permissions=sorted(keys.values()),
+            updated_at=role.updated_at,
         )
 
     async def _definitions(self, app: App, roles: Sequence[Role]) -> list[RoleDefinitionRead]:
@@ -1176,7 +1182,12 @@ class RoleService:
             changes=diff.diff(None, diff.snapshot(role, diff.ROLE)),
         )
         return RoleRead(
-            id=role.id, key=role.key, name=role.name, is_system=role.is_system, permissions=[]
+            id=role.id,
+            key=role.key,
+            name=role.name,
+            is_system=role.is_system,
+            permissions=[],
+            updated_at=role.updated_at,
         )
 
     async def update(
@@ -1200,6 +1211,7 @@ class RoleService:
                 )
                 raise
             old_name, role.name = role.name, data.name
+            role.updated_at = bumped_updated_at(Role.updated_at)
             try:
                 await self.repo.save()
             except IntegrityError as exc:
@@ -1264,9 +1276,16 @@ class RoleService:
         *,
         actor: Actor,
         ctx: AuditContext,
+        precondition: IfMatch | None = None,
     ) -> RoleRead:
         app = await _locked_app(self.repo, key)
         role = await self._get(app, role_id)
+        if (
+            precondition is not None
+            and not precondition.any
+            and role.updated_at not in precondition.versions
+        ):
+            raise PreconditionFailedError(role.updated_at)
         keys = list(dict.fromkeys(data.permission_keys))
         found = {p.key: p for p in await self.repo.permissions_by_keys(app.id, keys)}
         missing = sorted(set(keys) - found.keys())
@@ -1346,6 +1365,7 @@ class RoleService:
             name=role.name,
             is_system=role.is_system,
             permissions=sorted(found),
+            updated_at=role.updated_at,
         )
 
 

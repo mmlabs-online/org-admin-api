@@ -224,6 +224,9 @@ class RoleRead(BaseModel):
     name: str
     is_system: bool
     permissions: list[str]  # sorted permission keys
+    updated_at: datetime = Field(
+        description="Last change to the role row, including its permission set (USR-24)."
+    )
 
 
 class RoleDefinitionRead(BaseModel):
@@ -246,7 +249,10 @@ class RoleDefinitionRead(BaseModel):
     permissions: list[str]  # sorted permission keys
     created_at: datetime
     updated_at: datetime = Field(
-        description="Last change to the role row (e.g. name); permission changes do not bump it."
+        description=(
+            "Last change to the role row, including its permission set (USR-24). "
+            "ETag source: `version_etag(updated_at)`."
+        )
     )
 
 

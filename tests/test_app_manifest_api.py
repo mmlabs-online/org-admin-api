@@ -273,6 +273,34 @@ async def test_push_twice_is_idempotent(client: AsyncClient, db_session: AsyncSe
     assert await _catalog_etag(client, env) == etag
 
 
+async def test_manifest_change_bumps_role_version(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    env = await _env(db_session)
+    editor = f"{env.key}:editor"
+
+    def body(*names: str) -> Body:
+        return {
+            "permissions": _perms(env, "a", "b"),
+            "roles": [
+                {"key": editor, "name": "Editor", "permissions": [env.perm(n) for n in names]}
+            ],
+        }
+
+    async def version() -> object:
+        role = await RbacRepository(db_session).get_role_by_key(env.app.id, editor)
+        assert role is not None
+        await db_session.refresh(role)
+        return role.updated_at
+
+    assert (await _put(client, env, body("a"))).status_code == 200
+    first = await version()
+    assert (await _put(client, env, body("a"))).status_code == 200
+    assert await version() == first
+    assert (await _put(client, env, body("a", "b"))).status_code == 200
+    assert await version() > first  # type: ignore[operator]
+
+
 async def test_org_app_push_twice_never_adds_org_scope_to_member(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:

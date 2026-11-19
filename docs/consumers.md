@@ -99,6 +99,13 @@ the `admin` app's origins (set with `set-admin-origins`).
   only (derived fields such as an entitlement's `active` can change under the same tag); lists carry
   no `ETag` and `If-None-Match`/304 is not supported. New `GET
   /api/v1/organizations/{org_id}/entitlements/{entitlement_id}` (`admin:entitlements:read`).
+- **Role permissions (USR-24).** `GET …/role-definitions/{role_id}` and `PUT
+  …/roles/{role_id}/permissions` return an `ETag` with the ADM-024 format; send it as `If-Match` on
+  the PUT. A stale tag gives 412 `precondition_failed` with the current `ETag`; re-GET and
+  re-apply. `updated_at` now moves on every permission-set change, including manifest pushes; it
+  does not move when only derived fields change (`is_default`, `privileged`, e.g. after an app's
+  default role or a permission's `is_admin` changes). The PUT response carries the new tag, so edits
+  can be chained without a re-GET.
 - `admin-portal` cannot host the sign-up or forgot-password screens (ADM-002d); it is exempt from
   `/reset-password`, but must serve `/verify-email`.
 - **Unverified staff email (USR-12).** `/auth/token` answers 403 `email_unverified`. The UI may
