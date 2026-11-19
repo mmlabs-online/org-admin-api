@@ -32,7 +32,7 @@ Waiting for Ming: plan approval (High tier) — batch 2026-11-19-1, blocking que
 
 ## Handoff
 ### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-1)
-- Agent calls: 3, tokens ~112k for consults + planner (api-platform-engineer×1 53k, database-optimizer×1 59k, planner×1 opus — usage not yet reported)
+- Agent calls: 3, tokens ~215k (api-platform-engineer×1 53k, database-optimizer×1 59k, planner×1 opus 103k)
 - Done: consult (2), plan.md READY (builds on ADM-024), predicted tier high (app/modules/rbac/**).
 - In progress / next: Ming answers batch questions 6–9 + plan approval → `/run-batch --resume`.
 - Gotchas: same rbac files as USR-23 — rebase needed. Session-mandated branch used instead of `ticket/USR-24`.
