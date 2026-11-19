@@ -16,7 +16,7 @@ from tests.rbac_factories import assign, grant, make_app, make_permission, make_
 
 BASE = "/api/v1/apps"
 URL = f"{BASE}/stoktok/roles"
-ROLE_READ_KEYS = {"id", "key", "name", "is_system", "permissions"}
+ROLE_READ_KEYS = {"id", "key", "name", "is_system", "permissions", "updated_at"}
 
 
 @pytest.fixture

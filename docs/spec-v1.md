@@ -50,6 +50,8 @@ Membership (2026-11-11, D8–D10; details in [`identity-architecture.md`](identi
 
 > 2026-11-18 (USR-18): staff apps list filters `status`, `join_policy`, `org_mode`, `q` (key or name, trimmed 1..100, empty → 422) and `sort` (allow-list, default `key`, `id` tie-breaker).
 
+> 2026-11-19 (USR-24): roles.updated_at now also moves when a role's permission set changes (staff PUT, manifest, default-role rebuild); GET /api/v1/apps/{key}/role-definitions/{role_id} and PUT …/roles/{role_id}/permissions return a strong ETag derived from it; the PUT accepts optional If-Match with the ADM-024 rules (412 precondition_failed with the current ETag, nothing changed); RoleRead gains updated_at.
+
 ### §5.4 Audit log
 Append-only record of every mutating admin action: actor, action, target type/id, before/after (or diff), timestamp, request id. Read-only, filterable listing for auditors.
 > 2026-11-18 (ADM-022, owner): staff export the filtered audit log as CSV with GET /api/v1/audit-logs/export (admin:audit:read; same filters as the list; newest first, at most 10,000 rows, truncation signalled by X-Export-Truncated; each export writes an audit_log.exported entry). Part of the audit log, separate from the §5.11 reports, which stay undecided.

@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.listing import ilike_any, sort_clauses
+from app.db.base import bumped_updated_at
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.rbac.models import (
@@ -192,8 +193,20 @@ class RbacRepository:
 
     async def get_role(self, app_id: uuid.UUID, role_id: uuid.UUID) -> Role | None:
         return await self.session.scalar(
-            select(Role).where(Role.app_id == app_id, Role.id == role_id)
+            select(Role)
+            .where(Role.app_id == app_id, Role.id == role_id)
+            .execution_options(populate_existing=True)
         )
+
+    async def touch_role(self, role: Role) -> None:
+        """Bump `roles.updated_at` strictly (USR-24); callers hold `lock_app`."""
+        await self.session.execute(
+            update(Role)
+            .where(Role.id == role.id)
+            .values(updated_at=bumped_updated_at(Role.updated_at))
+            .execution_options(synchronize_session=False)
+        )
+        await self.session.refresh(role, attribute_names=["updated_at"])
 
     async def get_role_by_key(self, app_id: uuid.UUID, key: str) -> Role | None:
         return await self.session.scalar(select(Role).where(Role.app_id == app_id, Role.key == key))

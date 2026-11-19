@@ -427,6 +427,10 @@ def test_patch_412_and_if_match_declared() -> None:
         assert "ETag" in op["responses"]["200"]["headers"]
 
 
+_ROLE_DEF = "/api/v1/apps/{key}/role-definitions/{role_id}"
+_ROLE_PERMS = "/api/v1/apps/{key}/roles/{role_id}/permissions"
+
+
 def test_etag_header_declared() -> None:
     paths = _schema()["paths"]
     for path, method, code in (
@@ -434,5 +438,17 @@ def test_etag_header_declared() -> None:
         (_ENT_ITEM, "get", "200"),
         ("/api/v1/organizations", "post", "201"),
         ("/api/v1/organizations/{org_id}/entitlements", "post", "201"),
+        (_ROLE_DEF, "get", "200"),
+        (_ROLE_PERMS, "put", "200"),
     ):
         assert "ETag" in paths[path][method]["responses"][code]["headers"], (path, method)
+
+
+def test_role_put_412_and_if_match_declared() -> None:
+    op = _schema()["paths"][_ROLE_PERMS]["put"]
+    assert op["responses"]["412"]["content"]["application/json"]["schema"] == {"$ref": REF}
+    param = _param(op, "If-Match")
+    assert param["in"] == "header"
+    assert not param.get("required")
+    assert "ETag" in op["responses"]["200"]["headers"]
+    assert "content" in op["responses"]["200"]

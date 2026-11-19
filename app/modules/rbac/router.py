@@ -5,12 +5,13 @@ change across the `is_admin` boundary, also needs `admin:*` (ADM-002b guards in 
 """
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 
 from app.api.deps import PageDep, SessionDep
 from app.core.config import Settings
+from app.core.etag import ETAG_RESPONSE_HEADER, IF_MATCH_DESCRIPTION, parse_if_match, version_etag
 from app.core.listing import SearchTerm
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
@@ -41,6 +42,15 @@ router = APIRouter(prefix="/apps", tags=["apps"], dependencies=[Depends(current_
 _APP_404 = "Unknown app"
 _ROLE_404 = "Unknown app, or role not of that app"
 _ADMIN_APP = "On the admin app"
+_ROLE_412 = "Stale If-Match (code precondition_failed); nothing changed; carries the current ETag"
+
+
+def _with_etag(kwargs: dict[str, Any], code: int, description: str) -> dict[str, Any]:
+    kwargs["responses"][code] = {
+        "description": description,
+        "headers": {"ETag": ETAG_RESPONSE_HEADER},
+    }
+    return kwargs
 
 
 def _app_read(app: App, member_count: int) -> AppRead:
@@ -282,12 +292,18 @@ async def list_role_definitions(
 @router.get(
     "/{key}/role-definitions/{role_id}",
     response_model=RoleDefinitionRead,
-    **require_permission("admin:apps:read", errors={404: _ROLE_404}),
+    **_with_etag(
+        require_permission("admin:apps:read", errors={404: _ROLE_404}),
+        200,
+        "Successful Response",
+    ),
 )
 async def get_role_definition(
-    session: SessionDep, key: str, role_id: uuid.UUID
+    session: SessionDep, key: str, role_id: uuid.UUID, response: Response
 ) -> RoleDefinitionRead:
-    return await RoleService(session).get_definition(key, role_id)
+    read = await RoleService(session).get_definition(key, role_id)
+    response.headers["ETag"] = version_etag(read.updated_at)
+    return read
 
 
 @router.get(
@@ -380,14 +396,19 @@ async def delete_role(
 @router.put(
     "/{key}/roles/{role_id}/permissions",
     response_model=RoleRead,
-    **require_permission(
-        "admin:roles:manage",
-        errors={
-            404: _ROLE_404,
-            409: "Default/super-admin role rule or role has assignments",
-        },
-        requires_super="conditional",
-        super_when="Changing an admin-app role, or adding/removing an is_admin permission",
+    **_with_etag(
+        require_permission(
+            "admin:roles:manage",
+            errors={
+                404: _ROLE_404,
+                409: "Default/super-admin role rule or role has assignments",
+                412: _ROLE_412,
+            },
+            requires_super="conditional",
+            super_when="Changing an admin-app role, or adding/removing an is_admin permission",
+        ),
+        200,
+        "Successful Response",
     ),
 )
 async def replace_role_permissions(
@@ -397,7 +418,13 @@ async def replace_role_permissions(
     key: str,
     role_id: uuid.UUID,
     body: RolePermissionsReplace,
+    response: Response,
+    if_match: Annotated[
+        list[str] | None, Header(alias="If-Match", description=IF_MATCH_DESCRIPTION)
+    ] = None,
 ) -> RoleRead:
-    return await RoleService(session).replace_permissions(
-        key, role_id, body, actor=principal, ctx=ctx
+    read = await RoleService(session).replace_permissions(
+        key, role_id, body, actor=principal, ctx=ctx, precondition=parse_if_match(if_match)
     )
+    response.headers["ETag"] = version_etag(read.updated_at)
+    return read
