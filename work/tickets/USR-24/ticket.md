@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | MERGED |
+| State | DONE |
 | Priority | P2 |
 | Areas | api, db |
 | Attempts | 0 |
