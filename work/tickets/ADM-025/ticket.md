@@ -26,3 +26,4 @@ ADM-006. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
 - **Needs owner answer before PLAN:** which staff role(s) get which key (owner's call; do not seed without it).
+- 2026-11-18 (owner): entitlements belong to the system-wide admin only (in practice the mmlabs owner), i.e. the `super-admin` role (`admin:*`), which already passes `admin:entitlements:*`. Orchestrator reading: no new role-permission seed / no migration; remaining work is docs — spec §5.6 drops "(backlog)" and states that `admin:entitlements:read|write` are held only via `admin:*` and are not granted to other staff roles by default.

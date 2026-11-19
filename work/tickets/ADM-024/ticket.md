@@ -27,3 +27,4 @@ ADM-006, ADM-012, ADM-013. Requested by admin-pan (batch 2026-11-17).
 
 ## Notes / answers from owner
 - R6 lists the allowed codes; adding 412 needs the owner's OK at PLAN.
+- 2026-11-18 (owner): yes — in scope, and 412 (Precondition Failed) may be added to the R6 error codes for a stale `If-Match`.
