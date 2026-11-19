@@ -15,7 +15,7 @@
 ## Likely root cause
 <Plan gap, unclear requirement, technical blocker, wrong approach…>
 
-## Options for the owner
+## Options for Ming
 1. <option — trade-off>
 2. <option — trade-off>
 

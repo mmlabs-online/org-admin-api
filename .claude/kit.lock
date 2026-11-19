@@ -1,0 +1,44 @@
+# Written by spaceM scripts/apply-kit.sh. Do not edit by hand; re-run /apply-kit to change it.
+kit: project-kit
+kit_version: 1.1.2
+applied_at: 2026-11-19T03:26:06Z
+title: org-admin-api
+prefix: ADM
+gate: high-paths
+auto_merge_low: on
+agents: software-architect,database-optimizer,api-platform-engineer,identity-access-engineer,security-architect,appsec-engineer,product-manager
+commands: idea
+files:
+  - .claude/commands/run.md
+  - .claude/commands/run-batch.md
+  - .claude/commands/ticket.md
+  - .claude/commands/bug.md
+  - .claude/commands/solo.md
+  - .claude/commands/status.md
+  - .claude/commands/idea.md
+  - .claude/agents/planner.md
+  - .claude/agents/implementer.md
+  - .claude/agents/reviewer.md
+  - .claude/agents/software-architect.md
+  - .claude/agents/database-optimizer.md
+  - .claude/agents/api-platform-engineer.md
+  - .claude/agents/identity-access-engineer.md
+  - .claude/agents/security-architect.md
+  - .claude/agents/appsec-engineer.md
+  - .claude/agents/product-manager.md
+  - work/templates/batch.md
+  - work/templates/bug.md
+  - work/templates/escalation.md
+  - work/templates/impl-log.md
+  - work/templates/plan.md
+  - work/templates/review.md
+  - work/templates/ticket.md
+  - .github/scripts/risk_tier.py
+  - .github/workflows/risk-tier.yml
+  - .claude/loop.config.md
+  - work/backlog.md
+  - work/ming-todo.md
+  - work/decisions.md
+  - work/solo-log.md
+  - .github/risk-tiers.yml
+  - THIRD_PARTY_NOTICES.md

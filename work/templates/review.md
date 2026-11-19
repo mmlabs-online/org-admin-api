@@ -2,8 +2,8 @@
 Verdict: PASS | REWORK
 
 ### Checks (run by reviewer)
-- make check (ruff, format, mypy, pytest):
-- alembic check (if migrations changed):
+<One line per check in loop.config.md: command — result summary.>
+- 
 
 ### Acceptance criteria
 - [x] <criterion> — evidence: <test / file:line / output>
@@ -16,8 +16,11 @@ Verdict: PASS | REWORK
 - **Actual**: 
 - **Fix instruction**: 
 
-### Rules R1–R11
-<Any violation, with file:line. "No violations found" otherwise.>
+### Rules (CLAUDE.md)
+<Any violation, with rule ID and file:line. "No violations found" otherwise.>
+
+### Blockers from review agents
+<🔴 findings copied from security-review.md / a11y-review.md / … by the orchestrator. "None" otherwise.>
 
 ### Nits (do not block)
 - 

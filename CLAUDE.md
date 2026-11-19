@@ -66,67 +66,42 @@ tests/                  # API tests against a real Postgres test DB, rolled back
 
 ## Workflow
 
-One orchestrated loop per ticket. **The main session is the orchestrator** (subagents cannot dispatch other subagents), driven by `/run`. Same model as `mmlabs-online/stoktok`.
+<!-- spaceM project-kit 1.1.2 — inserted by /apply-kit. Settings: `.claude/loop.config.md`. Kit files: `.claude/kit.lock`. -->
+
+One orchestrated loop per ticket. **The main session is the orchestrator** (subagents cannot dispatch other subagents), driven by `/run`.
 
 ```
-/idea "..."     →  spec section + proposed tickets (optional, for new scope)
 /ticket "..."   →  BACKLOG
-/bug "..."      →  BACKLOG (a BUG-XXX ticket; then: record PR, record another, or fix the batch now)
-/run [ID]       →  CONSULT (specialists by area) → PLAN (= technical design) → IMPLEMENT → REVIEW ─PASS→ DONE → PR (owner merges)
-                                                                                 ^                │
-                                                                                 └──── REWORK ────┘  max 2 reworks → ESCALATED (stop, ask owner)
+/bug "..."      →  BACKLOG (BUG-xxx; then: record PR, record another, or fix the batch now)
+/run [ID]       →  CONSULT → PLAN ─(gate: High path → Ming approves)→ IMPLEMENT → REVIEW ─PASS→ DONE → PR → Ming merges → MERGED
+                                                                         ^            │
+                                                                         └── REWORK ──┘  max 2 reworks → ESCALATED (stop, ask Ming)
+/solo "..."     →  small direct change outside the loop (logged in work/solo-log.md)
+/status         →  board summary
+/run-batch …    →  several tickets: plan all → one approval round → build + PR each (--auto-merge: merge Low / approved Medium, then continue)
 ```
 
-- No human gate between PLAN and IMPLEMENT. The loop stops only when: the planner returns blocking questions (`BLOCKED`), reworks are exhausted (`ESCALATED`), or the ticket is `DONE`.
-- Each ticket runs on branch `ticket/<ID>` (or the session's mandated branch in cloud sessions). On `DONE` the loop **opens a PR into `main`**. **The owner approves and merges** — agents never merge.
+- Each ticket runs on branch `ticket/<ID>` (or the session's mandated branch). The board `work/backlog.md` changes only on `main`; tickets run in the pick order of `loop.config.md` (default: row order).
+- A ticket is claimed with `Claimed by: claude@<timestamp>` and every run appends to `## Handoff` in its `ticket.md`.
+- **Ming approves and merges every PR.** The only exception is `/run-batch --auto-merge`: Low PRs when `Auto-merge Low` is on, Medium PRs Ming approved in the batch round; High never.
+- Project settings (ticket prefix, scope sources, checks, consult table, review triggers, High paths, guardrails): `.claude/loop.config.md`.
+- Ticket states: `BACKLOG` → `PLANNING` → `IN_PROGRESS` → `REVIEW` → `DONE` → `MERGED`, plus `REWORK`, `BLOCKED`, `ESCALATED`.
 
-### Commands (`.claude/commands/`)
-| Command | Purpose |
-|---|---|
-| `/idea <idea>` | Shape new scope into `docs/spec-v1.md` and propose tickets |
-| `/ticket <description> [P1-P3]` | Create `work/tickets/<ID>/ticket.md` and a backlog row |
-| `/bug <description> [S1-S3]` | Record a bug as `work/tickets/BUG-XXX/ticket.md` (repro, expected/actual, root cause, severity) and a backlog row on batch branch `bug/<first ID>`, then ask: A) open the record PR and stop, B) record another bug (asks again), C) fix the batch now and open one PR (ADR-0012) |
-| `/run [ID]` | Run the full loop for a ticket (no ID = a ready S1 bug first, else the highest-priority BACKLOG ticket whose dependencies are done) |
-| `/status` | Board summary from `work/backlog.md` |
-| `/solo <description>` | Small direct change outside the loop (still must pass checks; logged) |
+Files: `work/backlog.md` (board), `work/ming-todo.md` (Ming-only steps), `work/decisions.md`, `work/solo-log.md`,
+`work/templates/`, `work/batches/` (`/run-batch` state), `work/tickets/<ID>/` (`ticket.md`, `consult-*.md`, `plan.md`, `impl-log.md`, `review.md`, review-agent files, `escalation.md`).
 
-### Agents (`.claude/agents/`)
-Workflow roles:
-| Agent | Model | Writes | Based on (agency-agents) |
-|---|---|---|---|
-| `planner` | opus | `plan.md` only | `project-management/project-manager-senior.md` + `engineering/engineering-software-architect.md` |
-| `implementer` | sonnet | code + `impl-log.md` | `engineering/engineering-minimal-change-engineer.md` |
-| `reviewer` | opus | `review.md` only | `engineering/engineering-code-reviewer.md` + `testing/testing-reality-checker.md` + `testing/testing-api-tester.md` |
+Kit-managed files (`.claude/commands/`, `.claude/agents/`, `work/templates/`, `.github/scripts/risk_tier.py`,
+`.github/workflows/risk-tier.yml`) come from spaceM `skills-library/project-kit`; change them there, not here, so every project gets the fix.
 
-Specialists (read-only; `/run` saves their output to the ticket folder):
-| Agent | Used when |
-|---|---|
-| `software-architect` | ticket `areas` include `architecture` (also `/idea`) |
-| `database-optimizer` | `db` |
-| `api-platform-engineer` | `api` |
-| `identity-access-engineer` | `auth` |
-| `security-architect` | `security` (at PLAN) |
-| `appsec-engineer` | REVIEW, when areas include `security`/`auth` or the diff touches core, deps, auth, migrations, env, Docker or CI |
-| `product-manager` | `/idea` only (may edit `docs/spec-v1.md`) |
+**Usage guide (commands, `/run-batch`, merge rules, what to answer): [docs/agent-workflow.md](docs/agent-workflow.md).**
 
-### Files (`work/`)
-```
-work/backlog.md                 board: one row per ticket
-work/solo-log.md                log of /solo changes
-work/templates/                 ticket, bug, plan, impl-log, review, escalation
-work/tickets/<ID>/
-  ticket.md                     goal, acceptance criteria, areas, state, attempts, PR
-  consult-<agent>.md            specialist notes (optional)
-  plan.md                       planner output (technical design)
-  impl-log.md                   implementer output (appended per attempt)
-  review.md                     reviewer verdict (appended per attempt)
-  security-review.md            appsec output (when triggered)
-  escalation.md                 only when ESCALATED
-```
+This repo: tickets are picked by **priority** (P1 > P2 > P3, then board order); every High path (migrations, `app/core/`,
+auth, tokens, sessions, RBAC, email, release) stops at PLAN for the owner's approval and is never merged by an agent.
 
-Ticket states: `BACKLOG` → `PLANNING` → `IN_PROGRESS` → `REVIEW` → `DONE`, plus `REWORK`, `BLOCKED`, `ESCALATED`.
-
----
+Agents (`.claude/agents/`): `planner` (opus, `plan.md` = technical design), `implementer` (sonnet), `reviewer` (opus);
+consultants by area — `software-architect` (architecture), `database-optimizer` (db), `api-platform-engineer` (api),
+`identity-access-engineer` (auth), `security-architect` (security); `appsec-engineer` reviews security/auth changes
+(`security-review.md`); `product-manager` for `/idea` (may edit `docs/spec-v1.md`).
 
 ## Conventions
 

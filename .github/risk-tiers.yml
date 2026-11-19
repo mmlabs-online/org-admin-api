@@ -1,0 +1,34 @@
+# PR risk tiers for org-admin-api (spaceM CLAUDE.md §7). Written by /apply-kit; Ming reviews every change.
+# Precedence: high > low > default. Globs use gitignore syntax.
+# Keep `high:` in sync with "High paths" in .claude/loop.config.md (that list drives the plan-approval gate).
+version: 1
+default: medium
+high:
+  # DB migrations and the DB layer
+  - "migrations/**"
+  - "app/db/**"
+  - "alembic.ini"
+  # Secrets, signing keys, config, auth plumbing
+  - "app/core/**"
+  - "app/api/deps.py"
+  - "app/modules/auth/**"
+  - "app/modules/admin_auth/**"
+  - "app/modules/tokens/**"
+  - "app/modules/sessions/**"
+  - "app/modules/rbac/**"
+  - "app/modules/app_credentials/**"
+  - "**/permissions*"
+  - ".env.example"
+  # Mail sending
+  - "app/modules/email/**"
+  # Production build and release
+  - "Dockerfile"
+  - "docker-compose.yml"
+  - ".github/workflows/release.yml"
+  # This file sets the merge rules for every later PR
+  - ".github/risk-tiers.yml"
+low:
+  - "docs/**"
+  - "work/**"
+  - "tests/**"
+# Agent rules (CLAUDE.md, .claude/**) stay medium on purpose: never auto-merged without Ming's "cho merge".
