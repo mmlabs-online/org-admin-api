@@ -49,7 +49,7 @@ Waiting for Ming: plan approval (High tier) — batch 2026-11-19-3, blocking que
 
 ## Handoff
 ### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-3)
-- Agent calls: 4, tokens ~? (database-optimizer×1 26k, api-platform-engineer×1 35k, identity-access-engineer×1 52k, planner×1 opus — usage pending)
+- Agent calls: 4, tokens ~255k (database-optimizer×1 26k, api-platform-engineer×1 35k, identity-access-engineer×1 52k, planner×1 opus 142k)
 - Done: consult (3), plan.md READY, predicted tier high (permission seed migration).
 - In progress / next: Ming answers batch questions 1–7 + plan approval → `/run-batch --resume`.
 - Gotchas: ADR number 0020; ADM-030 (next batch) will rebase on this ticket's bug_reports changes.
