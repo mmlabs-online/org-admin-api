@@ -2,14 +2,13 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | BLOCKED |
 | Priority | P1 |
 | Areas | api, auth, security, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | Gate | plan-approval |
 | PR | — |
-| Claimed by | claude@2026-11-19T03:47Z |
 
 ## Goal
 Staff can see, in an organization's detail, who its members are (with roles and joined date) and its invitations with their status (admin-pan PAN-018). Today the only membership/invitation routes are the cookie routes under `/api/v1/auth/orgs/*` and `/api/v1/auth/invitations/accept`.
@@ -29,3 +28,12 @@ USR-06, USR-06b (invitations), ADM-002b, ADM-012. Consumer: admin-pan PAN-018 (b
 
 ## Notes / answers from owner
 - 2026-11-19 (owner): **no masked email hint** — the invitations list shows no invitee email; no new column. The list carries app, role, inviter, timestamps and status only.
+
+Waiting for Ming: plan approval (High tier) — batch 2026-11-19-1, blocking questions 1–5 in plan.md.
+
+## Handoff
+### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-1)
+- Agent calls: 5, tokens ~266k total (api-platform-engineer×1 41k, identity-access-engineer×1 53k, security-architect×1 51k, database-optimizer×1 38k, planner×1 opus 83k)
+- Done: consult (4), plan.md READY, predicted tier high (app/modules/rbac/**).
+- In progress / next: Ming answers batch questions 1–5 + plan approval → `/run-batch --resume`.
+- Gotchas: shares rbac repository/service/schemas with USR-24 — expect a rebase for whichever lands second. Session-mandated branch `claude/festive-volta-rikup7` used instead of `ticket/USR-23`.

@@ -2,13 +2,13 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | BLOCKED |
 | Priority | P2 |
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
+| Gate | plan-approval |
 | PR | — |
-| Claimed by | claude@2026-11-19T03:47Z |
 
 ## Goal
 Two staff editing the same role's permissions no longer silently overwrite each other: `PUT /api/v1/apps/{key}/roles/{role_id}/permissions` is a full replace with no version check today, and `RoleDefinitionRead.updated_at` is not bumped by a permission replace (only by rename), so clients cannot use it as a version.
@@ -27,3 +27,12 @@ Two staff editing the same role's permissions no longer silently overwrite each 
 USR-02d, USR-16. Shape shared with ADM-024 (plan together or after it). Consumer: admin-pan roles screen (PAN-030). Requested by admin-pan (batch 2026-11-19).
 
 ## Notes / answers from owner
+
+Waiting for Ming: plan approval (High tier) — batch 2026-11-19-1, blocking questions 6–9 (plan.md questions 1–4).
+
+## Handoff
+### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-1)
+- Agent calls: 3, tokens ~112k for consults + planner (api-platform-engineer×1 53k, database-optimizer×1 59k, planner×1 opus — usage not yet reported)
+- Done: consult (2), plan.md READY (builds on ADM-024), predicted tier high (app/modules/rbac/**).
+- In progress / next: Ming answers batch questions 6–9 + plan approval → `/run-batch --resume`.
+- Gotchas: same rbac files as USR-23 — rebase needed. Session-mandated branch used instead of `ticket/USR-24`.
