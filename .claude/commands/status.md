@@ -2,12 +2,20 @@
 description: Summarize the ticket board.
 ---
 
-Read `work/backlog.md` and each listed `work/tickets/*/ticket.md` (state, attempts). Reply in Vietnamese, short:
+<!-- spaceM project-kit. -->
 
-1. Counts per state.
-2. Tickets that need the owner: `BLOCKED` (show the blocking questions from plan.md) and `ESCALATED` (one-line reason from escalation.md).
-3. `DONE` tickets not yet merged into `main`: show the PR link from ticket.md and whether it is open or merged; flag a `DONE` ticket with no PR link.
-4. Open bugs (`BUG-xxx` not `DONE`), by severity S1/S2/S3, with `Found in`.
-5. The next ticket `/run` would pick.
+Read `work/backlog.md`, each listed `work/tickets/*/ticket.md` (state, attempts, PR, Claimed by) and
+`work/ming-todo.md`. Reply in Vietnamese, short:
 
-If backlog.md and a ticket.md disagree on state, report the mismatch; do not fix it silently. Do not modify any file.
+1. Counts per state, and progress (`MERGED` / total).
+2. Tickets that need Ming: `BLOCKED` (the blocking questions from plan.md, or "plan approval"), `ESCALATED`
+   (one-line reason from escalation.md), and open items in `work/ming-todo.md`.
+3. `DONE` tickets: show the PR link and its state (`gh pr view <url> --json state,mergeable`, or the GitHub MCP).
+   Flag a `DONE` ticket with no PR link, and PRs with merge conflicts.
+4. Active claims (`Claimed by` set), flagging any older than 12 hours.
+5. Open bugs (`BUG-xxx` not `MERGED`), by severity S1/S2/S3, with `Found in`.
+6. The next ticket `/run` would pick, or why nothing is runnable.
+
+If backlog.md and a ticket.md disagree on state, report the mismatch. The only file change allowed: sync the board on `main`
+(pull first): set merged tickets to `MERGED`, mirror states from ticket branches, commit `chore: board — sync`,
+push. Change nothing else.

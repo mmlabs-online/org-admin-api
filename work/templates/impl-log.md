@@ -8,8 +8,10 @@
 - <file › test name>
 
 ### Checks (actual output summary)
-- make check (ruff, format, mypy, pytest):
-- alembic check (if migrations changed):
+- typecheck:
+- format:check:
+- test:
+- build:
 
 ### Out-of-plan files
 <file — reason. "None" otherwise.>

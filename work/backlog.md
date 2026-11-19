@@ -1,7 +1,9 @@
 # Backlog
 
-States: BACKLOG → PLANNING → IN_PROGRESS → REVIEW → DONE · plus REWORK, BLOCKED, ESCALATED.
-Priority: P1 (next) > P2 > P3. `/run` with no ID picks the top BACKLOG ticket.
+States: BACKLOG → PLANNING → IN_PROGRESS → REVIEW → DONE → MERGED · plus REWORK, BLOCKED, ESCALATED.
+Priority: P1 (next) > P2 > P3. `/run` with no ID picks the first runnable ticket by priority, then board order
+(`.claude/loop.config.md` → Selection): BACKLOG (or answered BLOCKED), every `Depends on` ticket MERGED, no fresh claim;
+ready S1 bugs first. `/run-batch` runs several. This board is changed only on `main`; each `ticket.md` is the source of truth.
 
 Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spec §5.3/§5.8); `ADM-XXX` for everything else; `BUG-XXX` for bugs (`/bug`, severity S1–S3; ready S1 bugs run first, ADR-0012).
 

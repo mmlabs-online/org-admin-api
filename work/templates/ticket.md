@@ -1,23 +1,44 @@
-# <ID>: <title>
+# <ID>: <short imperative title>
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
 | Priority | P2 |
-| Areas | <architecture, db, api, auth, security> |
+| Size | S |
+| Areas | <from loop.config.md Consult / Review triggers> |
+| Gate | none |
+| Depends on | — |
+| Needs Ming | — |
 | Attempts | 0 |
 | Created | YYYY-MM-DD |
+| Claimed by | — |
 | PR | — |
 
 ## Goal
-<One or two sentences.>
+<One or two sentences: user value.>
 
-## Spec reference
-<docs/spec-v1.md section(s)>
+## Scope reference
+<Section of a scope source in loop.config.md; work/decisions.md entries that apply.>
+
+## Scope
+- …
+
+## Out of scope
+- …
 
 ## Acceptance criteria
-- [ ] <testable criterion>
-- [ ] <testable criterion>
+- [ ] …
 
-## Notes / answers from owner
-<Answers to blocking questions go here.>
+## Technical notes
+- Files: …
+- Risks / open questions: …
+
+## Test plan
+- Unit: …
+- Manual: …
+
+## Notes / answers from Ming
+<Answers to blocking questions and "Plan approved (YYYY-MM-DD)" lines go here.>
+
+## Handoff
+<Appended by every run: date — tool — state; done; next; gotchas.>

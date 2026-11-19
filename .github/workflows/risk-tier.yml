@@ -1,0 +1,53 @@
+# spaceM project-kit: label every PR with its risk tier (CLAUDE.md §7), computed from changed paths and
+# .github/risk-tiers.yml by .github/scripts/risk_tier.py. Informational: it never blocks or merges.
+# /run-batch --auto-merge reads the same script locally; this label is what Ming sees on the PR.
+name: risk-tier
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: risk-tier-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: compute tier
+        id: tier
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          python3 -I .github/scripts/risk_tier.py --base "origin/$BASE_REF" --explain --github-output | tee tier.txt
+          {
+            echo "### Risk tier: $(tail -n 1 tier.txt)"
+            echo '```'
+            head -n -1 tier.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: label PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          TIER: ${{ steps.tier.outputs.tier }}
+        run: |
+          for t in low medium high; do
+            gh label create "risk:$t" --repo "$GITHUB_REPOSITORY" --force \
+              --color "$([ "$t" = high ] && echo b60205 || { [ "$t" = medium ] && echo fbca04 || echo 0e8a16; })" \
+              --description "spaceM risk tier (CLAUDE.md §7)" >/dev/null
+          done
+          for t in low medium high; do
+            [ "$t" = "$TIER" ] || gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label "risk:$t" >/dev/null 2>&1 || true
+          done
+          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label "risk:$TIER"
