@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-19T10:31Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/78 |
 
 ## Goal
 A signed-in member of an mmlabs app (e.g. ricotdin) can file a bug report from that app; the reporter account and the app are recorded.
@@ -55,3 +55,8 @@ A signed-in member of an mmlabs app (e.g. ricotdin) can file a bug report from t
 - Done: consult (4), plan.md READY, predicted tier high (migration, `app/db/models.py`, `app/core/*`, `.env.example`).
 - In progress / next: Ming answers batch questions 7–15 + plan approval → `/run-batch --resume`.
 - Gotchas: plan's ADR-0018 becomes ADR-0019 (ADM-027 builds first). AC2 conflict: disabled user 401 vs ticket's 403.
+### 2026-11-19 — claude — DONE (PR #78, waiting for Ming's merge)
+- Agent calls (build): 3, tokens ~285k (implementer×1 sonnet 127k, reviewer×1 opus 86k, appsec-engineer×1 73k). Ticket total incl. plan: 8 calls, ~631k.
+- Done: bug_reports table + migration, cookie-class submit route, DB caps under advisory lock, ADR-0019 + D28; review attempt 1 PASS; appsec no 🔴 (🟡 host/app_version HTML metachars → follow-up). PR https://github.com/mmlabs-online/org-admin-api/pull/78.
+- In progress / next: Ming merges #78 (High) and runs the migration; then ADM-029 (next batch) can start.
+- Gotchas: parallel review agents running pytest on the shared test DB cause spurious failures — run them sequentially or use per-run DBs.
