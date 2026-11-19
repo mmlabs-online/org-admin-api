@@ -15,6 +15,14 @@
 - `python -m app.cli audit-purge --older-than-days <90-3650> [--dry-run]` (ADM-004c): deletes
   audit rows older than N days (the trigger refuses 90 days or newer), in batches, each with its
   `audit_log.purged` summary row; prints counts and the cutoff only. Never an HTTP route.
+- `python -m app.cli attachments-sweep [--apply] [--grace-hours <24-8760>]
+  [--max-deletes <1-10000>]` (ADM-027, ADR-0018): lists (dry run, the default) or permanently
+  deletes Drive files this API created that no attachment references and that are older than
+  the grace period (default 48 h); prints our attachment ids and app keys only, never Drive
+  ids.
+  `--apply` refuses without a reference checker.
+- `python -m app.cli attachments-init-root` (ADM-027): TTY-only, one time: creates the Drive root
+  folder with the owner's OAuth credentials (typed in, never stored) and prints its id.
 - `python -m app.cli openapi [--output <path>]` (ADM-013): writes the OpenAPI document from code
   defaults only; no database, no secrets, deterministic bytes.
 
@@ -34,9 +42,12 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, NoReturn, Protocol
 
 if TYPE_CHECKING:
+    import httpx
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.config import Settings
+    from app.modules.attachments.store import AttachmentStore
+    from app.modules.attachments.sweep import ReferenceChecker
     from app.modules.rbac.schemas import AdminOriginsSet, AppRegister
     from app.modules.rbac.service import AdminOriginsResult, RegisterResult
 
@@ -136,6 +147,23 @@ MSG_JOIN_UNAVAILABLE = "error: the app has no usable default role; nothing was c
 MSG_CREATE_UNEXPECTED = "error: unexpected failure; the account was not confirmed"
 
 OPENAPI_USAGE = "usage: python -m app.cli openapi [--output <path>]"
+ATTACHMENTS_SWEEP_USAGE = (
+    "usage: python -m app.cli attachments-sweep [--apply] [--grace-hours <24-8760>]"
+    " [--max-deletes <1-10000>]"
+)
+ATTACHMENTS_INIT_ROOT_USAGE = "usage: python -m app.cli attachments-init-root"
+MSG_ATTACHMENTS_NOT_CONFIGURED = "error: attachments are not configured (GOOGLE_DRIVE_* keys)"
+MSG_SWEEP_NO_CHECKER = (
+    "error: --apply refused: no reference checker is wired (attachment table, ADM-030);"
+    " nothing was deleted"
+)
+MSG_SWEEP_CHECK_FAILED = "error: the reference check failed; nothing was deleted"
+MSG_SWEEP_TOO_MANY = "error: more candidates than --max-deletes; nothing was deleted"
+MSG_SWEEP_UNEXPECTED = "error: attachment sweep failed; files already deleted stay deleted"
+MSG_SWEEP_UNCHECKED = "note: references not checked (no attachment table yet, ADM-030)"
+MSG_DRIVE_ERROR = "error: Drive {code}; files already deleted stay deleted, run again"
+MSG_INIT_ROOT_DRIVE_ERROR = "error: Drive {code}; nothing was created"
+MSG_INIT_ROOT_FAILED = "error: could not create the root folder; nothing was created"
 MSG_OPENAPI_FAILED = "error: could not write the OpenAPI document"
 
 EXIT_OK = 0
@@ -238,7 +266,22 @@ async def amain(
     settings: "Settings | None" = None,
     session_scope: "SessionScope | None" = None,
     tty: "_Tty | None" = None,
+    attachment_store: "AttachmentStore | None" = None,
+    reference_checker: "ReferenceChecker | None" = None,
+    drive_transport: "httpx.AsyncBaseTransport | None" = None,
 ) -> int:
+    if argv[:1] == ["attachments-sweep"]:
+        return await _attachments_sweep(
+            argv[1:],
+            settings=settings,
+            store=attachment_store,
+            checker=reference_checker,
+            transport=drive_transport,
+        )
+    if argv[:1] == ["attachments-init-root"]:
+        return await _attachments_init_root(
+            argv[1:], tty=tty or _SystemTty(), transport=drive_transport
+        )
     if argv[:1] == ["openapi"]:
         return _openapi(argv[1:])
     if argv[:1] == ["create-account"]:
@@ -762,6 +805,142 @@ async def _audit_purge(
         return EXIT_FAILURE
 
 
+def _digits(value: str, low: int, high: int) -> int:
+    # ASCII digits only: int() would also take non-ASCII digits, signs and spaces.
+    if re.fullmatch(r"[0-9]{1,5}", value) is None or not low <= int(value) <= high:
+        raise _UsageError
+    return int(value)
+
+
+async def _attachments_sweep(
+    argv: Sequence[str],
+    *,
+    settings: "Settings | None",
+    store: "AttachmentStore | None",
+    checker: "ReferenceChecker | None",
+    transport: "httpx.AsyncBaseTransport | None",
+) -> int:
+    owned: AttachmentStore | None = None
+    try:
+        from datetime import UTC, datetime, timedelta
+
+        from app.modules.attachments.errors import DriveError
+        from app.modules.attachments.store import build_attachment_store
+        from app.modules.attachments.sweep import (
+            DEFAULT_GRACE_HOURS,
+            DEFAULT_MAX_DELETES,
+            SweepRefused,
+            SweepService,
+        )
+
+        parser = _Parser(
+            prog="python -m app.cli attachments-sweep", allow_abbrev=False, add_help=False
+        )
+        parser.add_argument("--apply", action="store_true")
+        parser.add_argument("--grace-hours", default=str(DEFAULT_GRACE_HOURS))
+        parser.add_argument("--max-deletes", default=str(DEFAULT_MAX_DELETES))
+        args = parser.parse_args(argv)
+        grace_hours = _digits(args.grace_hours, 24, 8760)
+        max_deletes = _digits(args.max_deletes, 1, 10000)
+        apply = bool(args.apply)
+
+        settings = _load_settings(settings)
+        if store is None:
+            if not settings.drive_enabled:
+                raise _Fail(MSG_ATTACHMENTS_NOT_CONFIGURED)
+            store = owned = build_attachment_store(settings, transport)
+        service = SweepService(
+            store, checker, grace=timedelta(hours=grace_hours), now=lambda: datetime.now(UTC)
+        )
+        try:
+            result = await service.run(apply=apply, max_deletes=max_deletes)
+        except SweepRefused as refused:
+            raise _Fail(
+                {
+                    "no_reference_checker": MSG_SWEEP_NO_CHECKER,
+                    "reference_check_failed": MSG_SWEEP_CHECK_FAILED,
+                }.get(refused.reason, MSG_SWEEP_TOO_MANY)
+            ) from None
+        except DriveError as exc:
+            raise _Fail(MSG_DRIVE_ERROR.format(code=exc.code.value)) from None
+
+        verb = "deleted" if apply else "would delete"
+        for item in result.candidates[: result.deleted if apply else None]:
+            print(
+                f"{verb} attachment {item.attachment_id} app {item.app_key or '-'}"
+                f" age {item.age_hours} h"
+            )
+        count = result.deleted if apply else len(result.candidates)
+        print(
+            f"attachments: scanned {result.scanned}, skipped {result.skipped} (no ids),"
+            f" {verb} {count} (older than {grace_hours} h)"
+        )
+        if not result.references_checked:
+            print(MSG_SWEEP_UNCHECKED)
+        if result.error_code is not None:
+            raise _Fail(MSG_DRIVE_ERROR.format(code=result.error_code.value))
+        if not apply:
+            print(MSG_CLEANUP_DRY_RUN)
+        return EXIT_OK
+    except _UsageError:
+        print(ATTACHMENTS_SWEEP_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except _Fail as fail:
+        print(fail.message, file=sys.stderr)
+        return EXIT_FAILURE
+    except Exception:
+        # Never str(exc): Drive and DB errors must not reach the terminal.
+        print(MSG_SWEEP_UNEXPECTED, file=sys.stderr)
+        return EXIT_FAILURE
+    finally:
+        if owned is not None:
+            await owned.aclose()
+
+
+async def _attachments_init_root(
+    argv: Sequence[str], *, tty: "_Tty", transport: "httpx.AsyncBaseTransport | None"
+) -> int:
+    try:
+        from app.modules.attachments.drive import DriveApi, create_root_folder
+        from app.modules.attachments.errors import DriveError
+
+        parser = _Parser(
+            prog="python -m app.cli attachments-init-root", allow_abbrev=False, add_help=False
+        )
+        parser.parse_args(argv)
+        if not tty.isatty():
+            raise _Refused(MSG_NO_TTY, EXIT_FAILURE)
+        # No Settings here: a partial GOOGLE_DRIVE_* set must not block the one-time setup.
+        client_id = tty.read_line("OAuth client id: ").strip()
+        client_secret = tty.read_secret("OAuth client secret: ").strip()
+        refresh_token = tty.read_secret("Refresh token: ").strip()
+        if not (client_id and client_secret and refresh_token):
+            raise _Refused(MSG_ABORTED, EXIT_FAILURE)
+        api = DriveApi(client_id, client_secret, refresh_token, transport)
+        try:
+            folder_id = await create_root_folder(api)
+        except DriveError as exc:
+            raise _Refused(
+                MSG_INIT_ROOT_DRIVE_ERROR.format(code=exc.code.value), EXIT_FAILURE
+            ) from None
+        finally:
+            await api.aclose()
+            del client_secret, refresh_token
+        # The only place a Drive id is printed: terminal output for the owner, not a log.
+        print(f"root_folder_id: {folder_id}")
+        print("next: store it as ORG_ADMIN_GOOGLE_DRIVE_ROOT_FOLDER_ID (docs/deploy.md)")
+        return EXIT_OK
+    except _UsageError:
+        print(ATTACHMENTS_INIT_ROOT_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except _Refused as refused:
+        print(refused.message, file=sys.stderr)
+        return refused.code
+    except Exception:
+        print(MSG_INIT_ROOT_FAILED, file=sys.stderr)
+        return EXIT_FAILURE
+
+
 def _openapi(argv: Sequence[str]) -> int:
     try:
         parser = _Parser(prog="python -m app.cli openapi", allow_abbrev=False, add_help=False)
@@ -792,7 +971,7 @@ def _openapi(argv: Sequence[str]) -> int:
 
 def main() -> NoReturn:
     sys.tracebacklimit = 0  # backstop for BaseExceptions such as KeyboardInterrupt
-    for name in ("sqlalchemy", "asyncpg"):
+    for name in ("sqlalchemy", "asyncpg", "httpx", "httpcore"):
         logger = logging.getLogger(name)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False

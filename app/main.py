@@ -17,6 +17,7 @@ from app.db.session import SessionLocal
 from app.modules.admin_auth.me_router import router as me_router
 from app.modules.admin_auth.route_classes import BearerRouteMatcher
 from app.modules.app_credentials.router import router as app_credentials_router
+from app.modules.attachments.store import AttachmentStore, build_attachment_store
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.auth.throttle import EmailHasher
@@ -42,6 +43,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Read at shutdown (tests may swap it): drains queued mail for up to 5 s (USR-04d).
     dispatcher: EmailDispatcher = app.state.email_dispatcher
     await dispatcher.aclose()
+    store: AttachmentStore = app.state.attachment_store
+    await store.aclose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -88,6 +91,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logger.info(
         "email_sender=%s", "gmail" if isinstance(email_sender, GmailSmtpSender) else "disabled"
     )
+    # Bug-report attachments (ADR-0018): all four Drive keys or none; none = off.
+    attachment_store = build_attachment_store(settings)
+    app.state.attachment_store = attachment_store
+    store_state = "drive" if attachment_store.configured else "disabled"
+    log = (
+        logger.warning
+        if not attachment_store.configured and settings.app_env in {"staging", "production"}
+        else logger.info
+    )
+    log("attachment_store=%s", store_state)
     # Settings require the key in staging/production; local/test fall back to an ephemeral one.
     signing_key = settings.jwt_signing_key
     key_set = build_key_set(

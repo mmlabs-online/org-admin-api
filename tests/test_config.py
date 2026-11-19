@@ -419,3 +419,88 @@ def test_join_request_retention_must_cover_cooldown() -> None:
         Settings(join_request_retention_days=0)  # type: ignore[call-arg]
     settings = Settings(join_request_retention_days=7, join_reject_cooldown_seconds=604800)  # type: ignore[call-arg]
     assert settings.join_request_retention_days == 7
+
+
+# --- Google Drive keys: all four or none (ADM-027, ADR-0018) ------------------------------
+
+_DRIVE_ENV = {
+    "GOOGLE_DRIVE_CLIENT_ID": "sentinel-client.apps.googleusercontent.com",
+    "GOOGLE_DRIVE_CLIENT_SECRET": "SENTINELclientSECRET",
+    "GOOGLE_DRIVE_REFRESH_TOKEN": "SENTINELrefreshTOKEN",
+    "GOOGLE_DRIVE_ROOT_FOLDER_ID": "SENTINELrootFOLDER1",
+}
+
+
+def _drive_settings(env: dict[str, str]) -> Settings:
+    return Settings(_env_file=None, **{k.lower(): v for k, v in env.items()})  # type: ignore[call-arg]
+
+
+def test_drive_keys_none_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in _DRIVE_ENV:
+        monkeypatch.setenv(key, "")  # empty counts as unset (env_ignore_empty)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.drive_enabled is False
+
+
+def test_drive_keys_all_valid_enabled() -> None:
+    assert _drive_settings(_DRIVE_ENV).drive_enabled is True
+
+
+def _subsets() -> list[tuple[str, ...]]:
+    from itertools import combinations
+
+    keys = list(_DRIVE_ENV)
+    return [c for n in range(1, 4) for c in combinations(keys, n)]
+
+
+@pytest.mark.parametrize("present", _subsets())
+def test_drive_keys_partial_names_missing_only(present: tuple[str, ...]) -> None:
+    env = {k: v for k, v in _DRIVE_ENV.items() if k in present}
+    with pytest.raises(ValidationError) as exc:
+        _drive_settings(env)
+    text = str(exc.value)
+    missing = [k for k in _DRIVE_ENV if k not in present]
+    assert f"{', '.join(missing)} must be set together" in text
+    for k in present:
+        assert k not in text.split("must be set together")[0]
+    for value in _DRIVE_ENV.values():
+        assert value not in text
+
+
+@pytest.mark.parametrize(
+    ("key", "bad"),
+    [
+        ("GOOGLE_DRIVE_CLIENT_ID", "has space.apps.googleusercontent.com"),
+        ("GOOGLE_DRIVE_CLIENT_ID", "plain-id-without-suffix"),
+        ("GOOGLE_DRIVE_CLIENT_ID", "a" * 256 + ".apps.googleusercontent.com"),
+        ("GOOGLE_DRIVE_CLIENT_SECRET", "has space"),
+        ("GOOGLE_DRIVE_CLIENT_SECRET", "ctrl\x07char"),
+        ("GOOGLE_DRIVE_CLIENT_SECRET", "a" * 2049),
+        ("GOOGLE_DRIVE_REFRESH_TOKEN", "line\nbreak"),
+        ("GOOGLE_DRIVE_ROOT_FOLDER_ID", "short"),
+        ("GOOGLE_DRIVE_ROOT_FOLDER_ID", "bad/charset/folderid"),
+        ("GOOGLE_DRIVE_ROOT_FOLDER_ID", "a" * 129),
+    ],
+)
+def test_drive_keys_malformed_names_variable_only(key: str, bad: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _drive_settings({**_DRIVE_ENV, key: bad})
+    text = str(exc.value)
+    assert f"{key} is malformed" in text
+    assert bad not in text
+    for value in _DRIVE_ENV.values():
+        assert value not in text
+
+
+def test_drive_errors_do_not_echo_values() -> None:
+    with pytest.raises(ValidationError) as exc:
+        _drive_settings({**_DRIVE_ENV, "GOOGLE_DRIVE_CLIENT_SECRET": "bad secret value"})
+    assert "bad secret value" not in str(exc.value)
+    assert "bad secret value" not in repr(exc.value)
+
+
+def test_drive_secret_fields_hidden_in_repr() -> None:
+    settings = _drive_settings(_DRIVE_ENV)
+    for key, value in _DRIVE_ENV.items():
+        if key != "GOOGLE_DRIVE_CLIENT_ID":
+            assert value not in repr(settings)

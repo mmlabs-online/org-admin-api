@@ -104,6 +104,9 @@ environments and for rotation.
 - **`API_DOCS_ENABLED`** (ADM-002b, optional): `true`/`false` for Swagger UI (`/docs`) and
   `/openapi.json`. Unset: off in production, on elsewhere. Not a secret.
 
+- **`GOOGLE_DRIVE_*`** (ADM-027, optional): four keys, all or none, for bug-report attachments in
+  Google Drive. See "Attachments — Google Drive (ADM-027)" below.
+
 Done in `mmlabs-online/deployment` (PRs #52, #53, 2026-11-12) before the first release with
 USR-03c.
 
@@ -932,3 +935,89 @@ Locally: `make cleanup ARGS=--dry-run`.
 A scheduled run (a separate `schedule:` workflow that can run only `cleanup`, in its own
 environment without a required reviewer, since the ops approval gate would block a cron run) is
 an open owner decision.
+
+## Attachments — Google Drive (ADM-027)
+
+Bug-report screenshots are stored in Google Drive (spec §5.12, ADR-0018): Drive v3 over plain
+HTTP, OAuth scope `drive.file`. This ticket adds the client only; the upload route comes with
+ADM-030. **Optional: none of the four keys set = attachments off** (reports are still accepted as
+text). **A partial set = the API, `migrate` and the CLI refuse to start**; the error names the
+keys, never the values.
+
+| Key | Secret | Notes |
+|---|---|---|
+| `GOOGLE_DRIVE_CLIENT_ID` | no (keep out of git) | OAuth client id, ends in `.apps.googleusercontent.com`. |
+| `GOOGLE_DRIVE_CLIENT_SECRET` | **yes** | OAuth client secret. |
+| `GOOGLE_DRIVE_REFRESH_TOKEN` | **yes** | Long-lived refresh token of the Google account that owns the files. |
+| `GOOGLE_DRIVE_ROOT_FOLDER_ID` | **yes** | This API's own root folder (not TuDoCuaTui's). Files go in `<root>/<app key>/<attachment id>`. |
+
+### Deploy prerequisites (owner, PR in `mmlabs-online/deployment`)
+
+Like the TuDoCuaTui keys (D28), the deployment repo holds GitHub secrets named
+`ORG_ADMIN_GOOGLE_DRIVE_CLIENT_ID`, `ORG_ADMIN_GOOGLE_DRIVE_CLIENT_SECRET`,
+`ORG_ADMIN_GOOGLE_DRIVE_REFRESH_TOKEN` and `ORG_ADMIN_GOOGLE_DRIVE_ROOT_FOLDER_ID`. The `envfile`
+step writes them **unprefixed** (`printf 'GOOGLE_DRIVE_CLIENT_ID=%s\n' "$…"`) after a charset
+check, so a newline cannot inject lines (same rules as the API's startup gate: client id
+`[A-Za-z0-9.-]+\.apps\.googleusercontent\.com`, secret and token printable ASCII without spaces,
+folder id `[A-Za-z0-9_-]{10,128}`). Write all four or none. A value set by hand on the Mac is lost
+on the next deploy.
+
+### One-time setup (owner)
+
+1. In the Google account TuDoCuaTui uses, create a **new Google Cloud project** (not TuDoCuaTui's)
+   and an OAuth client in it (Desktop or Web). `drive.file` access is most likely scoped to the
+   Cloud project, so a separate project keeps TuDoCuaTui's files out of reach.
+2. **Publish the OAuth consent screen** ("In production"). In "Testing" the refresh token expires
+   after 7 days.
+3. Mint a refresh token with the OAuth Playground using your own client (gear icon, "Use your own
+   OAuth credentials"), scope `https://www.googleapis.com/auth/drive.file`, signed in as the
+   account that owns the files.
+4. Create the root folder with this client (`drive.file` cannot see a folder made by hand):
+   `uv run python -m app.cli attachments-init-root`. It asks for the client id, secret and refresh
+   token (hidden input, TTY only, nothing is stored) and prints `root_folder_id: <id>`. This is
+   the only command that prints a Drive id.
+5. Store the four values as the deployment secrets above and redeploy.
+6. Check the API log for `attachment_store=drive`. In staging/production a disabled store logs
+   `attachment_store=disabled` at WARNING.
+
+### Refresh-token rotation (owner)
+
+1. Mint a new refresh token (steps 2-3 above, same client).
+2. Update `ORG_ADMIN_GOOGLE_DRIVE_REFRESH_TOKEN` in the deployment repo and redeploy.
+3. Confirm: the log shows `attachment_store=drive`, and `python -m app.cli attachments-sweep`
+   (dry run) exits 0.
+4. Revoke the old token: Google Account → Security → Third-party access, or
+   `https://oauth2.googleapis.com/revoke`.
+
+**Leak response:** revoke the token (or the client secret) first, then rotate. Meanwhile
+attachments are off and reports still flow as text.
+
+**Log meaning.** `drive_auth_failed status=<400|401>` means Google refused the refresh token or
+client: it was revoked, expired (consent screen in "Testing") or mistyped. Other lines
+(`drive_request_failed op=… code=…`) carry only a fixed operation, a code and a status, never a
+URL, file id or Google text. Drive shares its storage quota with the account's Gmail and Photos
+and with TuDoCuaTui; `quota_exceeded` means that quota is full.
+
+### Sweep of untracked files
+
+A create that Drive accepted but whose database row was not written leaves an orphan file; Drive
+creates are never retried, so the sweep is the consistency mechanism.
+
+`python -m app.cli attachments-sweep [--apply] [--grace-hours <24-8760>] [--max-deletes <1-10000>]`
+
+- Dry run by default: prints `would delete attachment <uuid> app <key> age <h> h` per candidate
+  and `dry-run: nothing was deleted`. Never prints Drive ids.
+- Candidates: files this API created (marker in `appProperties`, under its own root) that are
+  older than the grace period (default 48 h, floor 24 h) and that no attachment row references.
+  Files with unreadable properties are skipped.
+- `--apply` **deletes permanently** (no trash). It refuses, deleting nothing, when no reference
+  checker is wired (until ADM-030 the dry run says `references not checked`), when the reference
+  check fails, or when there are more candidates than `--max-deletes` (default 100).
+
+| Exit | Meaning |
+|---|---|
+| 0 | done (also a dry run) |
+| 1 | not configured, refused, Drive or settings error; one fixed line. Files already deleted stay deleted; running again is safe |
+| 64 | usage error |
+
+Run it the same way as the other commands (the `migrate` service, see "Retention cleanup").
