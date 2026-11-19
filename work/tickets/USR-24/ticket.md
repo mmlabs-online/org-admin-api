@@ -8,8 +8,7 @@
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | Gate | plan-approval |
-| Claimed by | claude@2026-11-19T08:17Z |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/73 |
 
 ## Goal
 Two staff editing the same role's permissions no longer silently overwrite each other: `PUT /api/v1/apps/{key}/roles/{role_id}/permissions` is a full replace with no version check today, and `RoleDefinitionRead.updated_at` is not bumped by a permission replace (only by rename), so clients cannot use it as a version.
@@ -37,3 +36,8 @@ USR-02d, USR-16. Shape shared with ADM-024 (plan together or after it). Consumer
 - Done: consult (2), plan.md READY (builds on ADM-024), predicted tier high (app/modules/rbac/**).
 - In progress / next: Ming answers batch questions 6–9 + plan approval → `/run-batch --resume`.
 - Gotchas: same rbac files as USR-23 — rebase needed. Session-mandated branch used instead of `ticket/USR-24`.
+### 2026-11-19 — claude — DONE (PR #73, waiting for Ming's merge)
+- Agent calls (build): 3, tokens ~189k (implementer×1 sonnet 65k, reviewer×1 opus 67k, appsec-engineer×1 57k). Ticket total incl. plan: 6 calls, ~404k.
+- Done: ETag/If-Match on PUT role permissions, version bump in `_set_role_permissions`, rename bump; review attempt 1 PASS; appsec PASS. PR https://github.com/mmlabs-online/org-admin-api/pull/73.
+- In progress / next: Ming merges #73 (High tier).
+- Gotchas: one full-suite run flaked on `test_no_secret_in_logs` (untouched area; 25/25 alone, re-run green). CI lint red on main due to kit file `.github/scripts/risk_tier.py`.
