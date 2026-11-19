@@ -2,12 +2,13 @@
 
 | Field | Value |
 |---|---|
-| State | BLOCKED |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Areas | api, db |
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | Gate | plan-approval |
+| Claimed by | claude@2026-11-19T08:17Z |
 | PR | — |
 
 ## Goal
