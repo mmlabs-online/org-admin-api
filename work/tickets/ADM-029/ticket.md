@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-20T02:31Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/79 |
 
 ## Goal
 Staff see every app's bug reports in admin-pan and mark a report done (recording who handled it), or reopen it.
@@ -52,3 +52,8 @@ Staff see every app's bug reports in admin-pan and mark a report done (recording
 - Done: consult (3), plan.md READY, predicted tier high (permission seed migration).
 - In progress / next: Ming answers batch questions 1–7 + plan approval → `/run-batch --resume`.
 - Gotchas: ADR number 0020; ADM-030 (next batch) will rebase on this ticket's bug_reports changes.
+### 2026-11-20 — claude — DONE (PR #79, waiting for Ming's merge)
+- Agent calls (build): 3, tokens ~250k (implementer×1 sonnet 114k, reviewer×1 opus 77k, appsec-engineer×1 59k). Ticket total incl. plan: 7 calls, ~505k.
+- Done: permission seed migration, staff list/detail/PATCH, triage rules, ADR-0020 + D29; review attempt 1 PASS; appsec PASS (no 🔴/🟡). PR https://github.com/mmlabs-online/org-admin-api/pull/79.
+- In progress / next: Ming merges #79 (High); then ADM-030 (next batch).
+- Gotchas: appsec told not to run pytest, so no shared-test-DB clash this time.
