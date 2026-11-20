@@ -90,6 +90,12 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-030 | Bug reports: image attachments (upload from apps, download for staff) | BACKLOG | P2 | api, security | 0 | 2026-11-19 |
 | ADM-031 | Bug reports: retention purge | BACKLOG | P3 | db, security | 0 | 2026-11-19 |
 | ADM-032 | Bug reports: guide for app teams | BACKLOG | P3 | api | 0 | 2026-11-19 |
+| ADM-033 | Release log: data model and staff read (list, detail, live version, delete) | BACKLOG | P2 | db, api | 0 | 2026-11-19 |
+| ADM-034 | Release log: scoped app credentials and the app's release write | BACKLOG | P2 | db, api, auth, security | 0 | 2026-11-19 |
+| ADM-035 | Deployer credential: data model and staff issue, list, revoke | BACKLOG | P2 | db, auth, security | 0 | 2026-11-19 |
+| ADM-036 | Release log: deploy result report (deployer credential) | BACKLOG | P2 | api, auth, security | 0 | 2026-11-19 |
+| ADM-037 | Release log: guide for app repos and the deployment repo | BACKLOG | P3 | api | 0 | 2026-11-19 |
+| ADM-038 | Bug reports carry the release the user was running | BACKLOG | P2 | db, api | 0 | 2026-11-19 |
 | USR-29 | App-facing read of an org's members for org-mode apps (requested by simap) | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-20 |
 
 Order of work (dependencies; reprioritised 2026-11-12 by the owner for the ricotdin integration path): USR-01 → USR-01b → USR-02 → USR-02b → USR-02d → USR-02e → ADM-011 → USR-02c → USR-02f → USR-03 → USR-03f → USR-03c → USR-03e → USR-04 → USR-04c → USR-07 → USR-04b → USR-03b → ADM-002 → ADM-002c → ADM-002b → ADM-004 → ADM-004b → ADM-004c → ADM-002e → ADM-012 → USR-08 → ADM-013 → ADM-014 → USR-11 → USR-12 → USR-06 → USR-06b → USR-06c → USR-05 → USR-05b. admin-pan requests (2026-11-17): USR-16 → USR-17 → ADM-020 → USR-18 → ADM-021 → ADM-023 → ADM-025 → ADM-022 → ADM-024 → USR-19 → USR-20 → USR-21 → USR-22. admin-pan requests (2026-11-19): USR-23 → USR-24 → USR-25 → USR-26 → USR-27 → USR-28 → ADM-026.
