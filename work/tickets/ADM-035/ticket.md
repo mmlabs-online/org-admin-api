@@ -18,7 +18,7 @@
 The deployment repo gets its own machine key, able only to report deploy results, managed by the super admin.
 
 ## Scope reference
-`docs/spec-v1.md` §5.13 (OQ43); ADR-0018 §2–§3.
+`docs/spec-v1.md` §5.13 (OQ43); ADR-0021 §2–§3.
 
 ## Scope
 - New table `deployer_credentials` (key_id, secret SHA-256 hash, created_by, created_at, last_used_at, revoked_at), at most 2 active; migration with `downgrade()`.

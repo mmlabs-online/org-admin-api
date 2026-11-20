@@ -18,14 +18,14 @@
 Each app's release workflow records its release right after opening the deployment PR, with a key that can do nothing else.
 
 ## Scope reference
-`docs/spec-v1.md` §5.13 (OQ36, OQ37, OQ44–OQ49); ADR-0018 (amends ADR-0016 §1, ADR-0017 §2, R3 class 4).
+`docs/spec-v1.md` §5.13 (OQ36, OQ37, OQ44–OQ49); ADR-0021 (amends ADR-0016 §1, ADR-0017 §2, R3 class 4).
 
 ## Scope
 - `app_credentials.scope` (`manifest` | `releases`, default `manifest`; existing keys stay manifest) via migration; at most 2 active per (app, scope); issuance takes optional `scope`; releases-scoped keys may be issued for the `admin` app (the `admin_app` refusal stays for manifest only).
 - `authenticate` takes the required scope and the denied audit action; wrong scope → 403 `app_credential_scope` (audited denied); another app → 403 `app_credential_mismatch`; wrong key kind or admin JWT → 401.
 - `PUT /api/v1/apps/{key}/releases/{environment}/{version}` (releases-scoped key, own app only): insert → 201 `pending`; pending → full replace 200; identical → 200 no-op (no audit); deployed/failed → fill NULL fields (enrichment, audited), differing non-null field → 409 `release_not_pending`, identical → 200. Never changes status. Concurrent first writes never 500.
 - Validation (OQ45): version grammar, digests `sha256:<64 hex>`, GitHub URL allow-lists, `changes` ≤ 200, titles ≤ 200 with control chars stripped, ticket id / risk formats, unknown fields 422; body size cap (OQ46); per-IP rate limit; no CORS.
-- Docs in the same PR: R3 class 4 and R9 text in `CLAUDE.md` (from ADR-0018 §11), D28 in `docs/identity-architecture.md`, "Amended by ADR-0018" pointers in ADR-0016/0017; route-class test registry (route → scope).
+- Docs in the same PR: R3 class 4 and R9 text in `CLAUDE.md` (from ADR-0021 §11), D30 in `docs/identity-architecture.md`, "Amended by ADR-0021" pointers in ADR-0016/0017; route-class test registry (route → scope).
 
 ## Out of scope
 - Deployer credential and deploy report (ADM-035, ADM-036).
