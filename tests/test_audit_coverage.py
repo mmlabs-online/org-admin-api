@@ -23,6 +23,7 @@ from app.modules.bug_reports.models import BugReport
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role
+from app.modules.usage.models import UsageMetric
 from app.modules.users.models import User
 from tests.app_credential_factories import make_credential
 from tests.auth_factories import (
@@ -262,6 +263,50 @@ async def _bug_done(s: AsyncSession) -> Call:
 
 async def _bug_unknown(s: AsyncSession) -> Call:
     return f"{V1}/bug-reports/{uuid.uuid4()}", {"status": "done"}
+
+
+async def _usage_row(s: AsyncSession) -> tuple[str, uuid.UUID]:
+    app = await make_app(s, _key())
+    metric = UsageMetric(
+        app_id=app.id, key="chat-turns", display_name="Chat", unit="count", default_limit=5
+    )
+    s.add(metric)
+    await s.flush()
+    return app.key, metric.id
+
+
+async def _usage_create(s: AsyncSession) -> Call:
+    app = await make_app(s, _key())
+    body = {
+        "key": "chat-turns",
+        "display_name": "Chat",
+        "unit": "count",
+        "default_limit": 5,
+        "reason": "initial",
+    }
+    return f"{V1}/apps/{app.key}/usage-metrics", body
+
+
+async def _usage_create_dup(s: AsyncSession) -> Call:
+    app_key, _ = await _usage_row(s)
+    body = {
+        "key": "chat-turns",
+        "display_name": "Chat",
+        "unit": "count",
+        "default_limit": 5,
+        "reason": "again",
+    }
+    return f"{V1}/apps/{app_key}/usage-metrics", body
+
+
+async def _usage_update(s: AsyncSession) -> Call:
+    app_key, metric_id = await _usage_row(s)
+    return f"{V1}/apps/{app_key}/usage-metrics/{metric_id}", {"default_limit": 9, "reason": "raise"}
+
+
+async def _usage_unknown(s: AsyncSession) -> Call:
+    app = await make_app(s, _key())
+    return f"{V1}/apps/{app.key}/usage-metrics/{uuid.uuid4()}", {"default_limit": 9, "reason": "x"}
 
 
 async def _release_delete(s: AsyncSession) -> Call:
@@ -522,6 +567,18 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _release_unknown,
         404,
     ),
+    ("POST", f"{V1}/apps/{{key}}/usage-metrics"): (
+        {"usage_metric.created"},
+        _usage_create,
+        _usage_create_dup,
+        409,
+    ),
+    ("PATCH", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}"): (
+        {"usage_metric.updated", "usage_metric.archived", "usage_metric.restored"},
+        _usage_update,
+        _usage_unknown,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
 _SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated resource
@@ -554,7 +611,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 30
+    assert len(AUDITED) == 32
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")

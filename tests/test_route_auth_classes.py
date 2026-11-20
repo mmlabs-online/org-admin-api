@@ -132,6 +132,10 @@ BEARER = {
     ("GET", f"{V1}/releases/live"): "admin:*",
     ("GET", f"{V1}/releases/{{release_id}}"): "admin:*",
     ("DELETE", f"{V1}/releases/{{release_id}}"): "admin:*",
+    ("GET", f"{V1}/apps/{{key}}/usage-metrics"): "admin:usage:read",
+    ("POST", f"{V1}/apps/{{key}}/usage-metrics"): "admin:usage:write",
+    ("GET", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}"): "admin:usage:read",
+    ("PATCH", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}"): "admin:usage:write",
 }
 # Bearer, self-scoped, no permission (ADR-0008 USR-11 amendment). GET only, no path/query/body
 # input, caller's own data only. Adding an entry needs an ADR-0008 amendment (owner approval).
@@ -352,6 +356,7 @@ def _fill(path: str) -> str:
                 "session_id",
                 "report_id",
                 "release_id",
+                "metric_id",
             )
         }
     )

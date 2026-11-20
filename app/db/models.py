@@ -13,6 +13,7 @@ from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role, RoleAssignment, RolePermission
 from app.modules.releases.models import AppRelease
 from app.modules.sessions.models import AccountSession, DeviceSession
+from app.modules.usage.models import UsageMetric
 from app.modules.users.models import User
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "Role",
     "RoleAssignment",
     "RolePermission",
+    "UsageMetric",
     "User",
 ]

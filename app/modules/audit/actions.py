@@ -30,6 +30,7 @@ class AuditTarget(StrEnum):
     ENTITLEMENT = "entitlement"
     BUG_REPORT = "bug_report"
     RELEASE = "release"
+    USAGE_METRIC = "usage_metric"
 
 
 class AuditAction(StrEnum):
@@ -87,3 +88,7 @@ class AuditAction(StrEnum):
     BUG_REPORT_NOTE_UPDATED = "bug_report.note_updated"
     AUTH_EMAIL_VERIFIED = "auth.email_verified"
     RELEASE_DELETED = "release.deleted"
+    USAGE_METRIC_CREATED = "usage_metric.created"
+    USAGE_METRIC_UPDATED = "usage_metric.updated"
+    USAGE_METRIC_ARCHIVED = "usage_metric.archived"
+    USAGE_METRIC_RESTORED = "usage_metric.restored"
