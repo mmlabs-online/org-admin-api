@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
 | Areas | architecture, auth, security |
@@ -29,6 +29,7 @@ Record how app backends call this API for usage: new scopes on the scoped app-cr
 - [ ] No code change in this ticket (docs only).
 
 ## Notes / answers from Ming
+- 2026-11-20 (Ming, chat): "merge cho tôi #83" — Merge approved (2026-11-20, batch 2026-11-20-1); merged by claude at Ming's request (CI red only on the pre-existing kit lint in .github/scripts/risk_tier.py).
 - 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1, 21–27, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
