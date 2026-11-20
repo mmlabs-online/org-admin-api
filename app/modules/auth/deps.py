@@ -139,11 +139,12 @@ def get_signup_hook(
     )
 
 
-async def get_device(request: Request, devices: DeviceSessionsDep) -> ResolvedDevice:
-    """Resolve `__Host-mm_device` (may rotate); a 401 clears the cookie when one was sent."""
+async def _resolve_device(
+    request: Request, devices: DeviceSessionService, *, allow_rotate: bool
+) -> ResolvedDevice:
     cookies = read_device_cookies(request)
     try:
-        return await devices.resolve(cookies)
+        return await devices.resolve(cookies, allow_rotate=allow_rotate)
     except SessionInvalidError as exc:
         if cookies:
             settings: Settings = request.app.state.settings
@@ -151,4 +152,15 @@ async def get_device(request: Request, devices: DeviceSessionsDep) -> ResolvedDe
         raise
 
 
+async def get_device(request: Request, devices: DeviceSessionsDep) -> ResolvedDevice:
+    """Resolve `__Host-mm_device` (may rotate); a 401 clears the cookie when one was sent."""
+    return await _resolve_device(request, devices, allow_rotate=True)
+
+
+async def get_device_no_rotate(request: Request, devices: DeviceSessionsDep) -> ResolvedDevice:
+    """Like `get_device` but never rotates: only the slow attachment upload (ADR-0023 §4)."""
+    return await _resolve_device(request, devices, allow_rotate=False)
+
+
 DeviceDep = Annotated[ResolvedDevice, Depends(get_device)]
+DeviceNoRotateDep = Annotated[ResolvedDevice, Depends(get_device_no_rotate)]

@@ -879,8 +879,11 @@ IDENTITY_NOT_AUDITED = {
 }
 # Audited with several rows, which the one-row harness above cannot express: `POST /auth/orgs`
 # writes organization.created + role_assignment.granted (covered by tests/test_auth_orgs.py);
-# the two invitation routes (covered by tests/test_invitations_*.py).
+# the two invitation routes (covered by tests/test_invitations_*.py); the attachment upload, whose
+# raw body and Drive call the JSON harness above cannot send (writes `bug_report.attachment_added`,
+# covered by tests/test_bug_report_attachments_upload.py).
 IDENTITY_MULTI_ROW_AUDITED = {
+    ("POST", f"{AUTH}/bug-reports/{{report_id}}/attachments"),
     ("POST", f"{AUTH}/orgs"),
     ("POST", f"{AUTH}/orgs/{{org_id}}/invitations"),
     ("POST", f"{AUTH}/invitations/accept"),

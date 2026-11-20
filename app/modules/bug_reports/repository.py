@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.db.base import bumped_updated_at
-from app.modules.bug_reports.models import BugReport, BugReportStatus
+from app.modules.bug_reports.models import BugReport, BugReportAttachment, BugReportStatus
 from app.modules.rbac.models import App
 from app.modules.users.models import User
 
@@ -61,6 +61,94 @@ class BugReportRepository:
         await self.session.flush()
         await self.session.refresh(report, ["created_at"])
         return report
+
+
+@dataclass(frozen=True)
+class ReportBrief:
+    """What the upload checks need, in one query. `now` is the database clock."""
+
+    user_id: uuid.UUID
+    app_id: uuid.UUID
+    status: str
+    created_at: datetime
+    now: datetime
+    attachment_count: int
+
+
+class BugReportAttachmentRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def report_brief(self, report_id: uuid.UUID) -> ReportBrief | None:
+        count = (
+            select(func.count())
+            .where(BugReportAttachment.report_id == BugReport.id)
+            .scalar_subquery()
+        )
+        row = (
+            await self.session.execute(
+                select(
+                    BugReport.user_id,
+                    BugReport.app_id,
+                    BugReport.status,
+                    BugReport.created_at,
+                    func.now(),
+                    count,
+                ).where(BugReport.id == report_id)
+            )
+        ).first()
+        if row is None:
+            return None
+        user_id, app_id, status, created_at, now, attachments = row
+        return ReportBrief(user_id, app_id, status, created_at, now, int(attachments))
+
+    async def lock_report(self, report_id: uuid.UUID) -> tuple[str, int] | None:
+        """FOR NO KEY UPDATE (serializes uploads of one report, does not block FK KEY SHARE
+        locks); returns the current status and attachment count, or None if the report is gone."""
+        status = await self.session.scalar(
+            select(BugReport.status)
+            .where(BugReport.id == report_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+        if status is None:
+            return None
+        return status, await self.count(report_id)
+
+    async def count(self, report_id: uuid.UUID) -> int:
+        count = await self.session.scalar(
+            select(func.count()).where(BugReportAttachment.report_id == report_id)
+        )
+        return int(count or 0)
+
+    async def add(self, row: BugReportAttachment) -> BugReportAttachment:
+        self.session.add(row)
+        await self.session.flush()
+        await self.session.refresh(row, ["created_at"])
+        return row
+
+    async def get(
+        self, report_id: uuid.UUID, attachment_id: uuid.UUID
+    ) -> BugReportAttachment | None:
+        """Both ids in the WHERE: an attachment of another report is simply not found."""
+        return await self.session.scalar(
+            select(BugReportAttachment).where(
+                BugReportAttachment.id == attachment_id,
+                BugReportAttachment.report_id == report_id,
+            )
+        )
+
+    async def list_for_report(self, report_id: uuid.UUID) -> list[BugReportAttachment]:
+        rows = await self.session.scalars(
+            select(BugReportAttachment)
+            .where(BugReportAttachment.report_id == report_id)
+            .order_by(BugReportAttachment.created_at, BugReportAttachment.id)
+        )
+        return list(rows.all())
+
+    async def commit(self) -> None:
+        """End the transaction (releases connection and row locks before the slow Drive call)."""
+        await self.session.commit()
 
 
 @dataclass(frozen=True)

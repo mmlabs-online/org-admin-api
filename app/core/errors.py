@@ -132,6 +132,26 @@ class RateLimitedError(AppError):
         )
 
 
+class LengthRequiredError(AppError):
+    status_code = status.HTTP_411_LENGTH_REQUIRED
+    code = "length_required"
+
+
+class PayloadTooLargeError(AppError):
+    status_code = status.HTTP_413_CONTENT_TOO_LARGE
+    code = "payload_too_large"
+
+
+class UnsupportedMediaTypeError(AppError):
+    status_code = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+    code = "unsupported_media_type"
+
+
+class ServiceUnavailableError(AppError):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "service_unavailable"
+
+
 class PreconditionFailedError(AppError):
     """A stale `If-Match` (ADM-024); the response carries the current `ETag`."""
 
@@ -151,7 +171,8 @@ class ErrorBody(BaseModel):
     code: str = Field(
         description=(
             "Machine-readable code, e.g. validation_error, unprocessable, not_found, conflict,"
-            " unauthorized, permission_denied, precondition_failed, rate_limited."
+            " unauthorized, permission_denied, precondition_failed, length_required,"
+            " payload_too_large, unsupported_media_type, rate_limited, service_unavailable."
         )
     )
     message: str
@@ -206,10 +227,12 @@ _HTTP_CODES = {
     404: "not_found",
     405: "method_not_allowed",
     406: "not_acceptable",
+    411: "length_required",
     412: "precondition_failed",
     413: "payload_too_large",
     415: "unsupported_media_type",
     429: "rate_limited",
+    503: "service_unavailable",
 }
 
 

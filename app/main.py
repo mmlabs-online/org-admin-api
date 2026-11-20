@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import secrets
 from collections.abc import AsyncIterator
@@ -22,6 +23,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.auth.passwords import PasswordHasher
 from app.modules.auth.throttle import EmailHasher
 from app.modules.auth.turnstile import CloudflareTurnstileVerifier
+from app.modules.bug_reports.service import MAX_INFLIGHT_UPLOADS
 from app.modules.email.dispatcher import EmailDispatcher
 from app.modules.email.sender import GmailSmtpSender, build_email_sender
 from app.modules.health.router import router as health_router
@@ -94,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Bug-report attachments (ADR-0018): all four Drive keys or none; none = off.
     attachment_store = build_attachment_store(settings)
     app.state.attachment_store = attachment_store
+    app.state.attachment_upload_slots = asyncio.Semaphore(MAX_INFLIGHT_UPLOADS)
     store_state = "drive" if attachment_store.configured else "disabled"
     log = (
         logger.warning

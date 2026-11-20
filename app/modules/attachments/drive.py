@@ -8,6 +8,7 @@ copied. Hosts are constants, so the bearer token cannot be sent elsewhere; redir
 import asyncio
 import json
 import logging
+import math
 import random
 import re
 import secrets
@@ -35,6 +36,10 @@ _FOLDER_MIME = "application/vnd.google-apps.folder"
 _MAX_ATTEMPTS = 3
 _MAX_CONCURRENT_UPLOADS = 4
 _REQUEST_TIMEOUT_SECONDS = 60
+_CALL_DEADLINE_SECONDS = 45.0  # one Drive call incl. retries and backoff (ADM-027 review)
+_TOKEN_DEADLINE_SECONDS = 20.0  # token refresh incl. retries, while holding the lock
+_STREAM_DEADLINE_SECONDS = 60.0  # whole body of one streamed read
+_MAX_TOKEN_LIFETIME_SECONDS = 3600.0
 _BACKOFF_BASE_SECONDS = 0.5
 _RETRY_AFTER_CAP_SECONDS = 5.0
 _TOKEN_SKEW_SECONDS = 60
@@ -180,6 +185,9 @@ class DriveApi:
                     expires_in = float(body.get("expires_in", 3600))
                 except (ValueError, KeyError, TypeError, AttributeError):
                     return DriveErrorCode.UNAVAILABLE, None, 0.0
+                if not math.isfinite(expires_in):
+                    return DriveErrorCode.UNAVAILABLE, None, 0.0
+                expires_in = min(max(expires_in, 0.0), _MAX_TOKEN_LIFETIME_SECONDS)
                 if not isinstance(token, str) or not token:
                     return DriveErrorCode.UNAVAILABLE, None, 0.0
                 return None, token, expires_in
@@ -192,18 +200,32 @@ class DriveApi:
             if self._token is not None and time.monotonic() < self._expires_at:
                 return self._token
             code: DriveErrorCode | None = DriveErrorCode.UNAVAILABLE
-            for attempt in range(1, _MAX_ATTEMPTS + 1):
-                code, token, expires_in = await self._fetch_token()
-                if code is None and token is not None:
-                    self._token = token
-                    self._expires_at = time.monotonic() + max(expires_in - _TOKEN_SKEW_SECONDS, 0)
-                    return token
-                if code != DriveErrorCode.UNAVAILABLE:
-                    break
-                _log_failure("token", code, None, attempt)
-                if attempt < _MAX_ATTEMPTS:
-                    await asyncio.sleep(_backoff(attempt, None))
+            timed_out = False
+            try:
+                async with asyncio.timeout(_TOKEN_DEADLINE_SECONDS):
+                    code, token = await self._refresh_with_retries()
+            except TimeoutError:
+                timed_out = True
+            if timed_out:
+                raise DriveError(DriveErrorCode.UNAVAILABLE)
+            if token is not None:
+                return token
         raise DriveError(code or DriveErrorCode.UNAVAILABLE)
+
+    async def _refresh_with_retries(self) -> tuple[DriveErrorCode | None, str | None]:
+        code: DriveErrorCode | None = DriveErrorCode.UNAVAILABLE
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            code, token, expires_in = await self._fetch_token()
+            if code is None and token is not None:
+                self._token = token
+                self._expires_at = time.monotonic() + max(expires_in - _TOKEN_SKEW_SECONDS, 0)
+                return None, token
+            if code != DriveErrorCode.UNAVAILABLE:
+                break
+            _log_failure("token", code, None, attempt)
+            if attempt < _MAX_ATTEMPTS:
+                await asyncio.sleep(_backoff(attempt, None))
+        return code, None
 
     async def _attempt(
         self, method: str, url: str, headers: dict[str, str], kw: dict[str, Any], *, stream: bool
@@ -234,7 +256,34 @@ class DriveApi:
         headers: dict[str, str] | None = None,
         **kw: Any,
     ) -> httpx.Response:
-        """Return a successful response. Only idempotent calls are retried (creates never are)."""
+        """Return a successful response. Only idempotent calls are retried (creates never are).
+
+        The whole call, retries and backoff included, is bounded by `_CALL_DEADLINE_SECONDS`."""
+        timed_out = False
+        resp: httpx.Response | None = None
+        try:
+            async with asyncio.timeout(_CALL_DEADLINE_SECONDS):
+                resp = await self._run_loop(
+                    op, method, url, idempotent=idempotent, stream=stream, headers=headers, kw=kw
+                )
+        except TimeoutError:
+            timed_out = True
+        if timed_out or resp is None:
+            _log_failure(op, DriveErrorCode.UNAVAILABLE, None, 0)
+            raise DriveError(DriveErrorCode.UNAVAILABLE)
+        return resp
+
+    async def _run_loop(
+        self,
+        op: str,
+        method: str,
+        url: str,
+        *,
+        idempotent: bool,
+        stream: bool,
+        headers: dict[str, str] | None,
+        kw: dict[str, Any],
+    ) -> httpx.Response:
         attempt = 0
         refreshed = False
         while True:
@@ -291,11 +340,15 @@ class DriveApi:
 async def _capped_stream(resp: httpx.Response) -> AsyncIterator[bytes]:
     total = 0
     code: DriveErrorCode | None = None
+    deadline = time.monotonic() + _STREAM_DEADLINE_SECONDS
     try:
         async for chunk in resp.aiter_bytes():
             total += len(chunk)
             if total > MAX_ATTACHMENT_BYTES:
                 code = DriveErrorCode.TOO_LARGE
+                break
+            if time.monotonic() > deadline:
+                code = DriveErrorCode.UNAVAILABLE
                 break
             yield chunk
     except (httpx.HTTPError, TimeoutError):

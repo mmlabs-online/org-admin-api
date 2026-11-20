@@ -71,7 +71,10 @@ class DeviceSessionService:
         *,
         force_rotate: bool = False,
         commit_on_reuse: bool = True,
+        allow_rotate: bool = True,
     ) -> ResolvedDevice:
+        """`allow_rotate=False` (the slow upload route, ADR-0023) validates and touches but never
+        rotates the current value; the reuse check is unchanged."""
         if not cookies:
             raise SessionInvalidError("Session is invalid")
         if len(cookies) > 1:
@@ -87,7 +90,7 @@ class DeviceSessionService:
                 raise SessionInvalidError("Session is invalid")
 
             if device.token_hash == token_hash:
-                if force_rotate or device.rotated_at <= now - ROTATE_AFTER:
+                if allow_rotate and (force_rotate or device.rotated_at <= now - ROTATE_AFTER):
                     new = new_device_token()
                     if await self.repo.rotate(device.id, token_hash, device_token_hash(new)):
                         return ResolvedDevice(device.id, new, None)

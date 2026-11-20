@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
-from app.modules.bug_reports.models import BugReport
+from app.modules.bug_reports.models import BugReport, BugReportAttachment
 from app.modules.rbac.models import App
 from app.modules.users.models import User
 from tests.conftest import MakeClient
@@ -227,6 +227,42 @@ async def test_detail_shape(
     assert body["attachments"] == []
     assert "description_preview" not in body
     assert resp.headers["etag"].startswith('"')
+
+
+async def test_detail_lists_attachments(
+    make_client: MakeClient, db_session: AsyncSession, seeded: dict[str, Any]
+) -> None:
+    report = await _report(db_session, seeded["a1"], seeded["u1"])
+    other = await _report(db_session, seeded["a1"], seeded["u2"])
+    ids = [uuid.uuid4() for _ in range(3)]
+    # Inserted out of order; the listing is oldest first (ties: id). Another report's is not shown.
+    for i, at in ((2, T0 + timedelta(minutes=2)), (0, T0), (1, T0 + timedelta(minutes=1))):
+        db_session.add(
+            BugReportAttachment(
+                id=ids[i], report_id=report.id, drive_file_id=f"SENTINELdriveID{i}",
+                content_type="image/png", size_bytes=100 + i, created_at=at,
+            )
+        )  # fmt: skip
+    db_session.add(
+        BugReportAttachment(
+            report_id=other.id, drive_file_id="SENTINELdriveIDother",
+            content_type="image/gif", size_bytes=50,
+        )
+    )  # fmt: skip
+    await db_session.flush()
+    async with make_client(admin_permissions=[READ, WRITE]) as c:
+        resp = await c.get(f"{URL}/{report.id}")
+        patched = await c.patch(f"{URL}/{report.id}", json={"resolution_note": "n"})
+    assert resp.status_code == 200
+    items = resp.json()["attachments"]
+    assert [a["id"] for a in items] == [str(i) for i in ids]
+    assert [(a["content_type"], a["size_bytes"]) for a in items] == [
+        ("image/png", 100), ("image/png", 101), ("image/png", 102),
+    ]  # fmt: skip
+    assert all(set(a) == {"id", "content_type", "size_bytes", "created_at"} for a in items)
+    assert "SENTINELdriveID" not in resp.text
+    assert patched.status_code == 200
+    assert len(patched.json()["attachments"]) == 3
 
 
 async def test_detail_done_with_deleted_handler(

@@ -121,9 +121,17 @@ def test_role_holders_operation() -> None:
     }  # fmt: skip
 
 
+# Only the two attachment routes document a 5xx: 503 attachment_storage_unavailable (ADR-0023, R6).
+_DOCUMENTED_503 = {
+    ("post", "/api/v1/auth/bug-reports/{report_id}/attachments"),
+    ("get", "/api/v1/bug-reports/{report_id}/attachments/{attachment_id}/content"),
+}
+
+
 def test_no_5xx_documented() -> None:
-    for _, _, op in _operations(_schema()):
-        assert all(int(code) < 500 for code in op["responses"])
+    for path, method, op in _operations(_schema()):
+        codes = {int(code) for code in op["responses"] if int(code) >= 500}
+        assert codes == ({503} if (method, path) in _DOCUMENTED_503 else set()), (method, path)
 
 
 def test_no_fastapi_validation_schemas() -> None:
@@ -343,6 +351,7 @@ _EXPECTED_ERRORS: dict[tuple[str, str], set[str]] = {
     ("get", "/bug-reports"): set(),
     ("get", "/bug-reports/{report_id}"): {"404"},
     ("patch", "/bug-reports/{report_id}"): {"404"},
+    ("get", "/bug-reports/{report_id}/attachments/{attachment_id}/content"): {"404"},
     ("get", f"{_A}/usage-metrics"): {"404"},
     ("post", f"{_A}/usage-metrics"): {"404", "409"},
     ("get", f"{_A}/usage-metrics/{{metric_id}}"): {"404"},

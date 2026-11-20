@@ -55,6 +55,7 @@ COOKIE = {
     ("POST", f"{V1}/auth/orgs"),
     ("GET", f"{V1}/auth/orgs"),
     ("POST", f"{V1}/auth/bug-reports"),
+    ("POST", f"{V1}/auth/bug-reports/{{report_id}}/attachments"),
     ("POST", f"{V1}/auth/orgs/{{org_id}}/invitations"),
     ("POST", f"{V1}/auth/invitations/accept"),
 }
@@ -128,6 +129,10 @@ BEARER = {
     ("GET", f"{V1}/bug-reports"): "admin:bug-reports:read",
     ("GET", f"{V1}/bug-reports/{{report_id}}"): "admin:bug-reports:read",
     ("PATCH", f"{V1}/bug-reports/{{report_id}}"): "admin:bug-reports:write",
+    (
+        "GET",
+        f"{V1}/bug-reports/{{report_id}}/attachments/{{attachment_id}}/content",
+    ): "admin:bug-reports:read",
     ("GET", f"{V1}/releases"): "admin:*",
     ("GET", f"{V1}/releases/live"): "admin:*",
     ("GET", f"{V1}/releases/{{release_id}}"): "admin:*",
@@ -355,6 +360,7 @@ def _fill(path: str) -> str:
                 "invitation_id",
                 "session_id",
                 "report_id",
+                "attachment_id",
                 "release_id",
                 "metric_id",
             )

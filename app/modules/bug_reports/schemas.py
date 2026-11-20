@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
+from app.modules.attachments.store import ImageType
 from app.modules.bug_reports import text
 from app.modules.bug_reports.models import BugReportStatus
 
@@ -72,10 +73,11 @@ class BugReportListItem(BaseModel):
 
 
 class BugReportAttachmentRead(BaseModel):
-    """Placeholder until ADM-030 (attachments); ADM-030 may add fields, never remove these."""
+    """An attached image. No Drive id and no filename: files are fetched only through
+    `GET /api/v1/bug-reports/{id}/attachments/{attachment_id}/content`."""
 
     id: uuid.UUID
-    content_type: str
+    content_type: ImageType
     size_bytes: int
     created_at: datetime
 
@@ -98,7 +100,7 @@ class BugReportRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     attachments: list[BugReportAttachmentRead] = Field(
-        default_factory=list, description="Always empty until ADM-030."
+        default_factory=list, description="Images of the report, oldest first."
     )
 
 
