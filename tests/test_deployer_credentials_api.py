@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import UnauthorizedError
 from app.modules.audit.models import AuditLog
 from app.modules.deployer_credentials.models import DeployerCredential
 from app.modules.deployer_credentials.service import DeployerCredentialService
@@ -189,16 +190,35 @@ async def test_audit_rows_hold_key_id_only(
 
 
 async def test_value_never_logged_or_audited(
-    make_client: MakeClient, db_session: AsyncSession, caplog: pytest.LogCaptureFixture
+    make_client: MakeClient, db_session: AsyncSession
 ) -> None:
-    caplog.set_level(logging.DEBUG)
-    actor = await make_user(db_session)
-    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
-        raw = (await client.post(URL)).json()["credential"]
-    secret = raw.split("_", 2)[2]
-    with pytest.raises(Exception):  # noqa: B017 (wrong secret: any 401)
-        await DeployerCredentialService(db_session).authenticate(raw[:-1] + "A")
-    assert raw not in caplog.text and secret not in caplog.text
+    records: list[str] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("app.modules.deployer_credentials.service")
+    handler, level, disabled = Capture(), logger.level, logger.disabled
+    logger.disabled = False  # Alembic's `fileConfig` (test session setup) disables app loggers
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    try:
+        actor = await make_user(db_session)
+        async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+            body = (await client.post(URL)).json()
+        raw = body["credential"]
+        secret = raw.split("_", 2)[2]
+        wrong = f"mmdk_{body['key_id']}_{'A' * 43}"
+        with pytest.raises(UnauthorizedError):
+            await DeployerCredentialService(db_session).authenticate(wrong)
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+        logger.disabled = disabled
+    assert records == [f"deployer_credential_denied reason=secret key_id={body['key_id']}"]
+    text = " ".join(records)
+    assert raw not in text and secret not in text
     dump = " ".join(f"{a.changes} {a.target_id}" for a in await _audit(db_session))
     assert raw not in dump and secret not in dump
 

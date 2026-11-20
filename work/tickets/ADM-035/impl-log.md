@@ -36,3 +36,27 @@ None.
 ### Scope self-check
 - Could the diff be smaller? No; it mirrors app_credentials minus app binding.
 - Diff size: see commit.
+
+## Attempt 3 (REWORK 2) — 2026-11-20
+
+Fixes for review.md attempt 1 only.
+
+### Files touched
+- `tests/test_deployer_credentials_api.py` — Issue 1: wrong secret is now `mmdk_<key_id>_` + 43 x `A` (guaranteed different from the real secret, no 1/16 collision); `pytest.raises(UnauthorizedError)`, `noqa: B017` dropped. Issue 2: service logger re-enabled in the test (as in `test_rejection_logs_reason_and_key_id_only`, restored in `finally`); positive assertion that exactly `deployer_credential_denied reason=secret key_id=...` was captured, then raw/secret not in the captured text.
+- `app/modules/deployer_credentials/codec.py` — nit: comment "64 chars" -> "65 chars".
+
+### Flake check
+50 consecutive runs of `test_value_never_logged_or_audited`: 50 passed, 0 failed.
+
+### Checks
+- ruff check: All checks passed!
+- ruff format --check app tests migrations: 350 files already formatted
+- make typecheck: Success: no issues found in 181 source files
+- make test: 3185 passed, 1 warning in 448.17s
+
+### Out-of-plan files
+None.
+
+### Follow-ups
+- Same "64 chars" comment in `app/modules/app_credentials/codec.py:11` (out of scope).
+- appsec 🟡: `IssuedDeployerCredential.credential` could use `field(repr=False)`.

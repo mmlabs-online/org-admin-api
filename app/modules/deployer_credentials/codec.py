@@ -12,7 +12,7 @@ from app.modules.app_credentials.codec import secret_hash
 __all__ = ["PREFIX", "new_credential", "parse_credential", "secret_hash"]
 
 PREFIX = "mmdk_"
-_MAX_LENGTH = 128  # cap before matching: the real value is 64 chars
+_MAX_LENGTH = 128  # cap before matching: the real value is 65 chars
 _RE = re.compile(r"^mmdk_([0-9a-f]{16})_([A-Za-z0-9_-]{43})\Z")
 
 
