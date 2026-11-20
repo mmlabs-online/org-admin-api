@@ -1,0 +1,34 @@
+# Consult — api-platform-engineer — ADM-036 (2026-11-20)
+
+**Findings**
+- `app/modules/releases/router.py:25` is the admin Bearer router (`/releases`, `current_admin`). The deployer route belongs under `/apps/{key}/releases/...`, so it needs a separate router, like `app/modules/rbac/manifest_router.py:21`. That one declares `rate_limit("app_manifest")` as a router-level dependency, which runs before auth.
+- `app/modules/deployer_credentials/deps.py:20-35` gives `DeployerDep`. It uses `auto_error=False` and `authenticate(raw)` yields the single 401. Nothing uses it yet. Rate limiting must come first (deps.py:5-6).
+- `app/core/rate_limit.py:71-127` needs a new Scope (`release_deployment`) and matching `Settings` fields, copying `app_manifest` (config.py:104-105).
+- No ready-made body-cap helper exists for JSON routes. `PayloadTooLargeError` and `LengthRequiredError` exist (errors.py:135-142), and the bug-report upload shows the 411/413 pattern (`bug_reports/service.py:235-238`). ADR §3 says to check the cap inside the route, so read the raw body, cap it at 4 KiB, then validate with the Pydantic model.
+- `AuditAction` has no `RELEASE_DEPLOYMENT_REPORTED`, `RELEASE_CREATED` or `RELEASE_UPDATED` yet (actions.py:91 has only `RELEASE_DELETED`). ADM-034 will add the created/updated ones. ADM-036 must add `release.deployment_reported`.
+- Release service so far is read/delete only (`service.py`). There is no write path, so the upsert goes into the repository and service. The same repo method has to be shareable with ADM-034's PUT.
+
+**Recommendations**
+1. **Use PUT, not PATCH** (AC1, AC2). The body is the full desired deployment state `{status, deployed_at, deploy_run_url}`. It is idempotent and a retry is byte-identical. PATCH implies partial merge semantics that we don't have. It also matches ADM-034's PUT and the singular sub-document exception (ADR §10). Route: `PUT /api/v1/apps/{key}/releases/{environment}/{version}/deployment`, `response_model` = the release summary (or a small `{id, status, deployed_at, deploy_run_url}`), `Page` not applicable. Do not return `images` or `changes`.
+2. **Status codes** (AC1): 201 when created from the report (thin record, `created_via='deployer'`). 200 for every other success, including no-op, `failed→failed`, `failed→deployed`, `deployed→deployed` with a different URL, and `pending→*`. 409 `release_already_deployed` for `deployed→failed`. Add the code to the error docs and R6 listing.
+3. **Body schema:** `extra="forbid"` (422). `status` is an enum limited to `deployed|failed` (`pending` → 422). `deployed_at` is `AwareDatetime | None`. `deploy_run_url` is required (state it as required, since the table compares URLs), validated by the ADR §7 regex only. Cross-field rule: `deployed` requires `deployed_at`, `failed` refuses it → 422 with field names and no echoed values. For `failed`, store `deployed_at` as NULL. Window check (≤ 5 min future, ≤ 30 days past) lives in the schema or service using an injected clock, with boundary tests. Note that on a retry after more than 30 days the same body fails; that is acceptable, since CI retries within minutes.
+4. **Order of checks:** rate limit → auth (401) → body cap (411/413) → path grammar (environment, version, per ADM-034's validators, reused not copied) → 422 body → app lookup 404. Open point: should 404 or 422 come first for an unknown app? Suggest auth first, then the app 404, then validation, so an unknown app reveals nothing beyond the deploy run. Disabled app is allowed: do not call the app-enabled check (contrast with the ADM-034 `app_disabled` 403).
+5. **Idempotent retries / races** (AC1, test plan): do an atomic `INSERT ... ON CONFLICT (app_id, environment, version) DO NOTHING RETURNING`. If nothing is returned, `SELECT ... FOR UPDATE`, apply the transition table, and write audit only when a field actually changed. This is the same mechanism for ADM-034, so use one repository method pair and verify the unique constraint exists on the ADM-033 model. A no-op writes no audit row. The 201-vs-200 decision must come from the insert result, not a pre-read.
+6. **Interaction with ADM-034** (AC2): the report only writes `status`, `deployed_at`, `deploy_run_url` (and the `created_via='deployer'` columns on create). It never touches `images`, `changes`, `git_sha`, `deployment_pr`, `has_migrations`. ADM-034's PUT fills null fields on deployed/failed records (ADR §4), so a thin record created by the report must have exactly those nullable/empty fields. Add a test that a late app PUT after a report-first create returns 200 and fills them. Also test a report arriving on a `pending` record and then an identical PUT afterwards (409 only if any non-null field differs).
+7. **Audit:** one `release.deployment_reported` row per real change, `changes` limited to the status and a `created` flag (ids and status only, ADR §8), actor `SystemActor("deployer:<key_id>")`. A report-created record could write a single row; suggest one row `release.deployment_reported` with `created=true`, rather than two. The audit change diff must not contain URLs.
+8. **Registry** (`tests/test_route_auth_classes.py`): add the exact (PUT, path) to `DEPLOYER_CREDENTIAL`. Tests: `mmak_` key → 401, admin JWT → 401, missing header → 401, `mmdk_` key on `PUT …/manifest` → 401, 429 after N requests, no CORS headers on the preflight/response.
+9. **Rollback** (AC4): a test that reports `deployed` on an older version with a new run URL and a later `deployed_at`, then the live read (`/releases/live`) returns that version. Check the tie handling, since the repo uses the greatest id on ties.
+
+**Risks**
+- The 5-min/30-day windows tested against wall-clock time: inject the clock, or tests flake.
+- The per-IP bucket (30/min) is shared by all apps from one runner IP. A bulk deploy of more than 30 apps in a minute hits 429 (a warning only in CI, but the report is lost). Consider 60/min as the config default.
+- `deployed → deployed` with a different URL and an older `deployed_at` is accepted (a leaked key can fake a rollback); this is already accepted in the ADR consequences.
+- Merge conflicts with ADM-034 in `repository.py`, `service.py`, `audit/actions.py`, the route registry and the config. Rebase after ADM-034 lands and reuse its upsert and path validators.
+
+**Open questions for Ming (suggested defaults)**
+1. PUT or PATCH? Default: **PUT**.
+2. Is `deploy_run_url` required for both statuses? Default: **yes**.
+3. Body cap: reject on `Content-Length` > 4 KiB as 413, and 411 when the header is missing? Default: **cap the actual bytes read, no 411** (JSON clients always send a length, and a chunked body is still capped).
+4. Rate limit default for the report bucket: 30/min (ADR) or 60/min? Default: **30/min**, configurable.
+5. A `failed` report with `deployed_at` present: 422 (ADR §5) or ignore? Default: **422**.
+6. Same-URL `failed→failed` retry: confirm 200 no-op with no audit row. Default: **yes**.
