@@ -92,7 +92,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-031 | Bug reports: retention purge | BACKLOG | P3 | db, security | 0 | 2026-11-19 |
 | ADM-032 | Bug reports: guide for app teams | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | ADM-033 | Release log: data model and staff read (list, detail, live version, delete) | MERGED | P2 | db, api | 0 | 2026-11-20 |
-| ADM-034 | Release log: scoped app credentials and the app's release write | IN_PROGRESS | P2 | db, api, auth, security | 0 | 2026-11-19 |
+| ADM-034 | Release log: scoped app credentials and the app's release write | DONE | P2 | db, api, auth, security | 1 | 2026-11-20 |
 | ADM-035 | Deployer credential: data model and staff issue, list, revoke | MERGED | P2 | db, auth, security | 1 | 2026-11-20 |
 | ADM-036 | Release log: deploy result report (deployer credential) | PLANNING | P2 | api, auth, security | 0 | 2026-11-19 |
 | ADM-037 | Release log: guide for app repos and the deployment repo | BACKLOG | P3 | api | 0 | 2026-11-19 |
