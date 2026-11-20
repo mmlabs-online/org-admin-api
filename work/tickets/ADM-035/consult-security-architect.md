@@ -1,0 +1,31 @@
+# Consult — security-architect — ADM-035 (2026-11-20)
+
+### Findings
+1. **The ADR fully covers the ticket.** `docs/adr/0018-release-log-and-deployer-credential.md` §2, §3 and §8 already fix the key format, the "at most 2 active" rule, `admin:*` on all three routes, the single 401 with `realm="deployer"`, and the actor `SystemActor("deployer:{key_id}")`. Nothing here needs a new decision from Ming.
+2. **There are two ADR-0018 files.** `docs/adr/0018-attachment-storage-google-drive.md` and `docs/adr/0018-release-log-and-deployer-credential.md` share the number. The ticket's "ADR-0018 §2–§3" is ambiguous until one is renumbered. This is a docs follow-up (R7), not part of this diff.
+3. **The app-credential pattern doesn't carry over to locking.** `AppCredentialService` (`app/modules/app_credentials/service.py`) protects the "max 2 active" check with `lock_app`. A deployer key has no app row to lock, so two concurrent POSTs could both pass `count_active` and leave 3 active keys.
+4. **The permission can be declared directly.** `require_permission("admin:*")` is already supported (precedent: `app/modules/users/router.py:86`). App credentials use `admin:apps:write` + `requires_super="always"` plus `require_super` in the service. For a resource that is `admin:*` only, declaring `admin:*` on the route is simpler, and the route-class test can map it exactly.
+5. **The codec only knows one prefix.** `app/modules/app_credentials/codec.py` hard-codes `mmak_` in `PREFIX` and the regex. The ticket asks for a prefix-aware codec that rejects a wrong prefix before any DB read.
+6. **The route-class test will block a test route in the production app.** `tests/test_route_auth_classes.py` builds the production app, and `test_every_route_is_classified` fails on any route outside the known sets. A test-only route that uses `current_deployer` must not be mounted in `create_app()`.
+7. **App-credential revoke differs from this ticket on purpose.** It needs only `admin:apps:write` ("revoking only removes access"). ADR §2 says `admin:*` for deployer revoke. That is intended, not a mistake.
+
+### Recommendations
+- **R1, codec.** Extract a shared codec built per prefix (e.g. `KeyCodec("mmak_")` / `KeyCodec("mmdk_")`). Order: length cap, then `startswith(prefix)`, then an anchored regex. A valid `mmdk_` value must fail `mmak_` parsing and the reverse, before any DB read (AC4). Keep `secret_hash` and `hmac.compare_digest` as they are.
+- **Concurrency.** Serialise issue and revoke with `pg_advisory_xact_lock(hashtextextended('deployer_credentials', 0))`, the same pattern as `auth/repository.py:254`. Do not take that lock in `authenticate`. Make `touch_last_used` atomic instead: `UPDATE … SET last_used_at=now() WHERE id=:id AND revoked_at IS NULL RETURNING id`, and return 401 when no row comes back. That gives immediate revoke without serialising every deploy report (AC3). Add a concurrency test: two parallel POSTs with 1 active key leave exactly 2 active, and one gets 409.
+- **R3 / R8, routes.** Use `require_permission("admin:*", errors=…)` on POST, GET and DELETE. Add the three routes to `BEARER` with value `"admin:*"`. Add an empty `DEPLOYER_CREDENTIAL = set()` and assert that no production route depends on `current_deployer`; ADM-036 fills it in.
+- **Tests for `current_deployer`.** Test it with a throwaway FastAPI app or router built inside the test module. Cover: missing header, malformed, `mmak_` key, admin JWT, unknown `key_id`, wrong secret, revoked. All must return the same 401 body and `WWW-Authenticate: Bearer realm="deployer"`.
+- **The reverse direction of AC4.** Add tests that an `mmdk_` key gets 401 on an admin Bearer route (JWT decode fails), on `PUT …/manifest`, and on a cookie route.
+- **R4 / R11, audit and logs.** `deployer_credential.issued` records only `key_id`; `revoked` records `revoked_at`. Add new `AuditAction` and `AuditTarget.DEPLOYER_CREDENTIAL` values. Failed authentications log at info with the reason and `key_id` only, and write no audit row, so unauthenticated callers cannot flood the audit log. Add a test that the raw value appears in no audit row and no `caplog` record.
+- **R5 / R6, responses.** POST takes no body (or `extra="forbid"`) and returns 201 with `Cache-Control: no-store` and `Pragma: no-cache`. The issued-key schema is separate from the list schema, and neither contains `secret_hash`. `__repr__` leaves out the hash. DELETE returns 204; a second DELETE is a 204 no-op with no audit row; an unknown id returns 404. A 3rd active key returns 409 with `details[0].reason="credential_limit"`.
+- **R2, migration.** Mirror the CHECKs of `app_credentials` (`key_id_format`, `secret_hash_length = 32`), a UNIQUE `key_id`, a partial index on `revoked_at IS NULL`, `created_by` FK with `ON DELETE SET NULL`, all `timestamptz`, and a tested `downgrade()`.
+- **`docs/deploy.md`.** Document rotation in this order: issue the 2nd key, update `MMLABS_DEPLOYER_CREDENTIAL`, confirm `last_used_at` on the new key, then revoke the old one. Never paste the value into tickets or logs.
+
+### Risks
+- **Leaked `mmdk_` key (Medium once ADM-036 lands; none in ADM-035, because no route accepts it yet).** It could forge deploy status for any app. Revoke, `last_used_at` and audit are the mitigations.
+- **`last_used_at` may not move on failed requests.** If a later 409/422 rolls back the transaction, the touch rolls back with it. That matches app credentials, but it should be stated in the docs.
+- **Timing difference between unknown `key_id` and wrong secret.** Not exploitable: `key_id` is 64 random bits and is not a secret. Informational only.
+
+### Open questions
+1. **Who updates `CLAUDE.md` and D28?** ADR §12 says "the first implementing ticket" updates the R3 class 4 text and D28. Is that ADM-035, which adds the key type, or ADM-036 / the app-credential scope ticket, which adds the routes? If ADM-035, it touches `CLAUDE.md`, so plan for that.
+2. **Where should the codec live?** Option A: a shared `app/core/` module, which is a High path. Option B: deployer code imports from `app_credentials.codec`. Option B avoids the extra High-path gate; the planner should pick one.
+3. **Should `current_deployer` take the advisory lock when touching `last_used_at`?** I recommend no: the conditional UPDATE is enough.
