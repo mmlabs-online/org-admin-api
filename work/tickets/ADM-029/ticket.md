@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BLOCKED |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | M |
 | Areas | api, auth, db |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-20T02:31Z |
 | PR | — |
 
 ## Goal
@@ -44,8 +44,7 @@ Staff see every app's bug reports in admin-pan and mark a report done (recording
 - API tests per criterion; audit row assertions.
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval (High tier) — batch 2026-11-19-3, blocking questions 1–7.
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-19-3); questions 1–7 per the defaults in plan.md — "duyệt; câu 1–7 theo mặc định".
 
 ## Handoff
 ### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-3)
