@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | db, auth, security |
@@ -42,6 +42,7 @@ The deployment repo gets its own machine key, able only to report deploy results
 - API and dependency tests; migration round-trip.
 
 ## Notes / answers from Ming
+- 2026-11-20 (Ming, chat): "merge cho tôi #85" — explicit owner instruction to merge this High-tier PR; merged by claude (CI red only on the pre-existing kit lint).
 - 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
