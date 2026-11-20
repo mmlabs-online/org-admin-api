@@ -19,6 +19,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.email_verification import VERIFY, VERIFY_TTL
 from app.modules.auth.password_reset import RESET, RESET_TTL
 from app.modules.auth.repository import EmailTokenRepository
+from app.modules.bug_reports.models import BugReport
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role
@@ -228,6 +229,18 @@ async def _ent_update(s: AsyncSession) -> Call:
 async def _ent_revoke(s: AsyncSession) -> Call:
     org_id, ent_id = await _ent_row(s)
     return f"{V1}/organizations/{org_id}/entitlements/{ent_id}", None
+
+
+async def _bug_done(s: AsyncSession) -> Call:
+    app, user = await make_app(s, _key()), await make_user(s)
+    report = BugReport(app_id=app.id, user_id=user.id, description="broken")
+    s.add(report)
+    await s.flush()
+    return f"{V1}/bug-reports/{report.id}", {"status": "done"}
+
+
+async def _bug_unknown(s: AsyncSession) -> Call:
+    return f"{V1}/bug-reports/{uuid.uuid4()}", {"status": "done"}
 
 
 # --- failure scenarios (404 unknown id/key, 409 duplicate) -------------------
@@ -454,6 +467,12 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _ent_unknown_revoke,
         404,
     ),
+    ("PATCH", f"{V1}/bug-reports/{{report_id}}"): (
+        {"bug_report.marked_done", "bug_report.reopened", "bug_report.note_updated"},
+        _bug_done,
+        _bug_unknown,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
 _SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated resource
@@ -486,7 +505,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 26
+    assert len(AUDITED) == 27
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")

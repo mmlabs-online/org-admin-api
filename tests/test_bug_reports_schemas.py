@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from app.modules.bug_reports import text
 from app.modules.bug_reports.models import BugReport
-from app.modules.bug_reports.schemas import BugReportCreate
+from app.modules.bug_reports.schemas import BugReportCreate, BugReportUpdate
 
 # The CHECK text of `ck_bug_reports_page_url_reduced`, translated to Python `re`.
 _DB_URL = re.compile(r"^https?://[^/?#@\s]+/[^?#\s]*$")
@@ -89,3 +89,46 @@ def test_create_schema_forbids_extra_fields(field: str) -> None:
         BugReportCreate.model_validate(
             {"account_id": str(uuid.uuid4()), "description": "x", field: "y"}
         )
+
+
+# --- ADM-029: staff update ----------------------------------------------------
+
+
+def test_update_requires_a_field() -> None:
+    with pytest.raises(ValidationError):
+        BugReportUpdate.model_validate({})
+
+
+def test_update_status_null_422() -> None:
+    with pytest.raises(ValidationError):
+        BugReportUpdate.model_validate({"status": None})
+
+
+def test_update_note_null_means_clear() -> None:
+    update = BugReportUpdate.model_validate({"resolution_note": None})
+    assert update.resolution_note is None
+    assert "resolution_note" in update.model_fields_set
+
+
+@pytest.mark.parametrize("value", ["", "   \n"])
+def test_update_note_blank_rejected(value: str) -> None:
+    with pytest.raises(ValidationError):
+        BugReportUpdate.model_validate({"resolution_note": value})
+
+
+def test_update_note_strip_and_max() -> None:
+    assert BugReportUpdate.model_validate({"resolution_note": " ok \n"}).resolution_note == "ok"
+    assert BugReportUpdate.model_validate({"resolution_note": "x" * 5000})
+    with pytest.raises(ValidationError):
+        BugReportUpdate.model_validate({"resolution_note": "x" * 5001})
+
+
+def test_update_note_control_chars_rejected() -> None:
+    with pytest.raises(ValidationError):
+        BugReportUpdate.model_validate({"resolution_note": "a\x00b"})
+
+
+@pytest.mark.parametrize("field", ["handled_by", "handled_at"])
+def test_update_extra_field_rejected(field: str) -> None:
+    with pytest.raises(ValidationError):
+        BugReportUpdate.model_validate({"status": "done", field: str(uuid.uuid4())})

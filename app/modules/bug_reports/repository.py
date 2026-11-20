@@ -1,11 +1,16 @@
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
-from sqlalchemy import func, literal, select
+from sqlalchemy import ColumnElement, func, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from app.db.base import bumped_updated_at
 from app.modules.bug_reports.models import BugReport, BugReportStatus
+from app.modules.rbac.models import App
+from app.modules.users.models import User
 
 
 @dataclass(frozen=True)
@@ -56,3 +61,143 @@ class BugReportRepository:
         await self.session.flush()
         await self.session.refresh(report, ["created_at"])
         return report
+
+
+@dataclass(frozen=True)
+class ListFilter:
+    app_key: str | None = None
+    status: str | None = None
+    reporter_id: uuid.UUID | None = None
+    created_from: datetime | None = None  # inclusive
+    created_to: datetime | None = None  # exclusive
+
+
+@dataclass(frozen=True)
+class BugReportView:
+    """Plain values for the router. `description` is the 200-character preview in lists."""
+
+    id: uuid.UUID
+    app_key: str
+    org_id: uuid.UUID | None
+    status: str
+    reporter_id: uuid.UUID
+    reporter_email: str
+    reporter_display_name: str | None
+    description: str
+    page_url: str | None
+    app_version: str | None
+    user_agent: str | None
+    resolution_note: str | None
+    handler_id: uuid.UUID | None
+    handler_display_name: str | None
+    handled_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+PREVIEW_LENGTH = 200
+_REPORTER = aliased(User)
+_HANDLER = aliased(User)
+
+
+def _select(description: Any) -> Any:
+    return (
+        select(
+            BugReport.id,
+            App.key,
+            BugReport.org_id,
+            BugReport.status,
+            _REPORTER.id,
+            _REPORTER.email,
+            _REPORTER.display_name,
+            description,
+            BugReport.page_url,
+            BugReport.app_version,
+            BugReport.user_agent,
+            BugReport.resolution_note,
+            _HANDLER.id,
+            _HANDLER.display_name,
+            BugReport.handled_at,
+            BugReport.created_at,
+            BugReport.updated_at,
+        )
+        .join(App, App.id == BugReport.app_id)
+        .join(_REPORTER, _REPORTER.id == BugReport.user_id)
+        .outerjoin(_HANDLER, _HANDLER.id == BugReport.handled_by)
+    )
+
+
+def _where(f: ListFilter) -> list[ColumnElement[bool]]:
+    conds: list[ColumnElement[bool]] = []
+    if f.app_key is not None:
+        conds.append(App.key == f.app_key)
+    if f.status is not None:
+        conds.append(BugReport.status == f.status)
+    if f.reporter_id is not None:
+        conds.append(BugReport.user_id == f.reporter_id)
+    if f.created_from is not None:
+        conds.append(BugReport.created_at >= f.created_from)
+    if f.created_to is not None:
+        conds.append(BugReport.created_at < f.created_to)
+    return conds
+
+
+def _view(row: Any) -> BugReportView:
+    return BugReportView(*row)
+
+
+class BugReportStaffRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def page(
+        self, f: ListFilter, *, limit: int, offset: int
+    ) -> tuple[list[BugReportView], int]:
+        where = _where(f)
+        rows = await self.session.execute(
+            _select(func.left(BugReport.description, PREVIEW_LENGTH))
+            .where(*where)
+            .order_by(BugReport.created_at.desc(), BugReport.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(BugReport)
+            .join(App, App.id == BugReport.app_id)
+            .where(*where)
+        )
+        return [_view(r) for r in rows.all()], int(total or 0)
+
+    async def get_view(self, report_id: uuid.UUID) -> BugReportView | None:
+        row = (
+            await self.session.execute(
+                _select(BugReport.description)
+                .where(BugReport.id == report_id)
+                .execution_options(populate_existing=True)
+            )
+        ).first()
+        return None if row is None else _view(row)
+
+    async def get_for_update(self, report_id: uuid.UUID) -> BugReport | None:
+        """FOR NO KEY UPDATE: serializes staff writes, does not block FK KEY SHARE locks."""
+        return await self.session.scalar(
+            select(BugReport)
+            .where(BugReport.id == report_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+
+    async def apply(self, report_id: uuid.UUID, values: dict[str, Any]) -> None:
+        """One UPDATE, so status, handler and `handled_at` change together (CHECKs)."""
+        await self.session.execute(
+            update(BugReport)
+            .where(BugReport.id == report_id)
+            .values(**values, updated_at=bumped_updated_at(BugReport.updated_at))
+            .execution_options(synchronize_session=False)
+        )
+
+    async def app_key(self, app_id: uuid.UUID) -> str:
+        key = await self.session.scalar(select(App.key).where(App.id == app_id))
+        assert key is not None  # noqa: S101 (FK RESTRICT)
+        return key
