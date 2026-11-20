@@ -6,8 +6,8 @@
 | Priority | P2 |
 | Size | S |
 | Areas | db, api |
-| Gate | none |
-| Depends on | ADM-028, ADM-033, ADM-036 |
+| Gate | plan-approval |
+| Depends on | ADM-028, ADM-029, ADM-033, ADM-036 |
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
@@ -18,13 +18,13 @@
 Staff see, next to an end-user bug report, the release the user was running: version, deploy time, changes and deployment PR.
 
 ## Scope reference
-`docs/spec-v1.md` §5.13 "Bug reports carry the release" (owner, 2026-11-19) and §5.12 (release link line); ADR-0018.
+`docs/spec-v1.md` §5.12 "Link to the release the user ran" (owner, 2026-11-19; `release_match` reported | inferred | none), §5.13, OQ50; ADR-0018.
 
 ## Scope
 - On submit (§5.12 cookie route): environment from the validated `Origin` (`staging-<app>.mmlabs.online` → `staging`, else `production`), never from the body.
-- Matching in order: (a) the app version sent by the app → `app_releases` (app, environment, version) → `release_match = reported`; (b) no or unknown version → the `deployed` release with the latest `last_deployed_at` for (app, environment) → `inferred`; (c) none → no link, `none`. Never reject a report for this.
+- Matching in order: (a) the app version sent by the app → `app_releases` (app, environment, version) → `release_match = reported`; (b) no or unknown version → the `deployed` release with the latest `deployed_at` for (app, environment) → `inferred`; (c) none → no link, `none`. Never reject a report for this.
 - Store on the report: version string as sent (capped), `release_id` (nullable FK, `ON DELETE SET NULL`), `release_match`; migration with a working `downgrade()` (R2).
-- Staff report list/detail (`admin:bug-reports:read`): linked release summary (version, environment, status, `last_deployed_at`, deployment PR) and `release_match`; list filters by release and by version.
+- Staff report list/detail (`admin:bug-reports:read`): linked release summary (version, environment, status, `deployed_at`, deployment PR) and `release_match`; list filters by release and by version.
 - Release detail (`admin:*`, ADM-033): count of linked reports (open / done).
 - Audit unchanged: `bug_report.created` ids and counts only (may add the release id).
 
@@ -45,5 +45,6 @@ Staff see, next to an end-user bug report, the release the user was running: ver
 - API tests per criterion; migration round-trip.
 
 ## Notes / answers from Ming
+- 2026-11-19 (orchestrator): adopted from the parallel draft (commit ea8ce4b). Environment taken from the validated `Origin` replaces the OQ50 default (version format → environment); confirm at the plan gate. Store-at-submit vs compute-at-read stays a PLAN choice (spec §5.12).
 
 ## Handoff

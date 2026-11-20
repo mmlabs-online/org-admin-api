@@ -22,7 +22,7 @@ After the health check, the deploy workflow records whether a release deployed o
 
 ## Scope
 - `…/apps/{key}/releases/{environment}/{version}/deployment` (PUT or PATCH — PLAN decides; upsert semantics), deployer key only, any app incl. disabled (unknown app → 404).
-- Transitions: pending → deployed|failed; failed → deployed (redeploy); failed → failed updates the run URL; deployed → deployed = 200, refreshes `last_deployed_at` and `deploy_run_url` only (a redeploy or rollback), no audit row, `deployed_at` keeps the first deploy (OQ40, owner 2026-11-19); pending/failed → deployed sets both `deployed_at` and `last_deployed_at`; deployed → failed → 409 `release_already_deployed` (or the code PLAN fixes).
+- Transitions: pending → deployed|failed; failed → deployed (redeploy); failed → failed updates the run URL; deployed → deployed with the same run URL = no-op 200, with a different run URL = redeploy/rollback (update `deployed_at` and URL, audited); deployed → failed → 409 `release_already_deployed` (or the code PLAN fixes).
 - Missing record → create it from the report (status, `deployed_at`, `deploy_run_url`; `created_via='deployer'`), 201.
 - `deployed_at` rules (required with deployed; ≤ 5 min in the future, ≤ 30 days in the past); body cap; per-IP rate limit; no CORS; audit per real change (SystemActor `deployer:<key_id>`).
 
