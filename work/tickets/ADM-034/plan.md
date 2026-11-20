@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > BLOCKED only on owner choices Q1–Q6 below. Each has a default, and the plan is written for those defaults. When Ming approves the plan (the High-path gate) with the defaults, or with answers that do not change the file list, it becomes READY with no re-plan. A different answer to Q1 or Q4 changes the steps listed in that question.
 

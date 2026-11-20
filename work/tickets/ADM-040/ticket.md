@@ -29,5 +29,6 @@ Staff give one user more (or less) of a metric — raise or lower the per-period
 - [ ] Reason required (422 without); audit rows; 401/403/404 tests.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-20, batch 2026-11-20-2) — Ming: "câu 1–28 theo mặc định /run-batch --resume" (all batch questions answered with defaults; resume to BUILD taken as plan approval).
 
 ## Handoff

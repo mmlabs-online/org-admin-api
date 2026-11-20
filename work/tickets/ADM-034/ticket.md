@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api, auth, security |
@@ -45,5 +45,6 @@ Each app's release workflow records its release right after opening the deployme
 - API tests per criterion; route-class tests; migration round-trip.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-20, batch 2026-11-20-2) — Ming: "câu 1–28 theo mặc định /run-batch --resume" (all batch questions answered with defaults; resume to BUILD taken as plan approval).
 
 ## Handoff

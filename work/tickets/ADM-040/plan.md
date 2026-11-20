@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > The plan below is complete, assuming every default in **Blocking questions** is accepted. If Ming answers "defaults" (or
 > "đồng ý mặc định"), it becomes `READY` with no other change. Any other answer changes only the rows named in that question.

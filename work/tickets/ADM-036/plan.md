@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > BLOCKED only on owner choices Q1–Q11 below. Each has a default, and the plan is written for those defaults. When
 > Ming approves the plan (High-path gate: `app/core/**`, `.env.example`) with the defaults, or with answers that do
