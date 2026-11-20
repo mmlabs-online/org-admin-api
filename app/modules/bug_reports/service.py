@@ -162,8 +162,12 @@ class BugReportSubmitService:
 
 
 MAX_ATTACHMENTS_PER_REPORT = 5
-MAX_INFLIGHT_UPLOADS = 8  # 8 x 5 MB worst-case buffering
+# 8 x 5 MB worst-case buffering. The Drive store runs at most 4 uploads at once (drive.py
+# `_MAX_CONCURRENT_UPLOADS`), so up to 4 admitted uploads can wait for a Drive slot while holding
+# their buffer; the overall deadline below bounds that wait.
+MAX_INFLIGHT_UPLOADS = 8
 READ_DEADLINE_SECONDS = 30.0
+STORE_DEADLINE_SECONDS = 60.0  # whole `store.create`, queueing for the Drive slot included
 _RETRYABLE = frozenset({DriveErrorCode.UNAVAILABLE, DriveErrorCode.RATE_LIMITED})
 
 
@@ -172,8 +176,8 @@ class BugReportAttachmentService:
 
     Two transactions: the checks run in tx 1, which is committed before the slow body read and
     Drive call (so no connection or row lock is held); the row and its audit entry are written in
-    tx 2 after Drive accepted the file. `committed` tells the router tx 1 is durable (a rotated
-    device cookie must then be sent even on an error)."""
+    tx 2 after Drive accepted the file. The device cookie is resolved without rotation, so no
+    error path has a cookie to carry."""
 
     def __init__(
         self,
@@ -195,7 +199,6 @@ class BugReportAttachmentService:
         self.read_deadline_seconds = read_deadline_seconds
         self.repo = BugReportAttachmentRepository(session)
         self.audit = AuditLogger(session)
-        self.committed = False
 
     async def upload(
         self,
@@ -237,7 +240,6 @@ class BugReportAttachmentService:
             raise UnsupportedMediaTypeError("Unsupported media type")
 
         await self.repo.commit()
-        self.committed = True
 
         if self.slots.locked():
             raise AttachmentUploadBusyError
@@ -270,15 +272,18 @@ class BugReportAttachmentService:
     ) -> str:
         code: DriveErrorCode | None = None
         try:
-            return await self.store.create(
-                app_key=app_key,
-                report_id=report_id,
-                attachment_id=attachment_id,
-                content_type=kind,
-                data=data,
-            )
+            async with asyncio.timeout(STORE_DEADLINE_SECONDS):
+                return await self.store.create(
+                    app_key=app_key,
+                    report_id=report_id,
+                    attachment_id=attachment_id,
+                    content_type=kind,
+                    data=data,
+                )
         except DriveError as exc:
             code = exc.code
+        except TimeoutError:
+            code = DriveErrorCode.UNAVAILABLE
         logger.warning(
             "bug_report_attachment_drive_failed report_id=%s attachment_id=%s code=%s",
             report_id,

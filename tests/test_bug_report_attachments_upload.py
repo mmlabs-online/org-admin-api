@@ -536,27 +536,75 @@ async def test_upload_report_closed_between_check_and_insert(make_world: MakeWor
         assert await w.rows() == []
 
 
-async def test_upload_rotated_cookie_survives_post_commit_error(make_world: MakeWorld) -> None:
+async def _device_row(w: World) -> tuple[bytes, bytes | None]:
+    row = (
+        await w.db.execute(
+            text("SELECT token_hash, prev_token_hash FROM device_sessions WHERE id = :i"),
+            {"i": w.device_id},
+        )
+    ).one()
+    await w.db.rollback()
+    return row[0], row[1]
+
+
+async def test_upload_never_rotates_cookie(make_world: MakeWorld) -> None:
     async with make_world() as w:
         await shift(w.db, "device_sessions", "rotated_at", w.device_id, "-25 hours")
         await w.db.commit()
+        before = await _device_row(w)
+        ok = await w.upload()
+        assert ok.status_code == 201
+        assert "set-cookie" not in ok.headers
         w.fake.queue("create", 503)
         failed = await w.upload()
         assert failed.status_code == 503
-        morsel = parse_set_cookie(failed)
-        assert morsel is not None and morsel.value != w.raw
-        assert "httponly" in failed.headers["set-cookie"].lower()
-        again = await w.upload(raw=morsel.value)
-        assert again.status_code == 201  # the new value works
+        assert "set-cookie" not in failed.headers
+        assert await _device_row(w) == before
+        assert (await w.upload()).status_code == 201  # the same value keeps working
 
 
-async def test_upload_error_before_commit_sets_no_cookie(make_world: MakeWorld) -> None:
+async def test_other_cookie_route_still_rotates(make_world: MakeWorld) -> None:
     async with make_world() as w:
         await shift(w.db, "device_sessions", "rotated_at", w.device_id, "-25 hours")
         await w.db.commit()
-        resp = await w.upload(report_id=uuid.uuid4())  # denied in tx 1: the rotation rolls back
-        assert resp.status_code == 403
-        assert parse_set_cookie(resp) is None
+        resp = await w.client.get(
+            "/api/v1/auth/accounts", headers=auth_headers("ricotdin", ORIGIN, w.raw)
+        )
+        assert resp.status_code == 200
+        morsel = parse_set_cookie(resp)
+        assert morsel is not None and morsel.value != w.raw
+
+
+async def test_upload_still_validates_device_session(make_world: MakeWorld) -> None:
+    async with make_world() as w:
+        await w.db.execute(
+            text("UPDATE device_sessions SET revoked_at = now() WHERE id = :i"),
+            {"i": w.device_id},
+        )
+        await w.db.commit()
+        resp = await w.upload()
+        assert resp.status_code == 401
+        assert w.fake.count("create") == 0
+
+
+async def test_upload_store_deadline_503_and_frees_slot(
+    make_world: MakeWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.modules.bug_reports.service.STORE_DEADLINE_SECONDS", 0.2)
+    async with make_world() as w:
+        slots = w.app.state.attachment_upload_slots
+        before = slots._value
+
+        async def hang(self: Any, app_key: str) -> str:
+            await asyncio.sleep(30)
+            return "never"
+
+        monkeypatch.setattr(GoogleDriveStore, "ensure_app_folder", hang)
+        resp = await asyncio.wait_for(w.upload(), 5)
+        assert resp.status_code == 503
+        assert _error(resp)["code"] == "attachment_storage_unavailable"
+        assert slots._value == before
+        assert await w.rows() == []
 
 
 # --- no leaks ------------------------------------------------------------------------------------

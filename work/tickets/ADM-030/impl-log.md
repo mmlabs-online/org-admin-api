@@ -55,3 +55,29 @@ Postgres via `service postgresql start`; fake Drive only, no network.
 ### Scope self-check
 - Could the diff be smaller? No: every file is in the plan or listed above.
 - Diff size: see `git diff --stat` of the commit.
+
+## Attempt 2 (REWORK, security-review attempt 1, two yellow findings) — 2026-11-20
+
+### Files touched
+- `app/modules/sessions/service.py` — `resolve(allow_rotate=True)`; `False` validates and touches but never rotates (reuse check unchanged). Required by finding 1.
+- `app/modules/auth/deps.py` — `_resolve_device` shared helper, `get_device` unchanged in behaviour, new `DeviceNoRotateDep`. Required by finding 1.
+- `app/modules/bug_reports/auth_router.py` — upload uses `DeviceNoRotateDep`; Set-Cookie-on-error plumbing removed.
+- `app/modules/bug_reports/service.py` — `STORE_DEADLINE_SECONDS = 60.0` around `store.create` (TimeoutError -> `AttachmentStorageUnavailableError(retryable=True)`, logged `code=unavailable`); `committed` removed; comment documenting 8 admitted vs 4 Drive-concurrent uploads (gap documented, constant not changed).
+- `docs/adr/0023-*.md` — §4, §11, residual-risk bullet removed.
+- `tests/test_bug_report_attachments_upload.py` — replaced the two rotation tests with: no rotation on upload (ok and 503, DB hashes unchanged), other cookie route still rotates, revoked session -> 401, store deadline -> 503 within patched 0.2 s and slot freed.
+
+### Checks
+- ruff check: All checks passed!
+- ruff format --check: 373 files already formatted
+- make typecheck: Success: no issues found in 191 source files
+- alembic check: No new upgrade operations detected.
+- make test: 3440 passed, 1 warning in 519.98s
+
+### Out-of-plan files
+- sessions service, auth deps (High paths): approved by Ming for this rework.
+
+### Follow-ups
+- none
+
+### Scope self-check
+- Only the two findings and the ADR wording were changed.

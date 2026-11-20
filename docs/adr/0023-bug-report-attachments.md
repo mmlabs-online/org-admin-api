@@ -28,8 +28,11 @@ ticket (ADM-030b): until then `attachments-sweep --apply` stays refused (fail-cl
    alone sees 403 `attachment_upload_closed` with `details.reason` `report_done` or
    `window_expired`. The 6th file is 409 `attachment_limit_reached` (`details.limit` 5).
 4. **Write order, two transactions.** Tx 1 resolves the reporter, counts the per-user hit, runs
-   every check above and commits (this also makes a rotated device cookie durable, so an error
-   after this point still carries `Set-Cookie`). The body is then read (a global slot semaphore of
+   every check above and commits. The device cookie is resolved without rotation on this route
+   only (`DeviceNoRotateDep`; it still validates and touches the session and the reuse check is
+   unchanged), so no response of this route carries `Set-Cookie` and a failure after the commit
+   cannot lose a rotated value; the next request on any other cookie route rotates as usual. The
+   body is then read (a global slot semaphore of
    8 bounds buffering; no free slot is 429 `attachment_upload_busy`, `Retry-After: 5`), sniffed,
    and created in Drive (never retried). Tx 2 locks the report `FOR NO KEY UPDATE` (serializes
    uploads of one report without blocking FK `KEY SHARE`), re-checks status and count, inserts the
@@ -63,7 +66,12 @@ ticket (ADM-030b): until then `attachments-sweep --apply` stays refused (fail-cl
 11. **Drive deadlines (ADM-027 review finding 1, here because this is the first user-facing use).**
     One Drive call, retries and backoff included, is bounded to 45 s; a token refresh, which holds
     the lock, to 20 s; a streamed body to 60 s; `expires_in` is clamped to 0..3600 and a
-    non-finite value is `unavailable`. All map to `DriveError(unavailable)`.
+    non-finite value is `unavailable`. All map to `DriveError(unavailable)`. The upload service adds
+    an overall 60 s deadline (`STORE_DEADLINE_SECONDS`) around `store.create`, queueing for the
+    Drive upload slot and the app-folder lookup included; a timeout is 503
+    `attachment_storage_unavailable` (retryable), logged as `code=unavailable` with ids only, and
+    the upload slot is released. The Drive store allows 4 concurrent uploads while 8 uploads may be
+    admitted (8 x 5 MB buffering): up to 4 can wait for a Drive slot, bounded by that deadline.
 
 ## Known residual risks
 - A valid image header followed by HTML (polyglot) passes the magic-byte check; the download
@@ -71,9 +79,6 @@ ticket (ADM-030b): until then `attachments-sweep --apply` stays refused (fail-cl
   `<img src=blob:>` only and never navigate to the blob.
 - EXIF and other metadata are not stripped; no malware scan; the Drive quota is shared with other
   services (spec l.200, l.204-205).
-- A database error in tx 2 on the rare request that also rotated the device cookie returns no
-  `Set-Cookie`; the client then reuses the old value after the 60 s grace, which revokes the
-  device session (ADR-0004).
 
 ## Consequences
 - Slice 2 (ADM-030b) wires the sweep to these rows. ADM-031 sets `file_deleted_at` and deletes

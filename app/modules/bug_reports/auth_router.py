@@ -11,11 +11,10 @@ from starlette.requests import ClientDisconnect
 
 from app.api.deps import SessionDep
 from app.core.config import Settings
-from app.core.errors import AppError
 from app.core.rate_limit import RateLimit, RateLimiter, rate_limit
 from app.modules.audit.deps import AuditContextDep
 from app.modules.auth.cookies import set_device_cookie
-from app.modules.auth.deps import DeviceDep
+from app.modules.auth.deps import DeviceDep, DeviceNoRotateDep
 from app.modules.auth.router import DeviceCookieDoc
 from app.modules.bug_reports.deps import ReportAppContextDep
 from app.modules.bug_reports.errors import AttachmentIncompleteError
@@ -123,7 +122,7 @@ async def upload_bug_report_attachment(
     _cookie: DeviceCookieDoc,
     report_id: uuid.UUID,
     account_id: uuid.UUID,
-    device: DeviceDep,
+    device: DeviceNoRotateDep,
     ctx: AuditContextDep,
 ) -> BugReportAttachmentRead:
     """The reporter adds one image (PNG, JPEG, WebP or GIF, at most 5 MB, at most 5 per report)
@@ -141,33 +140,15 @@ async def upload_bug_report_attachment(
         ),
         window_seconds=settings.bug_report_attachment_window_seconds,
     )
-    failure: AppError | None = None
-    created: BugReportAttachmentRead | None = None
-    try:
-        created = await service.upload(
-            app,
-            device,
-            account_id,
-            report_id,
-            content_type=request.headers.get("content-type"),
-            content_length=request.headers.get("content-length"),
-            chunks=_stream(request),
-            ctx=ctx,
-        )
-    except AppError as exc:
-        failure = exc
-    if failure is not None:
-        # The rotation was committed with the checks: do not lose the new cookie (ADR-0004).
-        if service.committed and device.new_cookie is not None:
-            scratch = Response()
-            set_device_cookie(scratch, device.new_cookie, settings)
-            failure.headers = {
-                **(failure.headers or {}),
-                "Set-Cookie": scratch.headers["set-cookie"],
-            }
-        raise failure
-    assert created is not None  # noqa: S101
-    if device.new_cookie is not None:
-        set_device_cookie(response, device.new_cookie, settings)
+    created = await service.upload(
+        app,
+        device,
+        account_id,
+        report_id,
+        content_type=request.headers.get("content-type"),
+        content_length=request.headers.get("content-length"),
+        chunks=_stream(request),
+        ctx=ctx,
+    )
     response.headers["Cache-Control"] = "no-store"
     return created
