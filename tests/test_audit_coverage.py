@@ -36,6 +36,7 @@ from tests.auth_factories import (
     sha256,
 )
 from tests.conftest import MakeClient
+from tests.deployer_credential_factories import make_deployer_credential
 from tests.invitation_factories import make_invitation
 from tests.join_request_factories import make_approval_app, make_join_request
 from tests.rbac_factories import (
@@ -191,6 +192,25 @@ async def _cred_revoke(s: AsyncSession) -> Call:
     app = await _app(s)
     cred, _ = await make_credential(s, app)
     return f"{V1}/apps/{app.key}/credentials/{cred.id}", None
+
+
+async def _deployer_issue(s: AsyncSession) -> Call:
+    return f"{V1}/deployer-credentials", None
+
+
+async def _deployer_issue_at_limit(s: AsyncSession) -> Call:
+    for _ in range(2):
+        await make_deployer_credential(s)
+    return f"{V1}/deployer-credentials", None
+
+
+async def _deployer_revoke(s: AsyncSession) -> Call:
+    row, _ = await make_deployer_credential(s)
+    return f"{V1}/deployer-credentials/{row.id}", None
+
+
+async def _deployer_revoke_unknown(s: AsyncSession) -> Call:
+    return f"{V1}/deployer-credentials/{uuid.uuid4()}", None
 
 
 async def _jr_pending(s: AsyncSession) -> tuple[str, uuid.UUID]:
@@ -381,6 +401,7 @@ APP, PERMS, ROLES = (
     f"{V1}/apps/{{key}}/roles",
 )
 CREDS = f"{V1}/apps/{{key}}/credentials"
+DEPLOYER = f"{V1}/deployer-credentials"
 JREQ = f"{V1}/apps/{{key}}/join-requests"
 ENT = f"{V1}/organizations/{{org_id}}/entitlements"
 
@@ -452,6 +473,18 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _cred_revoke_unknown,
         404,
     ),
+    ("POST", DEPLOYER): (
+        {"deployer_credential.issued"},
+        _deployer_issue,
+        _deployer_issue_at_limit,
+        409,
+    ),
+    ("DELETE", f"{DEPLOYER}/{{credential_id}}"): (
+        {"deployer_credential.revoked"},
+        _deployer_revoke,
+        _deployer_revoke_unknown,
+        404,
+    ),
     ("POST", f"{JREQ}/{{request_id}}/approve"): (
         {"app.join_request_approved"},
         _jr_approve,
@@ -521,7 +554,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 28
+    assert len(AUDITED) == 30
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")

@@ -5,6 +5,7 @@ from app.modules.app_credentials.models import AppCredential
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import EmailSendLog, EmailToken, LoginFailure
 from app.modules.bug_reports.models import BugReport
+from app.modules.deployer_credentials.models import DeployerCredential
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.invitations.models import OrgInvitation
 from app.modules.join_requests.models import AppJoinRequest
@@ -23,6 +24,7 @@ __all__ = [
     "AuditLog",
     "Base",
     "BugReport",
+    "DeployerCredential",
     "DeviceSession",
     "EmailSendLog",
     "EmailToken",
