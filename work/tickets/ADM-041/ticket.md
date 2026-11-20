@@ -29,8 +29,7 @@ Record how app backends call this API for usage: new scopes on the scoped app-cr
 - [ ] No code change in this ticket (docs only).
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval — batch 2026-11-20-1, questions 1, 21–27.
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1, 21–27, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
 ### 2026-11-20 — claude — BLOCKED (waiting plan approval, batch 2026-11-20-1)

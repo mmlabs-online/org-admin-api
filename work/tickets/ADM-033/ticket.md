@@ -43,8 +43,7 @@ The owner sees in admin-pan every app's releases (production and staging): what,
 - API tests per criterion; migration round-trip.
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval — batch 2026-11-20-1, questions 9–12.
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1, 9–12, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
 ### 2026-11-20 — claude — BLOCKED (waiting plan approval, batch 2026-11-20-1)

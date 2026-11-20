@@ -42,8 +42,7 @@ The deployment repo gets its own machine key, able only to report deploy results
 - API and dependency tests; migration round-trip.
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval — batch 2026-11-20-1, questions — (none).
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
 ### 2026-11-20 — claude — BLOCKED (waiting plan approval, batch 2026-11-20-1)

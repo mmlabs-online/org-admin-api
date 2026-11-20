@@ -32,8 +32,7 @@ Staff configure, per app, the AI usage metrics (e.g. ricotdin chat turns, speech
 - [ ] Migration round-trip; `alembic check` clean.
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval — batch 2026-11-20-1, questions 13–20.
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 13–20, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
 ### 2026-11-20 — claude — BLOCKED (waiting plan approval, batch 2026-11-20-1)

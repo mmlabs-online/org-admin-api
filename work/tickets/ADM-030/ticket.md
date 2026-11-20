@@ -46,8 +46,7 @@ Users attach screenshots/images to a bug report from the app; staff view them in
 - API tests with the fake Drive; magic-byte fixtures; header assertions.
 
 ## Notes / answers from Ming
-
-Waiting for Ming: plan approval — batch 2026-11-20-1, questions 2–8.
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1–8, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
 ### 2026-11-20 — claude — BLOCKED (waiting plan approval, batch 2026-11-20-1)
