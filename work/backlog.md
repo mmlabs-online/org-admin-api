@@ -100,7 +100,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-30 | Org owners remove a member's org roles from the app (requested by simap) | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-20 |
 | ADM-039 | Usage metrics, defaults and periods (staff config) | BLOCKED | P2 | db, api, auth | 0 | 2026-11-20 |
 | ADM-040 | Per-user usage limit overrides (staff) | BACKLOG | P2 | db, api | 0 | 2026-11-20 |
-| ADM-041 | Usage key scopes (ADR-0022, amends ADR-0021) | IN_PROGRESS | P2 | architecture, auth, security | 0 | 2026-11-20 |
+| ADM-041 | Usage key scopes (ADR-0022, amends ADR-0021) | DONE | P2 | architecture, auth, security | 0 | 2026-11-20 |
 | ADM-042 | Usage consume, refund and current-usage read for app backends | BACKLOG | P2 | db, api, auth, security | 0 | 2026-11-20 |
 | ADM-043 | Staff usage reads | BACKLOG | P3 | api | 0 | 2026-11-20 |
 | ADM-044 | App-admin usage actions through limits:write with on_behalf_of | BACKLOG | P3 | auth, api, security | 0 | 2026-11-20 |

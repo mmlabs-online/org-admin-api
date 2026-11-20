@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-20 |
-| Claimed by | claude@2026-11-20T06:36Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/83 |
 
 ## Goal
 Record how app backends call this API for usage: new scopes on the scoped app-credential mechanism, before any usage route exists.
@@ -37,3 +37,8 @@ Record how app backends call this API for usage: new scopes on the scoped app-cr
 - Done: consult, plan.md READY.
 - In progress / next: Ming answers batch questions + plan approval → `/run-batch --resume`.
 - Gotchas: all five batch tickets share migration head c4e8a2f7b916, app/db/models.py, audit/actions.py and registry tests — built sequentially on the single session branch, each rebases on the previous merge.
+### 2026-11-20 — claude — DONE (PR #83, waiting for Ming's merge)
+- Agent calls (build): 3, tokens ~148k (implementer×1 sonnet 38k, reviewer×1 sonnet 41k, appsec-engineer×1 68k). Ticket total incl. plan: 7 calls, ~358k.
+- Done: renumber solo (5a0ba90), ADR-0022, CLAUDE.md R3 class 4, D31, spec OQ61 note; review PASS; appsec no 🔴, 5 🟡 ADR clarifications listed in the PR for Ming. PR https://github.com/mmlabs-online/org-admin-api/pull/83.
+- In progress / next: Ming merges #83 (Medium); then ADM-033.
+- Gotchas: D30 row still missing (ADM-034 adds it).
