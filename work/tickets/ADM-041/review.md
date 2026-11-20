@@ -19,7 +19,7 @@ None blocking.
 No violations found. R3 class 4 text is consistent with tests/test_route_auth_classes.py: the only live app-credential route is `PUT /api/v1/apps/{key}/manifest` (line 247 asserts exactly that), and the text says manifest is live and releases/usage/limits routes arrive with ADM-034/042/044, which extend the registry. 401 / 403 `app_credential_mismatch` / `app_credential_scope` wording matches ADR-0021 §12. R7: no out-of-plan files.
 
 ### Blockers from review agents
-None (docs-only; no security-review.md required by this review).
+None — appsec-engineer attempt 1: PASS, no 🔴; five 🟡 should-fix ADR clarifications (security-review.md) listed for Ming.
 
 ### Nits (do not block)
 - The D30 row is absent from identity-architecture.md §8 (table goes D29 -> D31) while ADR-0021 and spec reference D30. Decision: follow-up, not a blocker. ADR-0021 §12 and ADM-034 ticket.md line 28 assign the D30 row to ADM-034, the plan said not to add it, and adding it here would be a scope change. The gap is explained by ADM-034.
