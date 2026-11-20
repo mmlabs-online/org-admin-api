@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-20T13:00Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/88 |
 
 ## Goal
 Each app's release workflow records its release right after opening the deployment PR, with a key that can do nothing else.
@@ -48,3 +48,9 @@ Each app's release workflow records its release right after opening the deployme
 - Plan approved (2026-11-20, batch 2026-11-20-2) — Ming: "câu 1–28 theo mặc định /run-batch --resume" (all batch questions answered with defaults; resume to BUILD taken as plan approval).
 
 ## Handoff
+
+### 2026-11-20 — claude — DONE
+- Agent calls: 8, tokens ~729k total (database-optimizer×1 51k, api-platform-engineer×1 48k, identity-access-engineer×1 61k, security-architect×1 69k, planner×1 opus 156k, implementer×1 sonnet 178k, reviewer×1 opus 82k, appsec-engineer×1 84k)
+- Done: scope column + migration 58a494f0449e, scope-aware auth, release PUT, docs (R3 4(a), R9, D30). Review PASS attempt 1; appsec PASS (4 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/88 (tier high).
+- In progress / next: Ming merges #88; then ADM-036 builds on it (reuses body helper, rules, upsert pair). M-2 ops todo added.
+- Gotchas: Postgres must be started after container restarts; `make check` lint fails only on kit file risk_tier.py.
