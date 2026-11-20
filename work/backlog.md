@@ -90,7 +90,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-030 | Bug reports: image attachments (upload from apps, download for staff) | BLOCKED | P2 | api, security | 0 | 2026-11-19 |
 | ADM-031 | Bug reports: retention purge | BACKLOG | P3 | db, security | 0 | 2026-11-19 |
 | ADM-032 | Bug reports: guide for app teams | BACKLOG | P3 | api | 0 | 2026-11-19 |
-| ADM-033 | Release log: data model and staff read (list, detail, live version, delete) | IN_PROGRESS | P2 | db, api | 0 | 2026-11-19 |
+| ADM-033 | Release log: data model and staff read (list, detail, live version, delete) | DONE | P2 | db, api | 0 | 2026-11-20 |
 | ADM-034 | Release log: scoped app credentials and the app's release write | BACKLOG | P2 | db, api, auth, security | 0 | 2026-11-19 |
 | ADM-035 | Deployer credential: data model and staff issue, list, revoke | BLOCKED | P2 | db, auth, security | 0 | 2026-11-19 |
 | ADM-036 | Release log: deploy result report (deployer credential) | BACKLOG | P2 | api, auth, security | 0 | 2026-11-19 |
