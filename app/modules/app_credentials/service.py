@@ -8,7 +8,7 @@ it is never logged, audited or stored (R11).
 import hmac
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,8 +18,9 @@ from app.modules.app_credentials.codec import new_credential, parse_credential, 
 from app.modules.app_credentials.errors import (
     AppCredentialAppDisabledError,
     AppCredentialMismatchError,
+    AppCredentialScopeError,
 )
-from app.modules.app_credentials.models import AppCredential
+from app.modules.app_credentials.models import AppCredential, AppCredentialScope
 from app.modules.app_credentials.repository import AppCredentialRepository
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditOutcome, AuditTarget
@@ -49,6 +50,7 @@ class AuthenticatedApp:
     key_id: str
     app_id: uuid.UUID
     app_key: str
+    scope: str
 
     @property
     def actor(self) -> SystemActor:
@@ -62,6 +64,7 @@ class CredentialView:
     id: uuid.UUID
     app: str
     key_id: str
+    scope: str
     created_by: uuid.UUID | None
     created_at: datetime
     last_used_at: datetime | None
@@ -71,7 +74,7 @@ class CredentialView:
 
 @dataclass(frozen=True)
 class IssuedCredential(CredentialView):
-    credential: str
+    credential: str = field(repr=False)
 
 
 def _view(app_key: str, row: AppCredential) -> CredentialView:
@@ -79,6 +82,7 @@ def _view(app_key: str, row: AppCredential) -> CredentialView:
         id=row.id,
         app=app_key,
         key_id=row.key_id,
+        scope=row.scope,
         created_by=row.created_by,
         created_at=row.created_at,
         last_used_at=row.last_used_at,
@@ -103,7 +107,9 @@ class AppCredentialService:
             raise NotFoundError("App not found")
         return app
 
-    async def issue(self, key: str, *, actor: Actor, ctx: AuditContext) -> IssuedCredential:
+    async def issue(
+        self, key: str, *, scope: AppCredentialScope, actor: Actor, ctx: AuditContext
+    ) -> IssuedCredential:
         app = await self._locked_app(key)
         try:
             require_super(actor)
@@ -112,13 +118,14 @@ class AppCredentialService:
                 AuditAction.APP_CREDENTIAL_ISSUED, exc=exc, actor=actor, ctx=ctx, app_key=key
             )
             raise
-        if app.key == ADMIN_APP_KEY:
+        # Allow-list: only `releases` keys may be issued for `admin` (ADR-0021 §11, ADR-0022 §1).
+        if app.key == ADMIN_APP_KEY and scope != AppCredentialScope.RELEASES:
             raise _refusal("The admin app has no credentials", "admin_app")
         if app.status == AppStatus.DISABLED.value:
             raise _refusal("The app is disabled", "app_disabled")
-        if await self.repo.count_active(app.id) >= MAX_ACTIVE:
+        if await self.repo.count_active(app.id, scope.value) >= MAX_ACTIVE:
             raise _refusal(
-                f"At most {MAX_ACTIVE} active credentials per app; revoke one first",
+                f"At most {MAX_ACTIVE} active credentials per app and scope; revoke one first",
                 "credential_limit",
             )
         key_id, raw = new_credential()
@@ -128,6 +135,7 @@ class AppCredentialService:
             app_id=app.id,
             key_id=key_id,
             secret_hash=secret_hash(parsed[1]),
+            scope=scope.value,
             created_by=actor_user_id(actor),
         )
         await self.repo.add(row)
@@ -137,14 +145,24 @@ class AppCredentialService:
             ctx=ctx,
             target=(AuditTarget.APP_CREDENTIAL, row.id),
             app_key=key,
-            changes={"key_id": diff.change(None, key_id)},
+            changes={"key_id": diff.change(None, key_id), "scope": diff.change(None, scope)},
         )
         return IssuedCredential(**_view(key, row).__dict__, credential=raw)
 
     async def authenticate(
-        self, raw: str | None, path_key: str, *, ctx: AuditContext
+        self,
+        raw: str | None,
+        path_key: str,
+        *,
+        scope: AppCredentialScope,
+        denied_action: AuditAction,
+        ctx: AuditContext,
+        lock: bool = True,
     ) -> AuthenticatedApp:
-        """Checks run in a fixed order; every credential failure is one 401 (ADR-0016 §4)."""
+        """Checks run in a fixed order; every credential failure is one 401 (ADR-0016 §4).
+
+        Order: 401s, disabled app, other app, wrong scope, then (when `lock`) `confirm`.
+        """
         if raw is None:
             raise _reject("missing")
         parsed = parse_credential(raw)
@@ -162,23 +180,42 @@ class AppCredentialService:
         if app.status != AppStatus.ACTIVE.value:
             logger.info("app_credential_denied reason=disabled key_id=%s", key_id)
             raise AppCredentialAppDisabledError("The app is disabled")
-        caller = AuthenticatedApp(row.id, key_id, app.id, app.key)
+        caller = AuthenticatedApp(row.id, key_id, app.id, app.key, row.scope)
         if app.key != path_key:
             logger.info("app_credential_denied reason=mismatch key_id=%s", key_id)
-            await self.audit.record_failure(
-                AuditAction.APP_MANIFEST_SYNCED,
-                outcome=AuditOutcome.DENIED,
-                actor=caller.actor,
-                ctx=ctx,
-                app_key=app.key,
-                changes={"reason": AppCredentialMismatchError.code},
-            )
+            await self._denied(denied_action, caller, ctx, AppCredentialMismatchError.code)
             raise AppCredentialMismatchError("Credential belongs to another app")
-        # Same order as revoke (app lock, then credential row); the touch re-checks revocation.
-        await self.rbac.lock_app(app.key)
-        if not await self.repo.touch_last_used(row.id):
-            raise _reject("revoked", key_id)
+        if row.scope != scope.value:
+            logger.info("app_credential_denied reason=scope key_id=%s", key_id)
+            await self._denied(denied_action, caller, ctx, AppCredentialScopeError.code)
+            raise AppCredentialScopeError("Credential has the wrong scope for this route")
+        if lock:
+            await self.confirm(caller)
         return caller
+
+    async def _denied(
+        self, action: AuditAction, caller: AuthenticatedApp, ctx: AuditContext, reason: str
+    ) -> None:
+        await self.audit.record_failure(
+            action,
+            outcome=AuditOutcome.DENIED,
+            actor=caller.actor,
+            ctx=ctx,
+            app_key=caller.app_key,
+            changes={"reason": reason},
+        )
+
+    async def confirm(self, caller: AuthenticatedApp) -> None:
+        """App lock, status re-check, then touch (ADR-0021 §1: lock before `last_used_at`).
+
+        Same order as revoke (app lock, then credential row); the touch re-checks revocation.
+        """
+        app = await self.rbac.lock_app(caller.app_key)
+        if app is None or app.status != AppStatus.ACTIVE.value:
+            logger.info("app_credential_denied reason=disabled key_id=%s", caller.key_id)
+            raise AppCredentialAppDisabledError("The app is disabled")
+        if not await self.repo.touch_last_used(caller.credential_id):
+            raise _reject("revoked", caller.key_id)
 
     async def list(self, key: str, *, limit: int, offset: int) -> tuple[list[CredentialView], int]:
         app = await self.rbac.get_app_by_key(key)

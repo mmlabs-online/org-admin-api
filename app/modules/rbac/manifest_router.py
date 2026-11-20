@@ -21,7 +21,10 @@ router = APIRouter(prefix="/apps", tags=["app-manifest"])
     dependencies=[rate_limit("app_manifest")],
     responses={
         401: {"description": "Missing or invalid app credential"},
-        403: {"description": "Credential of another app (app_credential_mismatch) or disabled app"},
+        403: {
+            "description": "Credential of another app (app_credential_mismatch), wrong scope "
+            "(app_credential_scope) or disabled app"
+        },
         409: {"description": "Flip, requires_staff or role not manifest-managed (details)"},
         422: {"description": "Invalid manifest (details[].reason)"},
         429: {"description": "Rate limited"},

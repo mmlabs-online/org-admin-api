@@ -1,10 +1,14 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from app.modules.releases.models import ReleaseCreatedVia, ReleaseEnvironment, ReleaseStatus
+
+if TYPE_CHECKING:  # the repository imports this module
+    from app.modules.releases.repository import ReleaseView
 
 __all__ = [
     "ChangeRisk",
@@ -16,6 +20,8 @@ __all__ = [
     "ReleaseSort",
     "ReleaseStatus",
     "ReleaseSummary",
+    "release_detail",
+    "release_summary",
 ]
 
 _FROM_REPORT = "null for a record created from a deploy report."
@@ -38,7 +44,7 @@ class ReleaseImage(BaseModel):
 
 
 class ReleaseChange(BaseModel):
-    pr_url: str
+    pr_url: str = Field(description="Untrusted CI-reported URL; not verified.")
     title: str = Field(
         description="Untrusted plain text (a PR title) supplied by CI, returned verbatim. "
         "Render it as text, never as HTML."
@@ -70,3 +76,15 @@ class ReleaseSummary(BaseModel):
 class ReleaseDetail(ReleaseSummary):
     images: list[ReleaseImage]
     changes: list[ReleaseChange]
+
+
+def release_summary(v: "ReleaseView") -> ReleaseSummary:
+    return ReleaseSummary.model_validate(v, from_attributes=True)
+
+
+def release_detail(v: "ReleaseView") -> ReleaseDetail:
+    return ReleaseDetail(
+        **release_summary(v).model_dump(),
+        images=[ReleaseImage(**i) for i in v.images],
+        changes=[ReleaseChange(**c) for c in v.changes],
+    )

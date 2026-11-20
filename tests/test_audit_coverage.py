@@ -50,7 +50,7 @@ from tests.rbac_factories import (
     super_admin_role,
 )
 from tests.release_factories import make_release
-from tests.test_route_auth_classes import APP_CREDENTIAL, BEARER, COOKIE, PUBLIC
+from tests.test_route_auth_classes import APP_CREDENTIAL_ROUTES, BEARER, COOKIE, PUBLIC
 
 V1 = "/api/v1"
 Call = tuple[str, Any]  # (url, json body or None)
@@ -917,11 +917,17 @@ async def test_identity_success_writes_one_row(
 
 # --- app credential routes (USR-05b, ADR-0016) ------------------------------
 
-APP_CREDENTIAL_AUDITED = {("PUT", f"{V1}/apps/{{key}}/manifest"): {"app.manifest_synced"}}
+APP_CREDENTIAL_AUDITED = {
+    ("PUT", f"{V1}/apps/{{key}}/manifest"): {"app.manifest_synced"},
+    ("PUT", f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}"): {
+        "release.created",
+        "release.updated",
+    },
+}
 
 
 def test_app_credential_routes_are_classified() -> None:
-    assert set(APP_CREDENTIAL_AUDITED) == APP_CREDENTIAL
+    assert set(APP_CREDENTIAL_AUDITED) == APP_CREDENTIAL_ROUTES
 
 
 async def test_app_credential_routes_are_audited(
@@ -941,7 +947,34 @@ async def test_app_credential_routes_are_audited(
     assert ok.status_code == 200
     rows = (await _rows(db_session))[before:]
     assert [r.action for r in rows] == ["app.manifest_synced"]
-    assert {r.action for r in rows} <= next(iter(APP_CREDENTIAL_AUDITED.values()))
+    assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[
+        ("PUT", f"{V1}/apps/{{key}}/manifest")
+    ]
+
+
+async def test_release_write_route_is_audited(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await _app(db_session)
+    _, raw = await make_credential(db_session, app, scope="releases")
+    headers = {"Authorization": f"Bearer {raw}"}
+    url = f"{V1}/apps/{app.key}/releases/production/v1.0.0"
+    body = {
+        "git_sha": "a" * 40,
+        "images": [{"name": "mmlabs/api", "digest": "sha256:" + "b" * 64}],
+    }
+    before = await _count(db_session)
+    bad = await client.put(url, json={**body, "status": "deployed"}, headers=headers)
+    assert bad.status_code == 422
+    assert await _count(db_session) == before
+    assert (await client.put(url, json=body, headers=headers)).status_code == 201
+    assert (await client.put(url, json=body, headers=headers)).status_code == 200  # no-op
+    changed = {**body, "has_migrations": True}
+    assert (await client.put(url, json=changed, headers=headers)).status_code == 200
+    rows = (await _rows(db_session))[before:]
+    assert sorted(r.action for r in rows) == ["release.created", "release.updated"]
+    route = ("PUT", f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}")
+    assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[route]
 
 
 async def test_user_disable_with_pending_requests_writes_multiple_rows(

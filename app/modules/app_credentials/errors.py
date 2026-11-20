@@ -11,3 +11,9 @@ class AppCredentialAppDisabledError(PermissionDeniedError):
     """The credential's app is disabled."""
 
     code = "app_disabled"
+
+
+class AppCredentialScopeError(PermissionDeniedError):
+    """A valid credential of the right app has the wrong scope for this route (ADR-0021 §1)."""
+
+    code = "app_credential_scope"

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P2 |
 | Size | M |
 | Areas | api, auth, security |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-20T13:00Z |
 | PR | — |
 
 ## Goal
@@ -42,5 +42,6 @@ After the health check, the deploy workflow records whether a release deployed o
 - API tests per transition; concurrency test for report vs app write on the same key.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-20, batch 2026-11-20-2) — Ming: "câu 1–28 theo mặc định /run-batch --resume" (all batch questions answered with defaults; resume to BUILD taken as plan approval).
 
 ## Handoff

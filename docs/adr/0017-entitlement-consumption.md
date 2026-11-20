@@ -1,6 +1,7 @@
 # ADR-0017: Entitlement consumption
 
 Status: Accepted (owner, 2026-11-17 and 2026-11-18)
+Amended by ADR-0021 (§2: R3 class 4 widened for releases only; still no entitlement pull)
 Date: 2026-11-18
 
 ## Context

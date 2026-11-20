@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -13,7 +14,10 @@ from app.core.errors import UnauthorizedError
 from app.modules.app_credentials import service as credential_service
 from app.modules.app_credentials.codec import parse_credential, secret_hash
 from app.modules.app_credentials.errors import AppCredentialAppDisabledError
-from app.modules.app_credentials.service import AuthenticatedApp
+from app.modules.app_credentials.models import AppCredential, AppCredentialScope
+from app.modules.app_credentials.schemas import AppCredentialIssued
+from app.modules.app_credentials.service import AuthenticatedApp, IssuedCredential
+from app.modules.audit.actions import AuditAction
 from app.modules.audit.context import AuditContext
 from app.modules.audit.models import AuditLog
 from app.modules.rbac.manifest import ManifestService
@@ -139,7 +143,7 @@ async def test_disabled_app_403(client: AsyncClient, db_session: AsyncSession) -
 async def test_disabled_between_auth_and_lock_403(db_session: AsyncSession) -> None:
     app = await make_app(db_session, _key(), status="disabled")
     row, _ = await make_credential(db_session, app)
-    caller = AuthenticatedApp(row.id, row.key_id, app.id, app.key)
+    caller = AuthenticatedApp(row.id, row.key_id, app.id, app.key, "manifest")
     with pytest.raises(AppCredentialAppDisabledError):
         await ManifestService(db_session).sync(
             app.key, ManifestPut(permissions=[]), caller=caller, ctx=AuditContext.NONE
@@ -241,4 +245,97 @@ async def test_revoked_between_lookup_and_touch_401(
 
     monkeypatch.setattr(service.repo, "get_with_app", revoke_after_lookup)
     with pytest.raises(UnauthorizedError):
-        await service.authenticate(raw, app.key, ctx=AuditContext.NONE)
+        await service.authenticate(
+            raw,
+            app.key,
+            scope=AppCredentialScope.MANIFEST,
+            denied_action=AuditAction.APP_MANIFEST_SYNCED,
+            ctx=AuditContext.NONE,
+        )
+
+
+# --- scopes (ADM-034, ADR-0021 §1) -------------------------------------------
+
+
+async def _scope_rows(session: AsyncSession) -> list[AuditLog]:
+    rows = await session.scalars(
+        select(AuditLog)
+        .where(AuditLog.action == "app.manifest_synced")
+        .execution_options(populate_existing=True)
+    )
+    return list(rows)
+
+
+async def test_releases_key_on_manifest_403_scope_denied_row(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, _key())
+    row, raw = await make_credential(db_session, app, scope="releases")
+    key_id, key, app_id = row.key_id, app.key, app.id
+    await db_session.commit()
+    resp = await client.put(
+        _url(key), json={"permissions": [{"key": f"{key}:x:read"}]}, headers=_auth(raw)
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "app_credential_scope"
+    (audit,) = await _scope_rows(db_session)
+    assert (audit.outcome, audit.actor_label) == ("denied", f"app:{key}/{key_id}")
+    assert audit.changes == {"reason": "app_credential_scope"}
+    assert raw not in str(audit.changes)
+    stored = await db_session.scalars(select(Permission).where(Permission.app_id == app_id))
+    assert list(stored) == []
+    last_used = select(AppCredential.last_used_at).where(AppCredential.key_id == key_id)
+    assert (await db_session.scalar(last_used)) is None
+
+
+async def test_check_order_mismatch_before_scope(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    a, b = await make_app(db_session, _key()), await make_app(db_session, _key())
+    _, raw = await make_credential(db_session, a, scope="releases")
+    b_key = b.key
+    await db_session.commit()
+    resp = await client.put(_url(b_key), json={"permissions": []}, headers=_auth(raw))
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "app_credential_mismatch"
+
+
+async def test_disabled_before_scope(client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_app(db_session, _key(), status="disabled")
+    _, raw = await make_credential(db_session, app, scope="releases")
+    resp = await client.put(_url(app.key), json={"permissions": []}, headers=_auth(raw))
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "app_disabled"
+
+
+async def test_scope_check_after_401s(client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_app(db_session, _key())
+    _, raw = await make_credential(db_session, app, scope="releases", revoked=True)
+    resp = await client.put(_url(app.key), json={"permissions": []}, headers=_auth(raw))
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "unauthorized"
+
+
+async def test_issued_credential_repr_hides_secret() -> None:
+    issued = IssuedCredential(
+        id=uuid.uuid4(),
+        app="x",
+        key_id="k",
+        scope="manifest",
+        created_by=None,
+        created_at=datetime.now(UTC),
+        last_used_at=None,
+        revoked_at=None,
+        active=True,
+        credential="mmak_SECRETVALUE",
+    )
+    assert "SECRETVALUE" not in repr(issued)
+    assert "SECRETVALUE" not in repr(AppCredentialIssued.model_validate(issued))
+
+
+async def test_confirm_rechecks_status_under_lock(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, _key(), status="disabled")
+    row, _ = await make_credential(db_session, app, scope="releases")
+    caller = AuthenticatedApp(row.id, row.key_id, app.id, app.key, "releases")
+    with pytest.raises(AppCredentialAppDisabledError):
+        await credential_service.AppCredentialService(db_session).confirm(caller)

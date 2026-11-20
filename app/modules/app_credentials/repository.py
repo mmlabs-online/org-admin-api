@@ -17,12 +17,16 @@ class AppCredentialRepository:
         await self.session.flush()
         await self.session.refresh(credential)  # server defaults (`created_at`)
 
-    async def count_active(self, app_id: uuid.UUID) -> int:
+    async def count_active(self, app_id: uuid.UUID, scope: str) -> int:
         return (
             await self.session.scalar(
                 select(func.count())
                 .select_from(AppCredential)
-                .where(AppCredential.app_id == app_id, AppCredential.revoked_at.is_(None))
+                .where(
+                    AppCredential.app_id == app_id,
+                    AppCredential.scope == scope,
+                    AppCredential.revoked_at.is_(None),
+                )
             )
             or 0
         )

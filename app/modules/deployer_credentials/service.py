@@ -8,7 +8,7 @@ or stored (R11). `authenticate` takes no lock: its guarded UPDATE sees a committ
 import hmac
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,7 +62,7 @@ class DeployerCredentialView:
 
 @dataclass(frozen=True)
 class IssuedDeployerCredential(DeployerCredentialView):
-    credential: str
+    credential: str = field(repr=False)
 
 
 def _view(row: DeployerCredential) -> DeployerCredentialView:
