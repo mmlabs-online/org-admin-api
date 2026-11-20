@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, delete, func, select
 from sqlalchemy.dialects.postgresql import distinct_on
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rbac.models import App
@@ -101,6 +102,49 @@ class AppReleaseRepository:
         await self.session.flush()
         await self.session.refresh(release, ["created_at", "updated_at"])
         return release
+
+    async def insert_if_absent(
+        self,
+        *,
+        app_id: uuid.UUID,
+        environment: str,
+        version: str,
+        created_via: str,
+        **fields: Any,
+    ) -> AppRelease | None:
+        """`INSERT ... ON CONFLICT DO NOTHING` on the natural key: None when it already exists.
+
+        A concurrent first write waits for the other transaction and then gets None, never an
+        error. No `DO UPDATE`: what to do with an existing record depends on its status.
+        """
+        return await self.session.scalar(
+            pg_insert(AppRelease)
+            .values(
+                app_id=app_id,
+                environment=environment,
+                version=version,
+                created_via=created_via,
+                status=ReleaseStatus.PENDING.value,
+                **fields,
+            )
+            .on_conflict_do_nothing(constraint="uq_app_releases_app_id_environment_version")
+            .returning(AppRelease)
+            .execution_options(populate_existing=True)
+        )
+
+    async def get_for_update(
+        self, app_id: uuid.UUID, environment: str, version: str
+    ) -> AppRelease | None:
+        return await self.session.scalar(
+            select(AppRelease)
+            .where(
+                AppRelease.app_id == app_id,
+                AppRelease.environment == environment,
+                AppRelease.version == version,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
 
     async def page(
         self, f: ListFilter, sort: ReleaseSort, *, limit: int, offset: int

@@ -12,13 +12,13 @@ from app.modules.admin_auth.deps import AdminDep, current_admin, require_permiss
 from app.modules.audit.deps import AuditContextDep
 from app.modules.rbac.models import APP_KEY_RE
 from app.modules.releases.models import ReleaseEnvironment, ReleaseStatus
-from app.modules.releases.repository import ListFilter, ReleaseView
+from app.modules.releases.repository import ListFilter
 from app.modules.releases.schemas import (
-    ReleaseChange,
     ReleaseDetail,
-    ReleaseImage,
     ReleaseSort,
     ReleaseSummary,
+    release_detail,
+    release_summary,
 )
 from app.modules.releases.service import ReleaseService
 
@@ -27,18 +27,6 @@ router = APIRouter(prefix="/releases", tags=["releases"], dependencies=[Depends(
 PERM = "admin:*"
 _404 = "Unknown release"
 AppFilter = Annotated[str | None, Query(pattern=APP_KEY_RE, description="App key.")]
-
-
-def _summary(v: ReleaseView) -> ReleaseSummary:
-    return ReleaseSummary.model_validate(v, from_attributes=True)
-
-
-def _detail(v: ReleaseView) -> ReleaseDetail:
-    return ReleaseDetail(
-        **_summary(v).model_dump(),
-        images=[ReleaseImage(**i) for i in v.images],
-        changes=[ReleaseChange(**c) for c in v.changes],
-    )
 
 
 @router.get(
@@ -70,7 +58,7 @@ async def list_releases(
     )
     items, total = await ReleaseService(session).list(f, sort, limit=page.limit, offset=page.offset)
     return Page(
-        items=[_summary(i) for i in items], total=total, limit=page.limit, offset=page.offset
+        items=[release_summary(i) for i in items], total=total, limit=page.limit, offset=page.offset
     )
 
 
@@ -98,7 +86,7 @@ async def live_releases(
         offset=page.offset,
     )
     return Page(
-        items=[_summary(i) for i in items], total=total, limit=page.limit, offset=page.offset
+        items=[release_summary(i) for i in items], total=total, limit=page.limit, offset=page.offset
     )
 
 
@@ -108,7 +96,7 @@ async def live_releases(
     **require_permission(PERM, errors={404: _404}),
 )
 async def get_release(session: SessionDep, release_id: uuid.UUID) -> ReleaseDetail:
-    return _detail(await ReleaseService(session).get(release_id))
+    return release_detail(await ReleaseService(session).get(release_id))
 
 
 @router.delete(

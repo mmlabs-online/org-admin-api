@@ -61,7 +61,11 @@ COOKIE = {
 }
 # App credential (R3 class 4 (a), ADR-0016, ADR-0021): route -> the one scope it accepts.
 MANIFEST = f"{V1}/apps/{{key}}/manifest"
-APP_CREDENTIAL: dict[tuple[str, str], str] = {("PUT", MANIFEST): "manifest"}
+RELEASE_WRITE = f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}"
+APP_CREDENTIAL: dict[tuple[str, str], str] = {
+    ("PUT", MANIFEST): "manifest",
+    ("PUT", RELEASE_WRITE): "releases",
+}
 APP_CREDENTIAL_ROUTES = set(APP_CREDENTIAL)
 # Deployer credential (R3 class 4 (b), ADR-0021): no route accepts it until ADM-036.
 DEPLOYER_CREDENTIAL: set[tuple[str, str]] = set()
@@ -283,8 +287,10 @@ def test_app_credential_allow_list_is_exact() -> None:
             if isinstance(call, RequireAppCredential):
                 with_dep[route] = call
     assert {r: c.scope.value for r, c in with_dep.items()} == APP_CREDENTIAL
-    # The manifest route takes the app lock in auth; routes with a body defer it to the service.
+    # The manifest route takes the app lock in auth; the release write defers it to its service,
+    # after the body was read, so a slow client never holds `lock_app`.
     assert with_dep[("PUT", MANIFEST)].lock is True
+    assert with_dep[("PUT", RELEASE_WRITE)].lock is False
 
 
 def test_deployer_credential_allow_list_is_exact() -> None:
@@ -336,7 +342,7 @@ def test_cors_matcher_agrees_with_bearer_map() -> None:
         assert not path.startswith(f"{V1}/auth/"), path  # the two CORS scopes are disjoint
         assert matcher(_scope(_fill(path)), method), (method, path)
     for method, path in PUBLIC | COOKIE | APP_CREDENTIAL_ROUTES | DEPLOYER_CREDENTIAL:
-        assert not matcher(_scope(path.replace("{key}", "stoktok")), method), (method, path)
+        assert not matcher(_scope(_fill(path)), method), (method, path)
     assert not matcher(_scope("/healthz"), "HEAD")
     assert not matcher(_scope(f"{V1}/nope"), "GET")
     assert not matcher(_scope(f"{V1}/apps"), "PUT")  # method not served: 405, not admin
@@ -378,6 +384,7 @@ def _fill(path: str) -> str:
                 "metric_id",
             )
         }
+        | {"environment": "production", "version": "v1.2.3"}
     )
 
 
@@ -442,21 +449,24 @@ async def test_cookie_routes_not_bearer_guarded(
 # --- app credential route (USR-05b) -----------------------------------------
 
 
-async def test_manifest_no_cors(client: AsyncClient, db_session: AsyncSession) -> None:
+@pytest.mark.parametrize(("method", "path"), sorted(APP_CREDENTIAL_ROUTES))
+async def test_app_credential_route_no_cors(
+    client: AsyncClient, db_session: AsyncSession, method: str, path: str
+) -> None:
     await AppService(db_session).set_admin_origins(
         AdminOriginsSet(origins=["https://admin-portal.mmlabs.online"]), app_env="test"
     )
     await make_app(db_session, "stoktok", origins=["https://stoktok.mmlabs.online"])
-    url = f"{V1}/apps/stoktok/manifest"
+    url = _fill(path)
     for origin in ("https://admin-portal.mmlabs.online", "https://stoktok.mmlabs.online"):
-        resp = await client.put(url, json={}, headers={"Origin": origin})
+        resp = await client.request(method, url, json={}, headers={"Origin": origin})
         assert resp.status_code == 401
         assert "access-control-allow-origin" not in resp.headers
         pre = await client.options(
             url,
             headers={
                 "Origin": origin,
-                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Method": method,
                 "Access-Control-Request-Headers": "authorization",
             },
         )
@@ -471,9 +481,12 @@ async def test_app_credential_route_401_without_credential(client: AsyncClient) 
         assert resp.headers["www-authenticate"].startswith('Bearer realm="app"')
 
 
-async def test_admin_jwt_on_manifest_401(client: AsyncClient, db_session: AsyncSession) -> None:
+@pytest.mark.parametrize(("method", "path"), sorted(APP_CREDENTIAL_ROUTES))
+async def test_admin_jwt_on_app_credential_route_401(
+    client: AsyncClient, db_session: AsyncSession, method: str, path: str
+) -> None:
     staff = await make_staff(db_session, "admin:*")
-    resp = await client.put(f"{V1}/apps/stoktok/manifest", json={}, headers=bearer(mint(staff)))
+    resp = await _call(client, method, path, bearer(mint(staff)))
     assert resp.status_code == 401
     assert resp.headers["www-authenticate"].startswith('Bearer realm="app"')
 
@@ -507,11 +520,13 @@ async def test_deployer_key_on_bearer_routes_401(
     assert resp.headers["www-authenticate"].startswith('Bearer realm="admin"')
 
 
-async def test_deployer_key_on_manifest_401(client: AsyncClient) -> None:
-    resp = await client.put(f"{V1}/apps/stoktok/manifest", json={}, headers=bearer(_deployer_raw()))
+@pytest.mark.parametrize(("method", "path"), sorted(APP_CREDENTIAL_ROUTES))
+async def test_deployer_key_on_app_credential_route_401(
+    client: AsyncClient, method: str, path: str
+) -> None:
+    resp = await _call(client, method, path, bearer(_deployer_raw()))
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "unauthorized"
-    assert resp.headers["www-authenticate"].startswith('Bearer realm="app"')
 
 
 async def test_deployer_key_on_cookie_routes_unauthenticated(
