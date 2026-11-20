@@ -708,6 +708,16 @@ async def _id_join(s: AsyncSession) -> IdCall:
     return f"{AUTH}/apps/stoktok/join", body, auth_headers(cookie=raw)
 
 
+async def _id_report(s: AsyncSession) -> IdCall:
+    app = await make_login_app(s)
+    role = await make_member_role(s, app)
+    user = await make_login_user(s)
+    await assign(s, user, role)
+    raw, _, (account,) = await make_device(s, user)
+    body = {"account_id": str(account.id), "description": "broken"}
+    return f"{AUTH}/bug-reports", body, auth_headers(cookie=raw)
+
+
 async def _id_token(s: AsyncSession, purpose: str) -> tuple[uuid.UUID, str]:
     user = await make_login_user(s, verified=False)
     raw = uuid.uuid4().hex + uuid.uuid4().hex
@@ -731,6 +741,7 @@ IDENTITY_AUDITED: dict[tuple[str, str], tuple[str, IdScenario, int]] = {
     ("POST", f"{AUTH}/login"): ("auth.login_succeeded", _id_login, 200),
     ("POST", f"{AUTH}/logout"): ("auth.logged_out", _id_logout, 204),
     ("POST", f"{AUTH}/apps/{{key}}/join"): ("app.joined", _id_join, 200),
+    ("POST", f"{AUTH}/bug-reports"): ("bug_report.created", _id_report, 201),
     ("POST", f"{AUTH}/verify-email"): ("auth.email_verified", _id_verify, 204),
     ("POST", f"{AUTH}/password/reset"): ("auth.password_reset_completed", _id_reset, 204),
 }

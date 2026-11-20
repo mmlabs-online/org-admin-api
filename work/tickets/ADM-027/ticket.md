@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, security |
@@ -12,7 +12,7 @@
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/77 |
 
 ## Goal
 This API can store and read bug-report attachments in Google Drive, the way TuDoCuaTui stores photos, so later tickets can upload and serve images without local disk.
@@ -47,5 +47,16 @@ This API can store and read bug-report attachments in Google Drive, the way TuDo
 - Manual: smoke script against the real Drive after M-1.
 
 ## Notes / answers from Ming
+- 2026-11-19 (Ming): Plan approved (2026-11-19, batch 2026-11-19-2); questions 1–6 (batch numbering) per the defaults in plan.md — "duyệt hết; câu 1–15 theo mặc định".
 
 ## Handoff
+### 2026-11-19 — claude — BLOCKED (waiting plan approval, batch 2026-11-19-2)
+- Agent calls: 3, tokens ~238k (software-architect×1 63k, security-architect×1 66k, planner×1 opus 109k)
+- Done: consult (2), plan.md READY, predicted tier high (`app/core/config.py`, `.env.example`).
+- In progress / next: Ming answers batch questions 1–6 + plan approval → `/run-batch --resume`.
+- Gotchas: TuDoCuaTui reference repo not reachable in this session. Shares `app/core/config.py`, `.env.example`, `app/main.py`, `docs/deploy.md` with ADM-028; ADR number collision (both plans say 0018) — ADM-027 keeps 0018, ADM-028 renumbers to 0019 when built second.
+### 2026-11-19 — claude — DONE (PR #77, waiting for Ming's merge)
+- Agent calls (build): 3, tokens ~287k (implementer×1 sonnet 132k, reviewer×1 opus 85k, appsec-engineer×1 70k). Ticket total incl. plan: 6 calls, ~525k.
+- Done: Drive adapter, config gate, sweep + init-root CLI, ADR-0018, deploy docs; review attempt 1 PASS; appsec no 🔴 (one 🟡 deadline follow-up). PR https://github.com/mmlabs-online/org-admin-api/pull/77.
+- In progress / next: Ming merges #77 (High). Then ADM-028 builds on the session branch.
+- Gotchas: one full-suite flake in an untouched file (`test_auth_app_context`); M-1 steps after merge.

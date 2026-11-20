@@ -27,6 +27,7 @@ class AuditTarget(StrEnum):
     APP_CREDENTIAL = "app_credential"
     JOIN_REQUEST = "join_request"
     ENTITLEMENT = "entitlement"
+    BUG_REPORT = "bug_report"
 
 
 class AuditAction(StrEnum):
@@ -76,4 +77,5 @@ class AuditAction(StrEnum):
     AUTH_LOGGED_OUT_ALL = "auth.logged_out_all"
     DEVICE_SESSION_REUSE_REVOKED = "device_session.reuse_revoked"
     AUTH_PASSWORD_RESET_COMPLETED = "auth.password_reset_completed"  # noqa: S105 (a name)
+    BUG_REPORT_CREATED = "bug_report.created"
     AUTH_EMAIL_VERIFIED = "auth.email_verified"
