@@ -8,10 +8,20 @@ trailing newline). Every validator raises a fixed message and never echoes the s
 
 import re
 import unicodedata
-from typing import Annotated, Any
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal
 
 from fastapi.exceptions import RequestValidationError
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+)
 from pydantic_core import PydanticCustomError
 
 from app.core.text import DISALLOWED_CATEGORIES
@@ -30,6 +40,10 @@ _PR_URL = re.compile(
     r"https://github\.com/mmlabs-online/([A-Za-z0-9_.-]{1,100})/pull/[1-9][0-9]{0,9}"
 )
 _DEPLOYMENT_PR = re.compile(r"https://github\.com/mmlabs-online/deployment/pull/[1-9][0-9]{0,9}")
+DEPLOY_RUN_URL_FULL = re.compile(
+    r"https://github\.com/mmlabs-online/deployment/actions/runs/[1-9][0-9]{0,19}"
+    r"(/attempts/[1-9][0-9]{0,2})?"
+)
 _TICKET_ID = re.compile(r"[A-Z][A-Z0-9]{1,9}-[0-9]{1,6}[a-z]?")
 # Docker repository name: optional registry host (with optional port), then path components.
 _COMPONENT = r"[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*"
@@ -124,6 +138,36 @@ class ReleasePut(BaseModel):
         Field(max_length=MAX_CHANGES),
         AfterValidator(_unique_pr_urls),
     ] = Field(default_factory=list)
+
+
+class ReleaseDeploymentReport(BaseModel):
+    """Body of `PUT .../deployment` (ADM-036, OQ38 / OQ45): the deployer's three fields only."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    status: Literal["deployed", "failed"]
+    deploy_run_url: Annotated[
+        str,
+        Field(max_length=255),
+        _match(
+            DEPLOY_RUN_URL_FULL,
+            "deploy_run_url",
+            "must be a mmlabs-online/deployment GitHub Actions run URL",
+        ),
+    ]
+    deployed_at: AwareDatetime | None = Field(default=None, validate_default=True)
+
+    @field_validator("deployed_at")
+    @classmethod
+    def _deployed_at_matches_status(
+        cls, value: datetime | None, info: ValidationInfo
+    ) -> datetime | None:
+        status = info.data.get("status")
+        if status == "deployed" and value is None:
+            raise PydanticCustomError("deployed_at_required", "is required with status deployed")
+        if status == "failed" and value is not None:
+            raise PydanticCustomError("deployed_at_not_allowed", "is refused with status failed")
+        return None if value is None else value.astimezone(UTC)
 
 
 def _error(error_type: str, loc: tuple[str, ...], msg: str) -> RequestValidationError:

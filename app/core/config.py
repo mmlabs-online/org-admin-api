@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     app_release_rate_window_seconds: int = Field(default=60, ge=1)
     app_release_max_bytes: int = Field(default=262144, ge=1024)
     app_release_read_timeout_seconds: int = Field(default=10, ge=1)
+    # Deploy report (ADM-036, ADR-0021 §3): per IP, before auth; body cap and read deadline.
+    release_deployment_rate_limit: int = Field(default=30, ge=1)
+    release_deployment_rate_window_seconds: int = Field(default=60, ge=1)
+    release_deployment_max_bytes: int = Field(default=4096, ge=512)
+    release_deployment_read_timeout_seconds: int = Field(default=10, ge=1)
 
     # Access-token signing (ADR-0005): base64 of a PEM P-256 private key on one line. Required
     # in staging/production; local/test fall back to an ephemeral per-process key.

@@ -589,8 +589,10 @@ curl -fsS -H @"$hdr" "$api/apps/<key>/credentials"
 
 The release deployment report (ADM-036) is sent by the deployment repo with a **deployer credential**
 `mmdk_<key_id>_<secret>` (ADR-0021 §2). It is not bound to an app. Staff issue, list and revoke it
-through the admin API; all three calls need `admin:*`. At most **2 active** keys. No route accepts the
-key until ADM-036 ships, so issue the first one only then. Run the calls inside the marked section of
+through the admin API; all three calls need `admin:*`. At most **2 active** keys. The only route that
+accepts it is `PUT /api/v1/apps/{key}/releases/{environment}/{version}/deployment` with body
+`{"status": "deployed"|"failed", "deployed_at": ..., "deploy_run_url": ...}`; in CI a 4xx/429 answer
+is warning-only. Run the calls inside the marked section of
 the "Admin access" subshell (token only via `-H @"$hdr"`). The value is shown **once**
 (`Cache-Control: no-store`): write it straight to a 0600 file, never to stdout, argv, a log or an issue.
 

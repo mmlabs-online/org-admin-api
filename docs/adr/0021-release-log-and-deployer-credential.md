@@ -75,6 +75,8 @@ ADR-0017 §2 ("R3 class 4 unchanged") stays true for entitlements: no pull endpo
   app are accepted, since its releases are recorded (§11).
 - Stored as `MMLABS_DEPLOYER_CREDENTIAL` in the deployment repo.
 
+Decided at ADM-036 PLAN: the report method is `PUT` (upsert; 201 when it creates the record).
+
 ### 3. Machine-route rules (both credentials)
 - `Authorization: Bearer <key>` only. Each route accepts **only its own key type**: an `mmdk_` key
   on an app route, an `mmak_` key on the report route, or an admin JWT on either gives the single
@@ -120,6 +122,8 @@ per app + environment = the record with the latest `deployed_at` among `status =
 it stays correct after a rollback *(architect, OQ40)*. v1 exposes a read for it; its shape (list
 `sort=deployed_at` plus a filter, or a small dedicated endpoint) is PLAN's. Only the latest deploy
 of each release is kept (no deployment-event history in v1).
+
+Decided at ADM-036 PLAN: `deployed -> deployed` with a different `deploy_run_url` but an older `deployed_at` than stored is a 200 no-op (no audit row); a report-first create is audited as `release.created` with `created_via = deployer`.
 
 ### 6. Report before the release record
 If writer (a) failed, the report creates the record with what is known: app, environment and

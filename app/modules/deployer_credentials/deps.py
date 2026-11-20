@@ -2,8 +2,8 @@
 
 Format: `Authorization: Bearer mmdk_<key_id>_<secret>`.
 
-Only the release deployment report route (ADM-036) may use it, and its per-IP rate-limit
-dependency must come first. No production route uses it yet.
+Used only by `PUT /api/v1/apps/{key}/releases/{environment}/{version}/deployment` (ADM-036); its
+`rate_limit("release_deployment")` dependency runs first.
 """
 
 from typing import Annotated

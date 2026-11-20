@@ -124,13 +124,19 @@ class AppReleaseRepository:
                 environment=environment,
                 version=version,
                 created_via=created_via,
-                status=ReleaseStatus.PENDING.value,
-                **fields,
+                **{"status": ReleaseStatus.PENDING.value, **fields},
             )
             .on_conflict_do_nothing(constraint="uq_app_releases_app_id_environment_version")
             .returning(AppRelease)
             .execution_options(populate_existing=True)
         )
+
+    async def app_id_by_key(self, key: str) -> uuid.UUID | None:
+        """Any app, disabled and `admin` included (ADR-0021 §2)."""
+        return await self.session.scalar(select(App.id).where(App.key == key))
+
+    async def db_now(self) -> datetime:
+        return (await self.session.execute(select(func.now()))).scalar_one()
 
     async def get_for_update(
         self, app_id: uuid.UUID, environment: str, version: str

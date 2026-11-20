@@ -50,7 +50,13 @@ from tests.rbac_factories import (
     super_admin_role,
 )
 from tests.release_factories import make_release
-from tests.test_route_auth_classes import APP_CREDENTIAL_ROUTES, BEARER, COOKIE, PUBLIC
+from tests.test_route_auth_classes import (
+    APP_CREDENTIAL_ROUTES,
+    BEARER,
+    COOKIE,
+    DEPLOYER_CREDENTIAL,
+    PUBLIC,
+)
 
 V1 = "/api/v1"
 Call = tuple[str, Any]  # (url, json body or None)
@@ -975,6 +981,55 @@ async def test_release_write_route_is_audited(
     assert sorted(r.action for r in rows) == ["release.created", "release.updated"]
     route = ("PUT", f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}")
     assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[route]
+
+
+# --- deployer credential route (ADM-036, ADR-0021) -------------------------------
+
+DEPLOYER_CREDENTIAL_AUDITED = {
+    ("PUT", f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}/deployment"): {
+        "release.created",
+        "release.deployment_reported",
+    },
+}
+
+
+def test_deployer_credential_routes_are_classified() -> None:
+    assert set(DEPLOYER_CREDENTIAL_AUDITED) == DEPLOYER_CREDENTIAL
+
+
+async def test_deployer_credential_routes_are_audited(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await _app(db_session)
+    _, raw = await make_deployer_credential(db_session)
+    headers = {"Authorization": f"Bearer {raw}"}
+    url = f"{V1}/apps/{app.key}/releases/production/v1.0.0/deployment"
+    run = "https://github.com/mmlabs-online/deployment/actions/runs"
+    before = await _count(db_session)
+    bad = await client.put(url, json={"status": "pending"}, headers=headers)
+    assert bad.status_code == 422
+    assert await _count(db_session) == before
+    failed = {"status": "failed", "deploy_run_url": f"{run}/1"}
+    assert (await client.put(url, json=failed, headers=headers)).status_code == 201
+    assert (await client.put(url, json=failed, headers=headers)).status_code == 200  # no-op
+    again = {"status": "failed", "deploy_run_url": f"{run}/2"}
+    assert (await client.put(url, json=again, headers=headers)).status_code == 200
+    ok = {
+        "status": "deployed",
+        "deploy_run_url": f"{run}/3",
+        "deployed_at": datetime.now(UTC).isoformat(),
+    }
+    assert (await client.put(url, json=ok, headers=headers)).status_code == 200
+    refused = await client.put(url, json=again, headers=headers)  # deployed -> failed
+    assert refused.status_code == 409
+    rows = (await _rows(db_session))[before:]
+    assert sorted(r.action for r in rows) == [
+        "release.created",
+        "release.deployment_reported",
+        "release.deployment_reported",
+    ]
+    route = ("PUT", f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}/deployment")
+    assert {r.action for r in rows} <= DEPLOYER_CREDENTIAL_AUDITED[route]
 
 
 async def test_user_disable_with_pending_requests_writes_multiple_rows(
