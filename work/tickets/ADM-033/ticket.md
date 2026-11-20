@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BLOCKED |
+| State | DONE |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api |
@@ -12,7 +12,7 @@
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/84 |
 
 ## Goal
 The owner sees in admin-pan every app's releases (production and staging): what, when, which changes, and whether the deploy succeeded — starting with the table and the staff read side, before any machine write path exists.
@@ -51,3 +51,7 @@ The owner sees in admin-pan every app's releases (production and staging): what,
 - Done: consult, plan.md READY.
 - In progress / next: Ming answers batch questions + plan approval → `/run-batch --resume`.
 - Gotchas: all five batch tickets share migration head c4e8a2f7b916, app/db/models.py, audit/actions.py and registry tests — built sequentially on the single session branch, each rebases on the previous merge.
+### 2026-11-20 — claude — DONE (PR #84, waiting for Ming's merge)
+- Agent calls (build): 3, tokens ~227k (implementer×1 sonnet 99k, reviewer×1 opus 75k, appsec-engineer×1 54k). Ticket total incl. plan: 6 calls, ~429k.
+- Done: app_releases table + migration 89fd8d667a25, four admin:* routes, OpenAPI schemas; review PASS; appsec no 🔴 (one 🟡 pr_url description → follow-up). PR https://github.com/mmlabs-online/org-admin-api/pull/84.
+- In progress / next: Ming merges #84 (High); then ADM-035.
