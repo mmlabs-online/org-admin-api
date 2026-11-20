@@ -87,7 +87,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-027 | Google Drive attachment client for bug reports | MERGED | P2 | architecture, security | 0 | 2026-11-19 |
 | ADM-028 | Bug reports: data model and text submit from apps (cookie class) | MERGED | P2 | db, api, auth, security | 0 | 2026-11-19 |
 | ADM-029 | Bug reports: staff list, detail, mark done and reopen | MERGED | P2 | api, auth, db | 0 | 2026-11-20 |
-| ADM-030 | Bug reports: image attachments (upload from apps, download for staff) | REWORK | P2 | api, security | 0 | 2026-11-20 |
+| ADM-030 | Bug reports: image attachments (upload from apps, download for staff) | DONE | P2 | api, security | 0 | 2026-11-20 |
 | ADM-030b | Bug reports: wire the attachment sweep to the attachment table | BACKLOG | P3 | db, security | 0 | 2026-11-20 |
 | ADM-031 | Bug reports: retention purge | BACKLOG | P3 | db, security | 0 | 2026-11-19 |
 | ADM-032 | Bug reports: guide for app teams | BACKLOG | P3 | api | 0 | 2026-11-19 |

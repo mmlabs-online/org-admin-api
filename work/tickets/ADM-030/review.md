@@ -114,3 +114,81 @@ None — appsec-engineer attempt 1: no 🔴; two 🟡 (cookie rotation on a long
 - ADM-027 💭4 (`list_files` app_key check) and 💭5 (process-wide httpx logger).
 - Admin-pan: "attachment unavailable" on 404 `attachment_unavailable`, render via `blob:` in `<img>` only; app guide
   (ADM-032): per-file 503 with `details.retryable`.
+
+## Attempt 2 — 2026-11-20
+Verdict: PASS
+
+Reviewed: rework commit `8dbc491` (Ming's request in ticket.md Notes, 2026-11-20: appsec 🟡 1 and 🟡 2 in PR #87),
+`git diff 750e697..HEAD` and `git diff origin/main...HEAD`. Product files changed by the rework: `app/modules/sessions/service.py`,
+`app/modules/auth/deps.py` (High paths, approved by Ming for this rework), `app/modules/bug_reports/auth_router.py`,
+`app/modules/bug_reports/service.py`, `docs/adr/0023-bug-report-attachments.md`, `tests/test_bug_report_attachments_upload.py`.
+The rest are work files (impl-log, ticket, backlog, batch). No other test file changed, so every existing session /
+rotation test runs unmodified.
+
+### Checks (run by reviewer)
+- `make typecheck` — exit 0, "Success: no issues found in 191 source files".
+- `uv run ruff check . --exclude .github/scripts` — exit 0, "All checks passed!".
+- `uv run ruff format --check app tests migrations` — exit 0, "373 files already formatted".
+- `uv run alembic check` — exit 0, "No new upgrade operations detected." (the rework has no schema change).
+- `make test` (full) — exit 0, "3440 passed, 1 warning in 548.21s" (the warning is the existing pty DeprecationWarning in
+  `test_cli_create_account.py`). Matches impl-log (3440 passed; attempt 1 had 3438, so net +2 tests = 4 new, 2 replaced).
+- Determinism: `pytest tests/test_bug_report_attachments_upload.py tests/test_auth_accounts.py tests/test_auth_join.py
+  tests/test_auth_logout.py` x4 — "109 passed" every run (25.37s / 24.35s / 25.39s / 25.48s). The deadline test patches
+  the deadline to 0.2 s against a 30 s hang, wrapped in a 5 s `wait_for`, which gives a wide margin.
+
+### Rework findings verified
+- [x] **🟡 1: the upload must not rotate `mm_device`.** `DeviceSessionService.resolve(..., allow_rotate=True)`
+  (`app/modules/sessions/service.py:68`); the only behaviour change is the guard at `:93`
+  (`allow_rotate and (force_rotate or …)`). When it is False, the current value still goes through `_usable`
+  (revoked / idle / max-age) and `touch`. Previous-value grace and reuse revocation are untouched. The default `True`
+  keeps every existing caller as before, including `start_for_login` (`:141`). In `app/modules/auth/deps.py:142-166`,
+  `_resolve_device` keeps the 401 clear-cookie path for both dependencies, `get_device` passes `allow_rotate=True`
+  (unchanged), and `DeviceNoRotateDep` is new. Only the upload route uses it (`app/modules/bug_reports/auth_router.py:125`).
+  Every other cookie route (auth router, the submit route at `bug_reports/auth_router.py:50`, organizations,
+  invitations) still uses `DeviceDep`, per grep. The Set-Cookie-on-error code and `service.committed` were removed;
+  nothing can set a cookie on the upload route now. Evidence: `test_upload_never_rotates_cookie` (`:550`; device row
+  25 h stale: 201 and 503 both have no `set-cookie`, `token_hash`/`prev_token_hash` unchanged, the same value works
+  again), `test_other_cookie_route_still_rotates` (`:566`; `GET /api/v1/auth/accounts` still rotates),
+  `test_upload_still_validates_device_session` (`:578`; revoked session → 401, no Drive call). The existing rotation
+  tests pass unmodified in the full run (`test_auth_accounts.py::test_accounts_no_store_and_rotation`,
+  `test_auth_join.py::test_join_no_store_and_rotation` / `test_join_error_after_rotation_rolls_back`,
+  `test_auth_logout.py` grace and previous-value cases, and the sessions tests).
+- [x] **🟡 2: overall deadline around `store.create` → 503.** `asyncio.timeout(STORE_DEADLINE_SECONDS=60.0)` wraps
+  the whole `store.create`, including the wait for the Drive slot and the folder lookup
+  (`app/modules/bug_reports/service.py:170,275`). A `TimeoutError` maps to `DriveErrorCode.UNAVAILABLE` (`:285`), which
+  is logged with ids only and raised as `AttachmentStorageUnavailableError(retryable=True)`. The upload slot is released
+  in the existing `finally` (`:260`). Evidence: `test_upload_store_deadline_503_and_frees_slot` (`:590`; hanging
+  `ensure_app_folder`, 503 `attachment_storage_unavailable`, semaphore value restored, no row).
+- [x] **ADR wording only**: ADR-0023 §4 (no rotation on this route, no `Set-Cookie`), §11 (60 s overall deadline, the
+  8 admitted vs 4 concurrent Drive uploads gap), and the obsolete residual-risk bullet removed. ADR-0004 does not
+  promise rotation on every route (rotation happens "when `rotated_at` is ≥ 24 h old"), so documenting the exception in
+  ADR-0023 is enough. D32 needs no change.
+- [x] Attempt 1 acceptance criteria still hold: the full suite is green, including every attachment upload/download,
+  registry, OpenAPI and audit-coverage test.
+
+### Issues
+None.
+
+### Rules (CLAUDE.md)
+No violations found.
+- R1: the router stays HTTP-only and is simpler now; the timeout handling lives in the service and raises an `AppError` subclass.
+- R3/R11: the upload remains cookie class (Origin + `X-MM-App` via `ReportAppContextDep`, device validated). Not rotating on one
+  route is within R11 ("at most every ~24 h") and documented in ADR-0023 §4. Reuse detection is unchanged.
+- R5/R11: the deadline log line has `report_id`, `attachment_id` and `code` only.
+- R7: the rework diff touches only the two findings, the ADR and the work files. The High-path edits (sessions service, auth deps)
+  were approved by Ming in ticket.md Notes.
+
+### Blockers from review agents
+None — appsec-engineer attempt 2: PASS, no 🔴 or 🟡 (both attempt-1 🟡 fixed).
+
+### Nits (do not block)
+- A timeout that fires after Drive has stored the file leaves an orphan, the same as the existing 45 s per-call deadline
+  (attempt 1 nit). The ADM-030b sweep is the net; already listed there.
+- The browser's cookie `Max-Age` is refreshed only on rotation (ADR-0004 §1), so an upload does not extend the cookie
+  lifetime, while `touch` still extends the server-side idle window. This is consistent with other non-rotating
+  requests; mentioned only for completeness.
+- The attempt 1 nits still apply (`int(content_length)` digit-limit guard, `IDENTITY_MULTI_ROW_AUDITED` name).
+
+### Follow-ups (out of scope)
+- Unchanged from attempt 1 (CLAUDE.md R3 class 2 wording; ADM-030b sweep including deadline orphans; ADM-027 💭4/💭5;
+  admin-pan / app guide notes).
