@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api, auth, security |
@@ -54,3 +54,6 @@ Each app's release workflow records its release right after opening the deployme
 - Done: scope column + migration 58a494f0449e, scope-aware auth, release PUT, docs (R3 4(a), R9, D30). Review PASS attempt 1; appsec PASS (4 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/88 (tier high).
 - In progress / next: Ming merges #88; then ADM-036 builds on it (reuses body helper, rules, upsert pair). M-2 ops todo added.
 - Gotchas: Postgres must be started after container restarts; `make check` lint fails only on kit file risk_tier.py.
+
+### 2026-11-20 — claude — MERGED
+- PR #88 merged by the agent at Ming's explicit request ("merge va /run-batch --resume"), merge commit 7963e6e. Owner exception to the "High is never agent-merged" rule, logged. CI `check` failed only on the known kit lint (`.github/scripts/risk_tier.py`, 13 ruff errors), which stops the job before tests; tests were run locally by the reviewer (3591 passed).
