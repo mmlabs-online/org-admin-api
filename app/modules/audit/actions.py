@@ -89,6 +89,8 @@ class AuditAction(StrEnum):
     BUG_REPORT_NOTE_UPDATED = "bug_report.note_updated"
     AUTH_EMAIL_VERIFIED = "auth.email_verified"
     RELEASE_DELETED = "release.deleted"
+    RELEASE_CREATED = "release.created"
+    RELEASE_UPDATED = "release.updated"
     USAGE_METRIC_CREATED = "usage_metric.created"
     USAGE_METRIC_UPDATED = "usage_metric.updated"
     USAGE_METRIC_ARCHIVED = "usage_metric.archived"

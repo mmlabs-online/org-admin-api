@@ -15,6 +15,7 @@ async def make_credential(
     app: App,
     *,
     revoked: bool = False,
+    scope: str = "manifest",
     created_by: uuid.UUID | None = None,
 ) -> tuple[AppCredential, str]:
     """Returns the row and the raw credential value."""
@@ -25,6 +26,7 @@ async def make_credential(
         app_id=app.id,
         key_id=key_id,
         secret_hash=secret_hash(parsed[1]),
+        scope=scope,
         created_by=created_by,
         revoked_at=datetime.now(UTC) if revoked else None,
     )

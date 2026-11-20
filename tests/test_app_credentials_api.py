@@ -237,3 +237,118 @@ async def test_app_delete_cascades_credentials(
         select(func.count()).select_from(AppCredential).where(AppCredential.app_id == app_id)
     )
     assert count == 0
+
+
+# --- scopes (ADM-034, ADR-0021 §1) -------------------------------------------
+
+
+async def test_issue_without_body_is_manifest(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url(app.key))
+    assert resp.status_code == 201
+    assert resp.json()["scope"] == "manifest"
+    assert (await _creds(db_session, app.id))[0].scope == "manifest"
+
+
+async def test_issue_empty_object_is_manifest(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url(app.key), json={})
+    assert resp.status_code == 201
+    assert resp.json()["scope"] == "manifest"
+
+
+async def test_issue_releases_scope(make_client: MakeClient, db_session: AsyncSession) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url(app.key), json={"scope": "releases"})
+    assert resp.status_code == 201
+    assert resp.json()["scope"] == "releases"
+    assert (await _creds(db_session, app.id))[0].scope == "releases"
+
+
+async def test_issue_unknown_scope_422(make_client: MakeClient, db_session: AsyncSession) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url(app.key), json={"scope": "usage:read"})
+    assert resp.status_code == 422
+    assert await _creds(db_session, app.id) == []
+
+
+async def test_issue_extra_field_422(make_client: MakeClient, db_session: AsyncSession) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url(app.key), json={"scope": "releases", "x": 1})
+    assert resp.status_code == 422
+
+
+async def test_issue_releases_for_admin_app_201(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url("admin"), json={"scope": "releases"})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["app"] == "admin"
+
+
+async def test_issue_manifest_for_admin_app_still_409(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        for body in (None, {}, {"scope": "manifest"}):
+            resp = await client.post(_url("admin"), json=body)
+            assert resp.status_code == 409
+            assert resp.json()["error"]["details"][0]["reason"] == "admin_app"
+
+
+async def test_limit_is_per_scope(make_client: MakeClient, db_session: AsyncSession) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        for scope in ("manifest", "manifest", "releases", "releases"):
+            assert (await client.post(_url(app.key), json={"scope": scope})).status_code == 201
+        for scope in ("manifest", "releases"):
+            third = await client.post(_url(app.key), json={"scope": scope})
+            assert third.status_code == 409
+            assert third.json()["error"]["details"][0]["reason"] == "credential_limit"
+    assert len(await _creds(db_session, app.id)) == 4
+
+
+async def test_issue_releases_unknown_app_404(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url("nope-app"), json={"scope": "releases"})
+    assert resp.status_code == 404
+
+
+async def test_list_shows_scope(make_client: MakeClient, db_session: AsyncSession) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    await make_credential(db_session, app, scope="releases")
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.get(_url(app.key))
+    assert [i["scope"] for i in resp.json()["items"]] == ["releases"]
+
+
+async def test_issued_audit_has_scope(make_client: MakeClient, db_session: AsyncSession) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url(app.key), json={"scope": "releases"})
+    (row,) = [r for r in await _audit(db_session, app.key) if r.action == "app_credential.issued"]
+    assert row.changes["scope"] == {"from": None, "to": "releases"}
+    assert resp.json()["credential"] not in str(row.changes)

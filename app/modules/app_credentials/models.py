@@ -6,11 +6,19 @@ Alembic does not compare CHECKs.
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, LargeBinary, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, UUIDPkMixin
+
+
+class AppCredentialScope(StrEnum):
+    """One scope per key (ADR-0021 §1). ADM-042 widens the CHECK with the runtime scopes."""
+
+    MANIFEST = "manifest"
+    RELEASES = "releases"
 
 
 class AppCredential(UUIDPkMixin, Base):
@@ -20,10 +28,13 @@ class AppCredential(UUIDPkMixin, Base):
     __table_args__ = (
         CheckConstraint("key_id ~ '^[0-9a-f]{16}$'", name="key_id_format"),
         CheckConstraint("octet_length(secret_hash) = 32", name="secret_hash_length"),
+        # ADM-042 drops and recreates `ck_app_credentials_scope_valid` to add the runtime scopes.
+        CheckConstraint("scope IN ('manifest', 'releases')", name="scope_valid"),
         Index("ix_app_credentials_app_id_created_at", "app_id", "created_at"),
         Index(
-            "ix_app_credentials_app_id_active",
+            "ix_app_credentials_app_id_scope_active",
             "app_id",
+            "scope",
             postgresql_where=text("revoked_at IS NULL"),
         ),
     )
@@ -31,6 +42,12 @@ class AppCredential(UUIDPkMixin, Base):
     app_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("apps.id", ondelete="CASCADE", name="fk_app_credentials_app_id_apps"),
         nullable=False,
+    )
+    scope: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("'manifest'"),
+        default=AppCredentialScope.MANIFEST.value,
     )
     key_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     secret_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

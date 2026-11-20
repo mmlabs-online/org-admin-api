@@ -4,13 +4,19 @@ The credential value is returned once, by `POST`, with `Cache-Control: no-store`
 """
 
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Body, Depends, Response, status
 
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
-from app.modules.app_credentials.schemas import AppCredentialIssued, AppCredentialRead
+from app.modules.app_credentials.models import AppCredentialScope
+from app.modules.app_credentials.schemas import (
+    AppCredentialIssue,
+    AppCredentialIssued,
+    AppCredentialRead,
+)
 from app.modules.app_credentials.service import AppCredentialService
 from app.modules.audit.deps import AuditContextDep
 
@@ -25,15 +31,21 @@ router = APIRouter(prefix="/apps", tags=["app-credentials"], dependencies=[Depen
         "admin:apps:write",
         errors={
             404: "Unknown app",
-            409: "admin app, disabled app or credential limit (details[0].reason)",
+            409: "admin app (manifest scope), disabled app or credential limit per scope (details)",
         },
         requires_super="always",
     ),
 )
 async def issue_credential(
-    session: SessionDep, principal: AdminDep, ctx: AuditContextDep, response: Response, key: str
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    response: Response,
+    key: str,
+    body: Annotated[AppCredentialIssue | None, Body()] = None,
 ) -> AppCredentialIssued:
-    issued = await AppCredentialService(session).issue(key, actor=principal, ctx=ctx)
+    scope = AppCredentialScope.MANIFEST if body is None else body.scope
+    issued = await AppCredentialService(session).issue(key, scope=scope, actor=principal, ctx=ctx)
     response.headers["Cache-Control"] = "no-store"
     return AppCredentialIssued.model_validate(issued)
 

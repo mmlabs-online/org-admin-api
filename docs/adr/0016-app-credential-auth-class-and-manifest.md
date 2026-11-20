@@ -1,6 +1,7 @@
 # ADR-0016: App credential auth class and the app manifest
 
 Status: Accepted — owner merged USR-05a (PR #47), 2026-11-17
+Amended by ADR-0021 (§1 scopes, §3 limit per (app, scope), §5 `admin` refusal manifest-only)
 Date: 2026-11-17
 
 ## Context

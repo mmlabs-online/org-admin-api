@@ -93,7 +93,7 @@ async def test_table_and_constraints(db_session: AsyncSession) -> None:
             text("SELECT indexname FROM pg_indexes WHERE tablename = 'app_credentials'")
         )
     )
-    assert "ix_app_credentials_app_id_active" in indexes
+    assert "ix_app_credentials_app_id_scope_active" in indexes
 
     # created_by is SET NULL on user delete; credentials cascade with the app.
     await db_session.execute(text("DELETE FROM users WHERE id = :i"), {"i": user.id})

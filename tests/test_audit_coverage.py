@@ -50,7 +50,7 @@ from tests.rbac_factories import (
     super_admin_role,
 )
 from tests.release_factories import make_release
-from tests.test_route_auth_classes import APP_CREDENTIAL, BEARER, COOKIE, PUBLIC
+from tests.test_route_auth_classes import APP_CREDENTIAL_ROUTES, BEARER, COOKIE, PUBLIC
 
 V1 = "/api/v1"
 Call = tuple[str, Any]  # (url, json body or None)
@@ -921,7 +921,7 @@ APP_CREDENTIAL_AUDITED = {("PUT", f"{V1}/apps/{{key}}/manifest"): {"app.manifest
 
 
 def test_app_credential_routes_are_classified() -> None:
-    assert set(APP_CREDENTIAL_AUDITED) == APP_CREDENTIAL
+    assert set(APP_CREDENTIAL_AUDITED) == APP_CREDENTIAL_ROUTES
 
 
 async def test_app_credential_routes_are_audited(
