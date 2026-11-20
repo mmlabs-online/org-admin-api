@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 1 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-20T07:30Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/85 |
 
 ## Goal
 The deployment repo gets its own machine key, able only to report deploy results, managed by the super admin.
@@ -50,3 +50,7 @@ The deployment repo gets its own machine key, able only to report deploy results
 - Done: consult, plan.md READY.
 - In progress / next: Ming answers batch questions + plan approval → `/run-batch --resume`.
 - Gotchas: all five batch tickets share migration head c4e8a2f7b916, app/db/models.py, audit/actions.py and registry tests — built sequentially on the single session branch, each rebases on the previous merge.
+### 2026-11-20 — claude — DONE (PR #85, waiting for Ming's merge)
+- Agent calls (build): 5, tokens ~303k (implementer×2 sonnet 112k+25k, reviewer×2 opus 77k + sonnet 25k, appsec-engineer×1 64k). Ticket total incl. plan: 9 calls, ~565k.
+- Done: deployer_credentials table + migration 5b7d1e9c3a42, mmdk_ codec, three admin:* routes, current_deployer; review attempt 1 REWORK (flaky test, vacuous log check), attempt 2 PASS; appsec no 🔴 (🟡 repr=False → follow-up). PR https://github.com/mmlabs-online/org-admin-api/pull/85.
+- In progress / next: Ming merges #85 (High); then ADM-039.
