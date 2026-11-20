@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-20T09:05Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/87 |
 
 ## Goal
 Users attach screenshots/images to a bug report from the app; staff view them in admin-pan; files live in Google Drive.
@@ -54,3 +54,7 @@ Users attach screenshots/images to a bug report from the app; staff view them in
 - Done: consult, plan.md READY.
 - In progress / next: Ming answers batch questions + plan approval → `/run-batch --resume`.
 - Gotchas: all five batch tickets share migration head c4e8a2f7b916, app/db/models.py, audit/actions.py and registry tests — built sequentially on the single session branch, each rebases on the previous merge.
+### 2026-11-20 — claude — DONE (PR #87, waiting for Ming's merge)
+- Agent calls (build): 3, tokens ~402k (implementer×1 sonnet 195k, reviewer×1 opus 106k, appsec-engineer×1 101k). Ticket total incl. plan: 6 calls, ~628k.
+- Done: slice 1 — attachments table (migration d7a3f5b2e801), upload + download routes, R6 411/413/415/503, ADM-027 Drive deadline fix, ADR-0023 + D32; follow-up ticket ADM-030b created. Review PASS; appsec no 🔴, two 🟡 (rotation outliving the grace on long uploads; no overall deadline on store.create) put to Ming in the PR. PR https://github.com/mmlabs-online/org-admin-api/pull/87.
+- In progress / next: Ming decides on the two 🟡 (rework in #87 or follow-up) and merges #87 (High).
