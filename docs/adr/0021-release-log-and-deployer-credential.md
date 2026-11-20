@@ -1,6 +1,7 @@
 # ADR-0021: Release log, scoped app credentials and the deployer credential
 
 Status: Accepted (2026-11-19)
+Amended by ADR-0022 (§1 scope set and auth path, §3 rate limits, §12 R3 text)
 
 > Originally numbered ADR-0021 with decision-log row D30; renumbered to ADR-0021 / D30 on 2026-11-20 (collision with `0018-attachment-storage-google-drive.md` and with D30 bug-report submit). Old PR and commit references to "ADR-0021 release log" mean this record.
 Date: 2026-11-19
