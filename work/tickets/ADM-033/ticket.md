@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api |
@@ -43,6 +43,7 @@ The owner sees in admin-pan every app's releases (production and staging): what,
 - API tests per criterion; migration round-trip.
 
 ## Notes / answers from Ming
+- 2026-11-20 (Ming, chat): "merge cho tôi #84" — explicit owner instruction to merge this High-tier PR (exception to "High never merged by an agent"); merged by claude (CI red only on the pre-existing kit lint).
 - 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1, 9–12, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff

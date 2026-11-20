@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.modules.auth.router import router as auth_router
 from app.modules.bug_reports.auth_router import router as bug_report_auth_router
 from app.modules.bug_reports.router import router as bug_report_router
+from app.modules.deployer_credentials.router import router as deployer_credentials_router
 from app.modules.entitlements.router import router as entitlements_router
 from app.modules.invitations.router import router as invitations_router
 from app.modules.organizations.auth_router import router as org_auth_router
@@ -15,6 +16,7 @@ api_router = APIRouter()
 api_router.include_router(organizations_router)
 api_router.include_router(entitlements_router)
 api_router.include_router(stats_router)
+api_router.include_router(deployer_credentials_router)
 api_router.include_router(auth_router)
 api_router.include_router(org_auth_router)
 api_router.include_router(bug_report_auth_router)

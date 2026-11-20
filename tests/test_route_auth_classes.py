@@ -24,6 +24,8 @@ from app.modules.admin_auth.route_classes import (
     is_bearer_dependant,
 )
 from app.modules.app_credentials.deps import current_app_credential
+from app.modules.deployer_credentials.codec import new_credential as new_deployer_key
+from app.modules.deployer_credentials.deps import current_deployer
 from app.modules.rbac.schemas import AdminOriginsSet
 from app.modules.rbac.service import AppService
 from tests.admin_auth_factories import bearer, make_staff, mint
@@ -59,6 +61,8 @@ COOKIE = {
 # App credential (R3 class 4, ADR-0016): exactly one route, own app only.
 MANIFEST = f"{V1}/apps/{{key}}/manifest"
 APP_CREDENTIAL = {("PUT", MANIFEST)}
+# Deployer credential (R3 class 4 (b), ADR-0021): no route accepts it until ADM-036.
+DEPLOYER_CREDENTIAL: set[tuple[str, str]] = set()
 DOCS = {"/openapi.json", "/docs", "/docs/oauth2-redirect"}  # Starlette routes, no dependant
 
 BEARER = {
@@ -84,6 +88,9 @@ BEARER = {
     ("DELETE", f"{V1}/organizations/{{org_id}}/entitlements/{{entitlement_id}}"): (
         "admin:entitlements:write"
     ),
+    ("POST", f"{V1}/deployer-credentials"): "admin:*",
+    ("GET", f"{V1}/deployer-credentials"): "admin:*",
+    ("DELETE", f"{V1}/deployer-credentials/{{credential_id}}"): "admin:*",
     ("GET", f"{V1}/users"): "admin:users:read",
     ("GET", f"{V1}/users/{{user_id}}"): "admin:users:read",
     ("PATCH", f"{V1}/users/{{user_id}}"): "admin:users:write",
@@ -173,9 +180,13 @@ def test_every_route_is_classified() -> None:
         has_admin, keys = _guard(dependant)
         ok = (
             route in PUBLIC | COOKIE
-            or (route in APP_CREDENTIAL and (has_admin, keys) == (False, []))
+            or (route in APP_CREDENTIAL | DEPLOYER_CREDENTIAL and (has_admin, keys) == (False, []))
             or (route in SELF_SCOPED and (has_admin, keys) == (True, []))
-            or (route not in SELF_SCOPED | APP_CREDENTIAL and has_admin and len(keys) == 1)
+            or (
+                route not in SELF_SCOPED | APP_CREDENTIAL | DEPLOYER_CREDENTIAL
+                and has_admin
+                and len(keys) == 1
+            )
         )
         if not ok:
             unclassified.append(route)
@@ -186,7 +197,7 @@ def test_every_route_is_classified() -> None:
 def test_bearer_route_permission_map() -> None:
     app = _app()
     routes = _api_routes(app)
-    guarded = {r for r in routes if r not in PUBLIC | COOKIE | APP_CREDENTIAL}
+    guarded = {r for r in routes if r not in PUBLIC | COOKIE | APP_CREDENTIAL | DEPLOYER_CREDENTIAL}
     assert guarded == set(BEARER) | SELF_SCOPED
     assert not set(BEARER) & SELF_SCOPED
     paths = app.openapi()["paths"]
@@ -237,13 +248,13 @@ def test_self_scoped_allow_list_is_exact() -> None:
 def test_allow_lists_have_no_stale_entries() -> None:
     app = _app()
     routes = _api_routes(app)
-    assert set(routes) >= PUBLIC | COOKIE | SELF_SCOPED | APP_CREDENTIAL
+    assert set(routes) >= PUBLIC | COOKIE | SELF_SCOPED | APP_CREDENTIAL | DEPLOYER_CREDENTIAL
     assert _other_paths(app) == DOCS
 
 
 def test_public_and_cookie_routes_have_no_bearer_guard() -> None:
     routes = _api_routes(_app())
-    for route in PUBLIC | COOKIE | APP_CREDENTIAL:
+    for route in PUBLIC | COOKIE | APP_CREDENTIAL | DEPLOYER_CREDENTIAL:
         assert _guard(routes[route]) == (False, []), route
 
 
@@ -252,6 +263,13 @@ def test_app_credential_allow_list_is_exact() -> None:
     routes = _api_routes(_app())
     with_dep = {r for r, d in routes.items() if current_app_credential in dependant_calls(d)}
     assert with_dep == APP_CREDENTIAL
+
+
+def test_deployer_credential_allow_list_is_exact() -> None:
+    assert not DEPLOYER_CREDENTIAL
+    routes = _api_routes(_app())
+    with_dep = {r for r, d in routes.items() if current_deployer in dependant_calls(d)}
+    assert with_dep == DEPLOYER_CREDENTIAL
 
 
 def test_openapi_bearer_scheme() -> None:
@@ -295,7 +313,7 @@ def test_cors_matcher_agrees_with_bearer_map() -> None:
     for method, path in list(BEARER) + list(SELF_SCOPED):
         assert not path.startswith(f"{V1}/auth/"), path  # the two CORS scopes are disjoint
         assert matcher(_scope(_fill(path)), method), (method, path)
-    for method, path in PUBLIC | COOKIE | APP_CREDENTIAL:
+    for method, path in PUBLIC | COOKIE | APP_CREDENTIAL | DEPLOYER_CREDENTIAL:
         assert not matcher(_scope(path.replace("{key}", "stoktok")), method), (method, path)
     assert not matcher(_scope("/healthz"), "HEAD")
     assert not matcher(_scope(f"{V1}/nope"), "GET")
@@ -446,3 +464,41 @@ async def test_credential_on_bearer_routes_401(
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "unauthorized"
     assert resp.headers["www-authenticate"].startswith('Bearer realm="admin"')
+
+
+# --- deployer credential (ADM-035): refused by every other auth class -----------
+
+
+def _deployer_raw() -> str:
+    return new_deployer_key()[1]
+
+
+@pytest.mark.parametrize(("method", "path"), list(BEARER) + sorted(SELF_SCOPED))
+async def test_deployer_key_on_bearer_routes_401(
+    client: AsyncClient, method: str, path: str
+) -> None:
+    resp = await _call(client, method, path, bearer(_deployer_raw()))
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "unauthorized"
+    assert resp.headers["www-authenticate"].startswith('Bearer realm="admin"')
+
+
+async def test_deployer_key_on_manifest_401(client: AsyncClient) -> None:
+    resp = await client.put(f"{V1}/apps/stoktok/manifest", json={}, headers=bearer(_deployer_raw()))
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "unauthorized"
+    assert resp.headers["www-authenticate"].startswith('Bearer realm="app"')
+
+
+async def test_deployer_key_on_cookie_routes_unauthenticated(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await make_login_app(db_session)
+    for method, path in COOKIE:
+        url = path.replace("{key}", "stoktok")
+        body = {} if method == "POST" else None
+        headers = {**auth_headers(), **bearer(_deployer_raw())}
+        resp = await client.request(method, url, json=body, headers=headers)
+        assert resp.status_code == 401, path
+        assert resp.json()["error"]["code"] == "session_invalid", path
+        assert "www-authenticate" not in resp.headers, path

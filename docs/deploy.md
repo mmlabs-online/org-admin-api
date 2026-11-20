@@ -585,6 +585,48 @@ curl -fsS -H @"$hdr" "$api/apps/<key>/credentials"
 - Issue, refusals and revocations are audited (`app_credential.issued`, `app_credential.revoked`);
   no secret or hash is stored in the audit log.
 
+## Deployer credential (ADM-035)
+
+The release deployment report (ADM-036) is sent by the deployment repo with a **deployer credential**
+`mmdk_<key_id>_<secret>` (ADR-0021 §2). It is not bound to an app. Staff issue, list and revoke it
+through the admin API; all three calls need `admin:*`. At most **2 active** keys. No route accepts the
+key until ADM-036 ships, so issue the first one only then. Run the calls inside the marked section of
+the "Admin access" subshell (token only via `-H @"$hdr"`). The value is shown **once**
+(`Cache-Control: no-store`): write it straight to a 0600 file, never to stdout, argv, a log or an issue.
+
+Issue (same safe pattern as app credentials):
+
+```sh
+resp=$(mktemp); cred=$(mktemp)
+if curl -fsS -X POST -H @"$hdr" "$api/deployer-credentials" -o "$resp" \
+   && python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["credential"]);print("key_id: "+d["key_id"],file=sys.stderr)' < "$resp" > "$cred" \
+   && [ -s "$cred" ]; then
+  rm -f -- "$resp"
+else
+  rm -f -- "$resp" "$cred"
+  echo "issue failed: list credentials and revoke any key_id you do not hold" >&2
+  exit 1
+fi
+# store the file's content as the GitHub Environment secret MMLABS_DEPLOYER_CREDENTIAL
+# in `mmlabs-online/deployment`, then:
+rm -f -- "$cred"
+```
+
+List (metadata only, newest first; revoked keys stay with `active: false`; `last_used_at` shows use):
+
+```sh
+curl -fsS -H @"$hdr" "$api/deployer-credentials"
+```
+
+- **Rotation:** issue the second key, update the secret, run one deploy, confirm `last_used_at`
+  moved on the new `key_id`, then revoke the old one:
+  `curl -fsS -X DELETE -H @"$hdr" "$api/deployer-credentials/<id>"`.
+- **Leak:** revoke first (immediate; revoking twice is a no-op), then issue a new one.
+- A lost value still counts toward the limit of 2 until you revoke its `key_id`.
+- Issue and revoke are audited (`deployer_credential.issued`, `deployer_credential.revoked`); no
+  secret or hash is stored in the audit log.
+- `last_used_at` is written in the request's transaction, so a request that later fails rolls it back.
+
 ## Set admin origins (ADM-002c)
 
 The `admin` app's browser origins are set only from the CLI, through `AppService.set_admin_origins`
