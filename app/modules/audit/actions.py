@@ -28,6 +28,7 @@ class AuditTarget(StrEnum):
     JOIN_REQUEST = "join_request"
     ENTITLEMENT = "entitlement"
     BUG_REPORT = "bug_report"
+    RELEASE = "release"
 
 
 class AuditAction(StrEnum):
@@ -82,3 +83,4 @@ class AuditAction(StrEnum):
     BUG_REPORT_REOPENED = "bug_report.reopened"
     BUG_REPORT_NOTE_UPDATED = "bug_report.note_updated"
     AUTH_EMAIL_VERIFIED = "auth.email_verified"
+    RELEASE_DELETED = "release.deleted"

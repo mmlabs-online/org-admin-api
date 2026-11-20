@@ -47,6 +47,7 @@ from tests.rbac_factories import (
     make_user,
     super_admin_role,
 )
+from tests.release_factories import make_release
 from tests.test_route_auth_classes import APP_CREDENTIAL, BEARER, COOKIE, PUBLIC
 
 V1 = "/api/v1"
@@ -241,6 +242,15 @@ async def _bug_done(s: AsyncSession) -> Call:
 
 async def _bug_unknown(s: AsyncSession) -> Call:
     return f"{V1}/bug-reports/{uuid.uuid4()}", {"status": "done"}
+
+
+async def _release_delete(s: AsyncSession) -> Call:
+    release = await make_release(s, await make_app(s, _key()))
+    return f"{V1}/releases/{release.id}", None
+
+
+async def _release_unknown(s: AsyncSession) -> Call:
+    return f"{V1}/releases/{uuid.uuid4()}", None
 
 
 # --- failure scenarios (404 unknown id/key, 409 duplicate) -------------------
@@ -473,6 +483,12 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _bug_unknown,
         404,
     ),
+    ("DELETE", f"{V1}/releases/{{release_id}}"): (
+        {"release.deleted"},
+        _release_delete,
+        _release_unknown,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
 _SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated resource
@@ -505,7 +521,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 27
+    assert len(AUDITED) == 28
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")
