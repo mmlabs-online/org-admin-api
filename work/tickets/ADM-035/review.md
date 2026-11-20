@@ -92,3 +92,32 @@ None — appsec-engineer attempt 1: PASS, no 🔴 (one 🟡: `IssuedDeployerCred
 
 ### Follow-ups (out of scope)
 - Fix the same "64 chars" comment in `app/modules/app_credentials/codec.py:11`.
+
+## Attempt 2 — 2026-11-20
+Verdict: PASS
+
+Reviewed rework commit `2a28eb3` (test-only plus a comment fix in `codec.py`; no out-of-plan files).
+
+### Checks (run by reviewer)
+- `make typecheck` — Success: no issues found in 181 source files.
+- `make test` (full) — 3185 passed, 1 warning in 457.38s, exit 0.
+- `uv run ruff check . --exclude .github/scripts` — All checks passed (pre-existing risk_tier.py lint caveat unchanged).
+- `uv run ruff format --check app tests migrations` — 350 files already formatted.
+- `uv run alembic check` — No new upgrade operations detected.
+- Flake check: `test_value_never_logged_or_audited` run 40 times in isolation, 0 failures (was 3/40).
+
+### Attempt-1 issues
+- Issue 1 (flaky wrong secret): fixed. Wrong value is `mmdk_<key_id>_` + 43 x `A`, cannot realistically equal the real secret;
+  `pytest.raises(UnauthorizedError)`, `noqa: B017` removed.
+- Issue 2 (vacuous log assertion): fixed. Service logger re-enabled and restored in `finally`; the test asserts the captured
+  records are exactly `deployer_credential_denied reason=secret key_id=<id>`, then that raw/secret are absent. Meaningful now.
+- Nit (comment "64 chars" -> "65") done.
+
+All acceptance criteria stay met (evidence in attempt 1); `make check` is now reliably green.
+
+Ming verification after merge (carry to the PR): same as attempt 1 (migration creates `deployer_credentials`; list endpoint
+returns empty page with `admin:*`; first production key only after ADM-036, stored as `MMLABS_DEPLOYER_CREDENTIAL`).
+
+### Nits / Follow-ups
+- "64 chars" comment remains in `app/modules/app_credentials/codec.py:11`.
+- appsec: `IssuedDeployerCredential.credential` could use `field(repr=False)`.
