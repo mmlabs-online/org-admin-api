@@ -56,3 +56,27 @@ I read the product diff, the ADR (`docs/adr/0023-bug-report-attachments.md`), th
 - Check whether a 30 s read deadline is too tight for 5 MB on slow mobile uplinks (it needs about 1.4 Mbps); product decision.
 - EXIF metadata is not stripped and there is no malware scan (already an ADR residual).
 - On disconnect during a download, the httpx response is only closed by the async-generator finaliser; consider closing it explicitly if the httpx pool (10 connections) shows pressure.
+
+## Attempt 2 (commit 8dbc491, rework requested by Ming)
+
+**Verdict: PASS. No 🔴 or 🟡 findings.** Read-only review (no pytest/alembic); the reviewer owns the green-check gate (R8).
+
+**Finding 1 (no cookie rotation on the upload route): fixed.**
+- `app/modules/sessions/service.py:74,93`: the new `allow_rotate` flag only gates the rotate branch: `if allow_rotate and (force_rotate or device.rotated_at <= now - ROTATE_AFTER)`. Every other check stays on the same path: missing or multiple cookies rejected (78-82); unknown hash rejected (86-87); `_usable` (61-66, called at 89-90) still enforces revocation, idle expiry and max age; the previous value is still accepted only inside its grace window (102-103); reuse after the grace window still revokes the whole device session, records the audit entry and commits before the 401 (104-112). With rotation off, the current value is only touched (98-99), committed in tx 1 (`app/modules/bug_reports/service.py:242`).
+- `app/modules/auth/deps.py`: `get_device` now calls the shared `_resolve_device(..., allow_rotate=True)`, so its behaviour is the same as before. `get_device_no_rotate` / `DeviceNoRotateDep` go through the same helper, so a 401 still clears the cookie when one was sent.
+- `allow_rotate` defaults to True. `DeviceNoRotateDep` is used only at `app/modules/bug_reports/auth_router.py:125`; no other route's rotation changed. `DeviceDep` and `set_device_cookie` are still used for the other handler in that file (line 68).
+- The upload route no longer contains any `Set-Cookie` code (`committed` flag and error header injection removed), which removes the original lost-rotation risk instead of patching around it.
+- Tests: `tests/test_bug_report_attachments_upload.py:550-563` (no `Set-Cookie` on 201 or 503 with a stale `rotated_at`, row unchanged, same value keeps working); 566-575 (`/auth/accounts` still rotates); 578-587 (revoked session → 401, Drive never called).
+
+**Finding 2 (overall `store.create` deadline): fixed.**
+- `app/modules/bug_reports/service.py:170,275-286`: `asyncio.timeout(STORE_DEADLINE_SECONDS=60)` wraps the whole `store.create`, including the Drive upload-slot wait (`drive.py:495`, `_MAX_CONCURRENT_UPLOADS = 4`) and `ensure_app_folder`. `TimeoutError` → `DriveErrorCode.UNAVAILABLE` → `AttachmentStorageUnavailableError(retryable=True)`.
+- The in-process upload slot is released in `finally` (259-260).
+- `drive.py` has no `CancelledError` handler; its inner `asyncio.timeout` blocks (160, 205, 237, 265) only catch their own expiry, so the outer deadline cannot be swallowed.
+- Test at 590-607: a hang in `ensure_app_folder` gives 503 `attachment_storage_unavailable`, the slot count is restored, and no row is written.
+
+**503 timeout path leaks nothing.** Fixed message "Attachment storage is unavailable", `details={"retryable": true}`, `Retry-After: 30` (`app/modules/bug_reports/errors.py:76-84`). The log line (`service.py:287-292`) has only `report_id`, `attachment_id` and the enum code. `test_drive_ids_never_exposed` (613) still covers the error shapes.
+
+**🟢 Notes (no change needed for merge):**
+1. `service.py:275-286`: if the deadline fires after Drive stored the file but before the id returns, the file stays in Drive with no DB row; it carries the `mm_service`/`attachment_id` appProperties. The sweep ticket (ADM-030b) must cover files with no DB row.
+2. With rotation off, an upload only refreshes `last_seen_at`. Bounded by idle and max-age limits, the report window, and the next ordinary cookie request rotating as usual. Recorded in ADR-0023 §4.
+3. No test exercises reuse after the grace window through the upload route. The code path is shared and unchanged; a regression test would pin it.
