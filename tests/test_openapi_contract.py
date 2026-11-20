@@ -343,6 +343,10 @@ _EXPECTED_ERRORS: dict[tuple[str, str], set[str]] = {
     ("get", "/bug-reports"): set(),
     ("get", "/bug-reports/{report_id}"): {"404"},
     ("patch", "/bug-reports/{report_id}"): {"404"},
+    ("get", f"{_A}/usage-metrics"): {"404"},
+    ("post", f"{_A}/usage-metrics"): {"404", "409"},
+    ("get", f"{_A}/usage-metrics/{{metric_id}}"): {"404"},
+    ("patch", f"{_A}/usage-metrics/{{metric_id}}"): {"404"},
 }
 _SUPER: dict[tuple[str, str], str] = {
     ("post", _C): "always",

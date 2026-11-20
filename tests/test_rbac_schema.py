@@ -59,6 +59,8 @@ ADMIN_LEAF_PERMISSIONS = {
     "admin:stats:read",
     "admin:bug-reports:read",
     "admin:bug-reports:write",
+    "admin:usage:read",
+    "admin:usage:write",
 }
 
 

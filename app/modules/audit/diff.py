@@ -24,6 +24,7 @@ PERMISSION = ("key", "description", "is_admin", "scope")
 ROLE = ("key", "name", "is_system")
 USER = ("status",)
 ENTITLEMENT = ("app_id", "plan", "limits", "enabled")
+USAGE_METRIC = ("key", "display_name", "unit", "default_limit", "period", "status")
 
 Change = Mapping[str, Any]  # {"from": ..., "to": ...}
 

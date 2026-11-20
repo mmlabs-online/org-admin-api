@@ -11,6 +11,7 @@ from app.modules.organizations.router import router as organizations_router
 from app.modules.rbac.catalog_router import router as catalog_router
 from app.modules.releases.router import router as releases_router
 from app.modules.stats.router import router as stats_router
+from app.modules.usage.router import router as usage_metrics_router
 
 api_router = APIRouter()
 api_router.include_router(organizations_router)
@@ -23,5 +24,6 @@ api_router.include_router(bug_report_auth_router)
 api_router.include_router(bug_report_router)
 api_router.include_router(invitations_router)
 api_router.include_router(releases_router)
+api_router.include_router(usage_metrics_router)
 # Public (D17), always mounted; the staff RBAC router is gated in `create_app`.
 api_router.include_router(catalog_router)
