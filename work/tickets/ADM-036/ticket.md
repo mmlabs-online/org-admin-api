@@ -18,7 +18,7 @@
 After the health check, the deploy workflow records whether a release deployed or failed, even if the app's own write never arrived.
 
 ## Scope reference
-`docs/spec-v1.md` §5.13 (OQ38, OQ39, OQ40); ADR-0018 §4–§6.
+`docs/spec-v1.md` §5.13 (OQ38, OQ39, OQ40); ADR-0021 §4–§6.
 
 ## Scope
 - `…/apps/{key}/releases/{environment}/{version}/deployment` (PUT or PATCH — PLAN decides; upsert semantics), deployer key only, any app incl. disabled (unknown app → 404).

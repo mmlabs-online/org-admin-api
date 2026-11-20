@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | BLOCKED |
 | Priority | P2 |
 | Size | M |
 | Areas | api, security |
@@ -46,5 +46,11 @@ Users attach screenshots/images to a bug report from the app; staff view them in
 - API tests with the fake Drive; magic-byte fixtures; header assertions.
 
 ## Notes / answers from Ming
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1–8, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
+### 2026-11-20 — claude — BLOCKED (waiting plan approval, batch 2026-11-20-1)
+- Agent calls: 3, tokens ~226k (consultants + planner×1 opus 144k).
+- Done: consult, plan.md READY.
+- In progress / next: Ming answers batch questions + plan approval → `/run-batch --resume`.
+- Gotchas: all five batch tickets share migration head c4e8a2f7b916, app/db/models.py, audit/actions.py and registry tests — built sequentially on the single session branch, each rebases on the previous merge.

@@ -1,6 +1,9 @@
-# ADR-0018: Release log, scoped app credentials and the deployer credential
+# ADR-0021: Release log, scoped app credentials and the deployer credential
 
 Status: Accepted (2026-11-19)
+Amended by ADR-0022 (§1 scope set and auth path, §3 rate limits, §12 R3 text)
+
+> Originally numbered ADR-0021 with decision-log row D30; renumbered to ADR-0021 / D30 on 2026-11-20 (collision with `0018-attachment-storage-google-drive.md` and with D30 bug-report submit). Old PR and commit references to "ADR-0021 release log" mean this record.
 Date: 2026-11-19
 
 ## Context
@@ -165,7 +168,7 @@ the `admin` app and could collide on `(app, environment, version)`. Proposed res
 admin-pan its own app row or key; decided at PLAN of the releases ticket.
 
 ### 12. R3 class 4 text for `CLAUDE.md` (applied by the first implementing ticket)
-> (4) **machine credential** (D25, D28; ADR-0016, ADR-0018) — opaque keys issued by staff
+> (4) **machine credential** (D25, D30; ADR-0016, ADR-0021) — opaque keys issued by staff
 > (`admin:*`), stored only as a SHA-256 hash, sent as `Authorization: Bearer …`, no CORS, per-IP
 > rate-limited, never accepted on any other route; a key of the wrong type → 401:
 > (a) **app credential** `mmak_<key_id>_<secret>` with one scope — `manifest`: only
@@ -177,7 +180,7 @@ admin-pan its own app row or key; decided at PLAN of the releases ticket.
 > registered app.
 
 and in R9's exception list: "`/api/v1/apps/{key}/releases/{environment}/{version}` and its
-`/deployment` sub-document (natural key, singular; D28)". A decision-log row D28 in
+`/deployment` sub-document (natural key, singular; D30)". A decision-log row D30 in
 `docs/identity-architecture.md` records this ADR.
 
 ## Rejected alternatives
@@ -227,7 +230,7 @@ and in R9's exception list: "`/api/v1/apps/{key}/releases/{environment}/{version
   follow-up if needed.
 - Releases of this API and admin-pan are recorded under the `admin` app; the version collision
   between the two is settled at PLAN (§11).
-- `CLAUDE.md` R3 and R9, `docs/identity-architecture.md` (D28) and `tests/test_route_auth_classes.py`
+- `CLAUDE.md` R3 and R9, `docs/identity-architecture.md` (D30) and `tests/test_route_auth_classes.py`
   change in the first implementing ticket; ADR-0016 §1, §3 and §5 are amended by §1 above.
 - Bug reports (spec §5.12) link to the release the reporter ran — report app version first, else
   the release live at report time — exposed as `release_match` = `reported` | `inferred` | `none`

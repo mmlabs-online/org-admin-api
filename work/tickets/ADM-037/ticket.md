@@ -18,7 +18,7 @@
 App teams and the deployment repo can add the release-log calls the first time, without ever blocking a release or deploy.
 
 ## Scope reference
-`docs/spec-v1.md` §5.13 cross-repo follow-ups; ADR-0018.
+`docs/spec-v1.md` §5.13 cross-repo follow-ups; ADR-0021.
 
 ## Scope
 - A guide (e.g. `docs/release-log.md`): request contracts for the app write and the deploy report, warning-only CI steps (`curl -fsS --retry 3 --max-time 15 … || echo "::warning::…"`, `continue-on-error`), secret names (`MMLABS_RELEASE_CREDENTIAL` per app repo in a release-branch Environment secret; `MMLABS_DEPLOYER_CREDENTIAL` in the deployment repo), how to build `changes` from merged PRs, PII rule.

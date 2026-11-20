@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | BLOCKED |
 | Priority | P2 |
 | Size | M |
 | Areas | db, auth, security |
@@ -18,7 +18,7 @@
 The deployment repo gets its own machine key, able only to report deploy results, managed by the super admin.
 
 ## Scope reference
-`docs/spec-v1.md` §5.13 (OQ43); ADR-0018 §2–§3.
+`docs/spec-v1.md` §5.13 (OQ43); ADR-0021 §2–§3.
 
 ## Scope
 - New table `deployer_credentials` (key_id, secret SHA-256 hash, created_by, created_at, last_used_at, revoked_at), at most 2 active; migration with `downgrade()`.
@@ -42,5 +42,11 @@ The deployment repo gets its own machine key, able only to report deploy results
 - API and dependency tests; migration round-trip.
 
 ## Notes / answers from Ming
+- 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
 ## Handoff
+### 2026-11-20 — claude — BLOCKED (waiting plan approval, batch 2026-11-20-1)
+- Agent calls: 4, tokens ~262k (consultants + planner×1 opus).
+- Done: consult, plan.md READY.
+- In progress / next: Ming answers batch questions + plan approval → `/run-batch --resume`.
+- Gotchas: all five batch tickets share migration head c4e8a2f7b916, app/db/models.py, audit/actions.py and registry tests — built sequentially on the single session branch, each rebases on the previous merge.

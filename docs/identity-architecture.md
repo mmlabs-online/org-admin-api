@@ -319,6 +319,7 @@ Decisions from the USR-03b plan (2026-11-13):
 | D27 | **Entitlement consumption (owner, 2026-11-17/18, ADM-018):** products read an org's entitlement through the additive `ent` token claim (`{plan, limits}`, or `null` when not entitled; present iff `org` is present, never on `aud=admin`). No pull endpoint; R3 class 4 and ADR-0016 unchanged. See ADR-0017. |
 | D28 | **Bug-report submit (owner, 2026-11-19, ADM-028):** `POST /api/v1/auth/bug-reports` is an R3 class 2 (cookie) route under `/auth/*` although it is not an identity action; `admin` is refused as a report target; a disabled reporter gets 401 `session_invalid`. Caps and field rules in ADR-0019. |
 | D29 | **Bug-report triage (owner, 2026-11-20, ADM-029):** permissions `admin:bug-reports:read` / `:write` (`is_admin`, granted to no role); no tightening of ADM-028 submit validation, untrusted text is returned verbatim and documented as plain text; note semantics (absent = unchanged, `null` = clear, blank = 422); three audit actions; done on done is a 200 no-op. See ADR-0020. |
+| D31 | **Usage key scopes (owner, 2026-11-20, ADM-041):** app-credential scopes `usage:read`, `usage:write` (also the per-user usage read), `limits:write` (runtime keys, one scope per key, refused for `admin`); no `lock_app` on runtime auth; `on_behalf_of` bound to the app admin's access token; per-app idempotency keys; fail-closed default, staff-only fail-open grace; per-key rate limit; issuance stays ungated. R3 class 4 rewritten scope-generic. Amends ADR-0021. See ADR-0022. |
 
 ## 9. Open questions
 

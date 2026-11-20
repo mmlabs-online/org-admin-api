@@ -18,7 +18,7 @@
 Staff see, next to an end-user bug report, the release the user was running: version, deploy time, changes and deployment PR.
 
 ## Scope reference
-`docs/spec-v1.md` §5.12 "Link to the release the user ran" (owner, 2026-11-19; `release_match` reported | inferred | none), §5.13, OQ50; ADR-0018.
+`docs/spec-v1.md` §5.12 "Link to the release the user ran" (owner, 2026-11-19; `release_match` reported | inferred | none), §5.13, OQ50; ADR-0021.
 
 ## Scope
 - On submit (§5.12 cookie route): environment from the validated `Origin` (`staging-<app>.mmlabs.online` → `staging`, else `production`), never from the body.
