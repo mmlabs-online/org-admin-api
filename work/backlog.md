@@ -87,20 +87,20 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-027 | Google Drive attachment client for bug reports | MERGED | P2 | architecture, security | 0 | 2026-11-19 |
 | ADM-028 | Bug reports: data model and text submit from apps (cookie class) | MERGED | P2 | db, api, auth, security | 0 | 2026-11-19 |
 | ADM-029 | Bug reports: staff list, detail, mark done and reopen | MERGED | P2 | api, auth, db | 0 | 2026-11-20 |
-| ADM-030 | Bug reports: image attachments (upload from apps, download for staff) | BACKLOG | P2 | api, security | 0 | 2026-11-19 |
+| ADM-030 | Bug reports: image attachments (upload from apps, download for staff) | PLANNING | P2 | api, security | 0 | 2026-11-19 |
 | ADM-031 | Bug reports: retention purge | BACKLOG | P3 | db, security | 0 | 2026-11-19 |
 | ADM-032 | Bug reports: guide for app teams | BACKLOG | P3 | api | 0 | 2026-11-19 |
-| ADM-033 | Release log: data model and staff read (list, detail, live version, delete) | BACKLOG | P2 | db, api | 0 | 2026-11-19 |
+| ADM-033 | Release log: data model and staff read (list, detail, live version, delete) | PLANNING | P2 | db, api | 0 | 2026-11-19 |
 | ADM-034 | Release log: scoped app credentials and the app's release write | BACKLOG | P2 | db, api, auth, security | 0 | 2026-11-19 |
-| ADM-035 | Deployer credential: data model and staff issue, list, revoke | BACKLOG | P2 | db, auth, security | 0 | 2026-11-19 |
+| ADM-035 | Deployer credential: data model and staff issue, list, revoke | PLANNING | P2 | db, auth, security | 0 | 2026-11-19 |
 | ADM-036 | Release log: deploy result report (deployer credential) | BACKLOG | P2 | api, auth, security | 0 | 2026-11-19 |
 | ADM-037 | Release log: guide for app repos and the deployment repo | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | ADM-038 | Bug reports carry the release the user was running | BACKLOG | P2 | db, api | 0 | 2026-11-19 |
 | USR-29 | App-facing read of an org's members for org-mode apps (requested by simap) | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-20 |
 | USR-30 | Org owners remove a member's org roles from the app (requested by simap) | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-20 |
-| ADM-039 | Usage metrics, defaults and periods (staff config) | BACKLOG | P2 | db, api, auth | 0 | 2026-11-20 |
+| ADM-039 | Usage metrics, defaults and periods (staff config) | PLANNING | P2 | db, api, auth | 0 | 2026-11-20 |
 | ADM-040 | Per-user usage limit overrides (staff) | BACKLOG | P2 | db, api | 0 | 2026-11-20 |
-| ADM-041 | ADR-0018 amendment: usage key scopes | BACKLOG | P2 | architecture, auth, security | 0 | 2026-11-20 |
+| ADM-041 | ADR-0018 amendment: usage key scopes | PLANNING | P2 | architecture, auth, security | 0 | 2026-11-20 |
 | ADM-042 | Usage consume, refund and current-usage read for app backends | BACKLOG | P2 | db, api, auth, security | 0 | 2026-11-20 |
 | ADM-043 | Staff usage reads | BACKLOG | P3 | api | 0 | 2026-11-20 |
 | ADM-044 | App-admin usage actions through limits:write with on_behalf_of | BACKLOG | P3 | auth, api, security | 0 | 2026-11-20 |
