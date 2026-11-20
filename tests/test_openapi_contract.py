@@ -337,6 +337,9 @@ _EXPECTED_ERRORS: dict[tuple[str, str], set[str]] = {
     ("delete", f"{_RA}/{{assignment_id}}"): {"404", "409"},
     ("get", _U): {"404"},
     ("patch", _U): {"404", "409"},
+    ("get", "/bug-reports"): set(),
+    ("get", "/bug-reports/{report_id}"): {"404"},
+    ("patch", "/bug-reports/{report_id}"): {"404"},
 }
 _SUPER: dict[tuple[str, str], str] = {
     ("post", _C): "always",
@@ -452,3 +455,41 @@ def test_role_put_412_and_if_match_declared() -> None:
     assert not param.get("required")
     assert "ETag" in op["responses"]["200"]["headers"]
     assert "content" in op["responses"]["200"]
+
+
+_BUG = "/api/v1/bug-reports"
+_BUG_ITEM = "/api/v1/bug-reports/{report_id}"
+
+
+def test_bug_reports_operations() -> None:
+    paths = _schema()["paths"]
+    assert paths[_BUG]["get"]["x-permission"] == "admin:bug-reports:read"
+    assert paths[_BUG_ITEM]["get"]["x-permission"] == "admin:bug-reports:read"
+    patch = paths[_BUG_ITEM]["patch"]
+    assert patch["x-permission"] == "admin:bug-reports:write"
+    assert patch["responses"]["412"]["content"]["application/json"]["schema"] == {"$ref": REF}
+    param = _param(patch, "If-Match")
+    assert param["in"] == "header"
+    assert not param.get("required")
+    assert "ETag" in patch["responses"]["200"]["headers"]
+    assert "ETag" in paths[_BUG_ITEM]["get"]["responses"]["200"]["headers"]
+
+
+def test_bug_report_untrusted_text_documented() -> None:
+    schemas = _schema()["components"]["schemas"]
+    for name, fields in (
+        (
+            "BugReportRead",
+            ("description", "page_url", "app_version", "user_agent", "resolution_note"),
+        ),
+        ("BugReportListItem", ("description_preview",)),
+        ("BugReportUpdate", ("resolution_note",)),
+    ):
+        for field in fields:
+            assert "never as HTML" in schemas[name]["properties"][field]["description"], (
+                name,
+                field,
+            )
+    assert (
+        "re-check the scheme" in schemas["BugReportRead"]["properties"]["page_url"]["description"]
+    )

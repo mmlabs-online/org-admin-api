@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlsplit
 
 DESCRIPTION_MAX = 5000
+RESOLUTION_NOTE_MAX = 5000
 PAGE_URL_MAX = 2048
 APP_VERSION_MAX = 64
 USER_AGENT_MAX = 512
@@ -17,14 +18,23 @@ _APP_VERSION = re.compile(rf"^[\x20-\x7e]{{1,{APP_VERSION_MAX}}}$")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
-def clean_description(value: str) -> str:
-    """Strip outer whitespace; 1..5000 characters; no control characters except \\n \\r \\t."""
+def _clean_text(value: str, max_len: int, label: str) -> str:
     value = value.strip()
-    if not 1 <= len(value) <= DESCRIPTION_MAX:
-        raise ValueError("description length")
+    if not 1 <= len(value) <= max_len:
+        raise ValueError(f"{label} length")
     if _DESCRIPTION_CONTROL.search(value):
         raise ValueError("control characters")
     return value
+
+
+def clean_description(value: str) -> str:
+    """Strip outer whitespace; 1..5000 characters; no control characters except \\n \\r \\t."""
+    return _clean_text(value, DESCRIPTION_MAX, "description")
+
+
+def clean_resolution_note(value: str) -> str:
+    """Same rule as the description (staff resolution note, ADM-029)."""
+    return _clean_text(value, RESOLUTION_NOTE_MAX, "resolution note")
 
 
 def check_printable(value: str, max_length: int) -> str:

@@ -78,4 +78,7 @@ class AuditAction(StrEnum):
     DEVICE_SESSION_REUSE_REVOKED = "device_session.reuse_revoked"
     AUTH_PASSWORD_RESET_COMPLETED = "auth.password_reset_completed"  # noqa: S105 (a name)
     BUG_REPORT_CREATED = "bug_report.created"
+    BUG_REPORT_MARKED_DONE = "bug_report.marked_done"
+    BUG_REPORT_REOPENED = "bug_report.reopened"
+    BUG_REPORT_NOTE_UPDATED = "bug_report.note_updated"
     AUTH_EMAIL_VERIFIED = "auth.email_verified"
