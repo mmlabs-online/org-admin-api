@@ -8,7 +8,18 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPkMixin
@@ -79,3 +90,41 @@ class BugReport(UUIDPkMixin, TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<BugReport id={self.id} status={self.status}>"
+
+
+class BugReportAttachment(UUIDPkMixin, Base):
+    """An image attached to a report (ADM-030, ADR-0023). The file lives in Drive; rows are
+    immutable apart from `file_deleted_at` (the spec's deleted marker, set by ADM-031).
+
+    `drive_file_id` never leaves the ORM: not in a schema, error or log."""
+
+    __tablename__ = "bug_report_attachments"
+    __table_args__ = (
+        CheckConstraint("drive_file_id ~ '^[A-Za-z0-9_-]{1,128}$'", name="drive_file_id_format"),
+        CheckConstraint(
+            "content_type IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif')",
+            name="content_type_valid",
+        ),
+        CheckConstraint("size_bytes BETWEEN 12 AND 5242880", name="size_bytes_range"),
+        UniqueConstraint("drive_file_id"),
+        Index("ix_bug_report_attachments_report_id_created_at", "report_id", "created_at"),
+    )
+
+    report_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            "bug_reports.id",
+            ondelete="CASCADE",
+            name="fk_bug_report_attachments_report_id_bug_reports",
+        ),
+        nullable=False,
+    )
+    drive_file_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<BugReportAttachment id={self.id} report_id={self.report_id}>"

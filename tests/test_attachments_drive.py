@@ -473,3 +473,106 @@ async def test_no_sentinel_leaks_on_any_error_path(caplog: pytest.LogCaptureFixt
     await run(lambda f: f.queue("list", bad_json), listing)
     for sentinel in sentinels:
         assert sentinel not in caplog.text
+
+
+# --- deadlines and token clamp (ADM-030, ADM-027 review finding 1) -------------------------------
+
+
+async def _slow_store(
+    monkeypatch: pytest.MonkeyPatch, *, only: str | None = None
+) -> tuple[GoogleDriveStore, list[int]]:
+    """A store whose Drive hangs far longer than any patched deadline (`only` = token | api)."""
+    calls: list[int] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        is_token = request.url.host == "oauth2.googleapis.com"
+        if only is None or (only == "token") == is_token:
+            calls.append(1)
+            await asyncio.sleep(30)
+        return httpx.Response(200, json={"access_token": ACCESS_TOKEN, "expires_in": 3600})
+
+    return GoogleDriveStore(drive_settings(), httpx.MockTransport(handler)), calls
+
+
+async def test_call_deadline_bounds_retries(
+    fake: FakeDrive, store: GoogleDriveStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(drive_mod, "_BACKOFF_BASE_SECONDS", 100.0)  # backoff >= 50 s
+    monkeypatch.setattr(drive_mod, "_CALL_DEADLINE_SECONDS", 0.2)
+    fake.queue("delete", 503, 503, 503)
+    with pytest.raises(DriveError) as exc:
+        await asyncio.wait_for(store.delete("abc"), timeout=10)
+    assert exc.value.code == DriveErrorCode.UNAVAILABLE
+    assert exc.value.__cause__ is None
+    assert fake.count("delete") == 1  # the deadline cut the backoff, no second attempt
+
+
+async def test_call_deadline_bounds_a_hanging_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(drive_mod, "_CALL_DEADLINE_SECONDS", 0.2)
+    s, calls = await _slow_store(monkeypatch, only="api")
+    try:
+        with pytest.raises(DriveError) as exc:
+            await asyncio.wait_for(s.delete("abc"), timeout=10)
+    finally:
+        await s.aclose()
+    assert exc.value.code == DriveErrorCode.UNAVAILABLE
+    assert len(calls) == 1
+
+
+async def test_token_fetch_deadline_releases_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(drive_mod, "_TOKEN_DEADLINE_SECONDS", 0.2)
+    s, calls = await _slow_store(monkeypatch, only="token")
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(s.delete("abc"), s.delete("abc"), return_exceptions=True), timeout=10
+        )
+        assert not s.api._lock.locked()
+    finally:
+        await s.aclose()
+    for r in results:
+        assert isinstance(r, DriveError)
+        assert r.code == DriveErrorCode.UNAVAILABLE
+    assert len(calls) == 2  # one hung fetch per caller, each cut at the deadline, none retried
+
+
+async def test_stream_deadline(
+    fake: FakeDrive, store: GoogleDriveStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake.add_folder("ricotdin")
+    file_id = await _create(store, b"hello")
+    fake.read_chunks = [b"he", b"llo"]
+    monkeypatch.setattr(drive_mod, "_STREAM_DEADLINE_SECONDS", -1.0)  # already past
+    with pytest.raises(DriveError) as exc:
+        async with store.open_read(file_id) as chunks:
+            await read_capped(chunks)
+    assert exc.value.code == DriveErrorCode.UNAVAILABLE
+    assert fake.streams_closed == 1
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("3600", 3600.0), ("-5", 0.0), ("1e9", 3600.0), ("0", 0.0), ("120", 120.0)],
+)
+async def test_expires_in_clamped(
+    store: GoogleDriveStore, fake: FakeDrive, raw: str, expected: float
+) -> None:
+    fake.queue(
+        "token",
+        httpx.Response(200, content=f'{{"access_token":"t","expires_in":{raw}}}'.encode()),
+    )
+    code, token, expires_in = await store.api._fetch_token()
+    assert (code, token, expires_in) == (None, "t", expected)
+
+
+@pytest.mark.parametrize("raw", ["Infinity", "-Infinity", "NaN"])
+async def test_expires_in_non_finite_is_unavailable(
+    store: GoogleDriveStore, fake: FakeDrive, raw: str
+) -> None:
+    fake.queue(
+        "token",
+        httpx.Response(200, content=f'{{"access_token":"t","expires_in":{raw}}}'.encode()),
+    )
+    code, token, _ = await store.api._fetch_token()
+    assert (code, token) == (DriveErrorCode.UNAVAILABLE, None)

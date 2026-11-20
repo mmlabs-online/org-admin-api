@@ -264,3 +264,7 @@ async def admin_client(make_client: MakeClient) -> AsyncIterator[AsyncClient]:
     """`client` signed in as a super-admin (`current_admin` overridden)."""
     async with make_client(admin_permissions=["admin:*"]) as c:
         yield c
+
+
+# Fixtures of the attachment API tests (imported last: the module imports back from here).
+from tests.attachment_world import _quiet_drive, make_world  # noqa: F401

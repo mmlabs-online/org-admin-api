@@ -4,19 +4,24 @@ Reporter email is PII; reads are not audited (spec §5.12), so every 2xx is `no-
 """
 
 import uuid
+from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import AwareDatetime
 
 from app.api.deps import PageDep, SessionDep
 from app.core.etag import ETAG_RESPONSE_HEADER, IF_MATCH_DESCRIPTION, parse_if_match, version_etag
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
+from app.modules.attachments.store import AttachmentStore, ImageType
 from app.modules.audit.deps import AuditContextDep
-from app.modules.bug_reports.models import BugReportStatus
+from app.modules.bug_reports import image_types
+from app.modules.bug_reports.models import BugReportAttachment, BugReportStatus
 from app.modules.bug_reports.repository import BugReportView, ListFilter
 from app.modules.bug_reports.schemas import (
+    BugReportAttachmentRead,
     BugReportHandler,
     BugReportListItem,
     BugReportRead,
@@ -70,8 +75,17 @@ def _item(v: BugReportView) -> BugReportListItem:
     )
 
 
-def _read(v: BugReportView) -> BugReportRead:
+def _read(v: BugReportView, attachments: Sequence[BugReportAttachment]) -> BugReportRead:
     return BugReportRead(
+        attachments=[
+            BugReportAttachmentRead(
+                id=a.id,
+                content_type=ImageType(a.content_type),
+                size_bytes=a.size_bytes,
+                created_at=a.created_at,
+            )
+            for a in attachments
+        ],
         id=v.id,
         app_key=v.app_key,
         org_id=v.org_id,
@@ -88,10 +102,12 @@ def _read(v: BugReportView) -> BugReportRead:
     )
 
 
-def _detail(response: Response, view: BugReportView) -> BugReportRead:
+async def _detail(
+    response: Response, service: BugReportStaffService, view: BugReportView
+) -> BugReportRead:
     response.headers["Cache-Control"] = "no-store"
     response.headers["ETag"] = version_etag(view.updated_at)
-    return _read(view)
+    return _read(view, await service.list_attachments(view.id))
 
 
 @router.get(
@@ -135,7 +151,8 @@ async def list_bug_reports(
 async def get_bug_report(
     session: SessionDep, report_id: uuid.UUID, response: Response
 ) -> BugReportRead:
-    return _detail(response, await BugReportStaffService(session).get(report_id))
+    service = BugReportStaffService(session)
+    return await _detail(response, service, await service.get(report_id))
 
 
 @router.patch(
@@ -159,7 +176,55 @@ async def update_bug_report(
         list[str] | None, Header(alias="If-Match", description=IF_MATCH_DESCRIPTION)
     ] = None,
 ) -> BugReportRead:
-    view = await BugReportStaffService(session).update(
+    service = BugReportStaffService(session)
+    view = await service.update(
         report_id, body, actor=principal, ctx=ctx, precondition=parse_if_match(if_match)
     )
-    return _detail(response, view)
+    return await _detail(response, service, view)
+
+
+_DOWNLOAD_HEADERS = {
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
+
+
+def _download_kwargs() -> dict[str, Any]:
+    kwargs = require_permission(
+        READ, errors={404: "Unknown report or attachment, or the file is gone"}
+    )
+    kwargs["responses"][200] = {
+        "description": "The image",
+        "content": {t.value: {"schema": {"type": "string", "format": "binary"}} for t in ImageType},
+    }
+    kwargs["responses"][503] = {"description": "Error envelope: attachment_storage_unavailable"}
+    return kwargs
+
+
+@router.get(
+    "/{report_id}/attachments/{attachment_id}/content",
+    response_class=StreamingResponse,
+    description=(
+        "The image bytes, proxied from storage with fixed safe headers (`nosniff`, CSP "
+        "`sandbox`, `Content-Disposition: attachment`); not audited. Show it through "
+        "`blob:` in an `<img>` only. 404 `attachment_unavailable` when the file is gone."
+    ),
+    **_download_kwargs(),
+)
+async def download_bug_report_attachment(
+    request: Request, session: SessionDep, report_id: uuid.UUID, attachment_id: uuid.UUID
+) -> StreamingResponse:
+    store: AttachmentStore = request.app.state.attachment_store
+    download = await BugReportStaffService(session).open_download(report_id, attachment_id, store)
+    extension = image_types.extension(ImageType(download.content_type))
+    return StreamingResponse(
+        download.body,
+        media_type=download.content_type,
+        headers={
+            **_DOWNLOAD_HEADERS,
+            "Content-Length": str(download.size_bytes),
+            "Content-Disposition": f'attachment; filename="{download.attachment_id}.{extension}"',
+        },
+    )
