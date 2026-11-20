@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | api, security |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 1 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-20T09:45Z |
+| Claimed by | — |
 | PR | https://github.com/mmlabs-online/org-admin-api/pull/87 |
 
 ## Goal
@@ -46,6 +46,7 @@ Users attach screenshots/images to a bug report from the app; staff view them in
 - API tests with the fake Drive; magic-byte fixtures; header assertions.
 
 ## Notes / answers from Ming
+- 2026-11-20 (Ming, chat): "merge cho tôi #87" — explicit owner instruction to merge this High-tier PR after review attempt 2 PASS and appsec PASS; merged by claude.
 - 2026-11-20 (Ming, chat): "sửa 2 🟡 trong #87" — fix appsec findings 1 (upload route must not rotate the mm_device cookie; non-rotating resolve in app/modules/sessions, High path approved here) and 2 (overall deadline around store.create, 503 on timeout) in PR #87 before merge.
 - 2026-11-20 (Ming): Plan approved (2026-11-20, batch 2026-11-20-1); batch questions 1–8, 28 per the defaults — "duyệt hết; câu 1–28 theo mặc định".
 
@@ -59,3 +60,7 @@ Users attach screenshots/images to a bug report from the app; staff view them in
 - Agent calls (build): 3, tokens ~402k (implementer×1 sonnet 195k, reviewer×1 opus 106k, appsec-engineer×1 101k). Ticket total incl. plan: 6 calls, ~628k.
 - Done: slice 1 — attachments table (migration d7a3f5b2e801), upload + download routes, R6 411/413/415/503, ADM-027 Drive deadline fix, ADR-0023 + D32; follow-up ticket ADM-030b created. Review PASS; appsec no 🔴, two 🟡 (rotation outliving the grace on long uploads; no overall deadline on store.create) put to Ming in the PR. PR https://github.com/mmlabs-online/org-admin-api/pull/87.
 - In progress / next: Ming decides on the two 🟡 (rework in #87 or follow-up) and merges #87 (High).
+### 2026-11-20 — claude — MERGED (PR #87, merged by agent on Ming's instruction)
+- Agent calls (rework round): 3, tokens ~134k (implementer×1 sonnet 45k, reviewer×1 opus 48k, appsec-engineer×1 41k). Ticket total: 9 calls, ~762k, 1 rework (owner-requested).
+- Done: both appsec 🟡 fixed (upload no longer rotates mm_device; 60 s overall store.create deadline → 503); review attempt 2 PASS; appsec attempt 2 PASS. Merged as 875c348.
+- Next: ADM-030b (sweep wiring, must also cover Drive files with no DB row), ADM-031, ADM-032.
