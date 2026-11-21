@@ -2,14 +2,14 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | REWORK |
 | Priority | P1 |
 | Size | M |
 | Areas | api, auth, security, db |
 | Gate | plan-approval |
 | Depends on | USR-29 |
 | Needs Ming | — |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-20 |
 | Claimed by | claude@2026-11-21T13:49Z |
 | PR | — |
