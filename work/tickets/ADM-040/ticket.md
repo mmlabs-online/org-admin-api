@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | DONE |
 | Priority | P2 |
 | Size | S |
 | Areas | db, api |
@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-20 |
-| Claimed by | claude@2026-11-20T13:00Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/90 |
 
 ## Goal
 Staff give one user more (or less) of a metric — raise or lower the per-period limit, optionally until a date — with a reason.
@@ -32,3 +32,8 @@ Staff give one user more (or less) of a metric — raise or lower the per-period
 - Plan approved (2026-11-20, batch 2026-11-20-2) — Ming: "câu 1–28 theo mặc định /run-batch --resume" (all batch questions answered with defaults; resume to BUILD taken as plan approval).
 
 ## Handoff
+
+### 2026-11-21 — claude — DONE
+- Agent calls: 6, tokens ~405k total (database-optimizer×1 29k, api-platform-engineer×1 37k, planner×1 opus 111k, implementer×1 sonnet 103k, reviewer×1 opus 71k, appsec-engineer×1 54k)
+- Done: override table + migration 911eb99ddf8b, 4 Bearer routes, effective_limit, periods.py fix. Review PASS attempt 1 (full suite 3775 passed); appsec PASS with 1 🟡 (non-UTC expires_at audit diff). PR https://github.com/mmlabs-online/org-admin-api/pull/90 (tier high).
+- In progress / next: Ming decides on the 🟡 (fix before merge or follow-up) and merges #90.

@@ -31,6 +31,7 @@ class AuditTarget(StrEnum):
     BUG_REPORT = "bug_report"
     RELEASE = "release"
     USAGE_METRIC = "usage_metric"
+    USAGE_LIMIT_OVERRIDE = "usage_limit_override"
 
 
 class AuditAction(StrEnum):
@@ -96,3 +97,6 @@ class AuditAction(StrEnum):
     USAGE_METRIC_UPDATED = "usage_metric.updated"
     USAGE_METRIC_ARCHIVED = "usage_metric.archived"
     USAGE_METRIC_RESTORED = "usage_metric.restored"
+    USAGE_LIMIT_OVERRIDE_SET = "usage_limit_override.set"
+    USAGE_LIMIT_OVERRIDE_UPDATED = "usage_limit_override.updated"
+    USAGE_LIMIT_OVERRIDE_REMOVED = "usage_limit_override.removed"
