@@ -5,6 +5,7 @@ from typing import Annotated, Any
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -99,5 +100,37 @@ class UsageMetricRead(BaseModel):
     default_limit: int
     period: UsagePeriod
     status: UsageMetricStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class UsageLimitOverrideSet(BaseModel):
+    """Full replacement of the user's override for the metric (OQ62)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: Limit
+    expires_at: AwareDatetime | None = None
+    reason: Reason
+
+
+class UsageLimitOverrideRemove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Reason
+
+
+class UsageLimitOverrideRead(BaseModel):
+    """No `reason`: it is stored in the audit entry only (ADR-0024 point 5)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    app_key: str
+    metric_id: uuid.UUID
+    user_id: uuid.UUID
+    limit: int
+    expires_at: datetime | None
+    active: bool
+    created_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime

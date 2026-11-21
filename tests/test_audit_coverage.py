@@ -23,7 +23,7 @@ from app.modules.bug_reports.models import BugReport
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role
-from app.modules.usage.models import UsageMetric
+from app.modules.usage.models import UsageLimitOverride, UsageMetric
 from app.modules.users.models import User
 from tests.app_credential_factories import make_credential
 from tests.auth_factories import (
@@ -315,6 +315,35 @@ async def _usage_unknown(s: AsyncSession) -> Call:
     return f"{V1}/apps/{app.key}/usage-metrics/{uuid.uuid4()}", {"default_limit": 9, "reason": "x"}
 
 
+_OVR = "usage-metrics/{}/overrides/{}"
+
+
+async def _override_put(s: AsyncSession) -> Call:
+    app_key, metric_id = await _usage_row(s)
+    user = await make_user(s)
+    return f"{V1}/apps/{app_key}/{_OVR.format(metric_id, user.id)}", {"limit": 3, "reason": "grant"}
+
+
+async def _override_put_unknown(s: AsyncSession) -> Call:
+    app = await make_app(s, _key())
+    user = await make_user(s)
+    return f"{V1}/apps/{app.key}/{_OVR.format(uuid.uuid4(), user.id)}", {"limit": 3, "reason": "x"}
+
+
+async def _override_delete(s: AsyncSession) -> Call:
+    app_key, metric_id = await _usage_row(s)
+    user = await make_user(s)
+    s.add(UsageLimitOverride(user_id=user.id, metric_id=metric_id, limit_value=3))
+    await s.flush()
+    return f"{V1}/apps/{app_key}/{_OVR.format(metric_id, user.id)}", {"reason": "cleanup"}
+
+
+async def _override_delete_missing(s: AsyncSession) -> Call:
+    app_key, metric_id = await _usage_row(s)
+    user = await make_user(s)
+    return f"{V1}/apps/{app_key}/{_OVR.format(metric_id, user.id)}", {"reason": "cleanup"}
+
+
 async def _release_delete(s: AsyncSession) -> Call:
     release = await make_release(s, await make_app(s, _key()))
     return f"{V1}/releases/{release.id}", None
@@ -585,11 +614,24 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _usage_unknown,
         404,
     ),
+    ("PUT", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}"): (
+        {"usage_limit_override.set", "usage_limit_override.updated"},
+        _override_put,
+        _override_put_unknown,
+        404,
+    ),
+    ("DELETE", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}"): (
+        {"usage_limit_override.removed"},
+        _override_delete,
+        _override_delete_missing,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
 _SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated resource
     ("POST", f"{JREQ}/{{request_id}}/approve"): 200,
     ("POST", f"{JREQ}/{{request_id}}/reject"): 200,
+    ("PUT", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}"): 201,
 }
 
 
@@ -617,7 +659,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 32
+    assert len(AUDITED) == 34
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")

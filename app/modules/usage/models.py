@@ -1,12 +1,22 @@
-"""Usage metrics (ADM-039, ADR-0024): per-app metric definitions with a default limit and period.
+"""Usage metrics (ADM-039, ADR-0024) and per-user limit overrides (ADM-040).
 
 CHECK texts must match the migration exactly: Alembic does not compare CHECKs.
 """
 
 import uuid
+from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, String, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPkMixin
@@ -62,3 +72,42 @@ class UsageMetric(UUIDPkMixin, TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<UsageMetric id={self.id} key={self.key}>"
+
+
+class UsageLimitOverride(UUIDPkMixin, TimestampMixin, Base):
+    """One row per (user, metric): replaces the metric default (OQ62); history is in the audit log.
+
+    `created_by` is the first setter and is not changed on replace. No reason column: the reason is
+    stored in the audit entry only (ADR-0024 point 5).
+    """
+
+    __tablename__ = "usage_limit_overrides"
+    __table_args__ = (
+        UniqueConstraint("user_id", "metric_id", name="uq_usage_limit_overrides_user_id_metric_id"),
+        CheckConstraint(f"limit_value BETWEEN 0 AND {MAX_LIMIT}", name="limit_value_range"),
+        Index("ix_usage_limit_overrides_metric_id", "metric_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_usage_limit_overrides_user_id_users"),
+        nullable=False,
+    )
+    metric_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            "usage_metrics.id",
+            ondelete="RESTRICT",
+            name="fk_usage_limit_overrides_metric_id_usage_metrics",
+        ),
+        nullable=False,
+    )
+    limit_value: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "users.id", ondelete="SET NULL", name="fk_usage_limit_overrides_created_by_users"
+        ),
+        nullable=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<UsageLimitOverride id={self.id} user={self.user_id} metric={self.metric_id}>"

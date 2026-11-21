@@ -1,6 +1,7 @@
 """ADM-039: calendar periods in Asia/Ho_Chi_Minh (OQ63)."""
 
 from datetime import UTC, datetime, timedelta, timezone
+from typing import cast
 
 import pytest
 
@@ -98,3 +99,13 @@ def test_bounds_contain_instant_and_chain(period: UsagePeriod, at: datetime) -> 
     assert start <= at < end
     assert period_start(period, end) == end
     assert period_start(period, end - timedelta(microseconds=1)) == start
+
+
+@pytest.mark.parametrize("period", ["day", "week", "month"])
+def test_plain_string_period_matches_enum(period: str) -> None:
+    """A period read back from the DB is a plain `str`, not the enum (ADM-039 review nit)."""
+    at = datetime(2026, 11, 18, 5, 0, tzinfo=UTC)
+    plain = cast(UsagePeriod, period)
+    enum = UsagePeriod(period)
+    assert period_start(plain, at) == period_start(enum, at)
+    assert period_end(plain, at) == period_end(enum, at)
