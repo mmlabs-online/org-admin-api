@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -53,6 +53,7 @@ An `org_mode = required` app (first consumer: simap; calechip is the same shape)
 - API tests per criterion; route-class tests; migration round-trip if any.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-21, batch 2026-11-21-1) — Ming: "duyệt hết; câu 1–25 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-20 (orchestrator): requested by the simap project. Alternative to weigh: a `name` claim (display name) in per-app access tokens as a smaller first step for names only — does not cover "people who have not opened the app yet", so it complements rather than replaces this ticket. Proposed as a separate S ticket if Ming wants it.
 
 ## Handoff

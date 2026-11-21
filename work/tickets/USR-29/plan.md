@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > BLOCKED only for owner choices at the High-path plan gate. Every question below has a default, and the plan is written on the defaults: if Ming answers "all defaults", flip this line to `READY` and nothing else changes. A non-default answer changes only the sections named in that question.
 

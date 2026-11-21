@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > Blocked only on owner choices at the plan gate (High paths: `app/core/`, `app/modules/rbac/`, `.env.example`).
 > Every question in `## Blocking questions` has a default; "defaults" from Ming makes this plan READY as written.
