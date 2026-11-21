@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P1 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-20 |
-| Claimed by | claude@2026-11-21T03:50Z |
+| Claimed by | claude@2026-11-21T13:49Z |
 | PR | — |
 
 ## Goal
