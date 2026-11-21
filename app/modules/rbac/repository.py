@@ -823,6 +823,67 @@ class RbacRepository:
         )
         return bool(await self.session.scalar(stmt))
 
+    async def org_roles_held(
+        self, user_id: uuid.UUID, app_id: uuid.UUID, org_id: uuid.UUID
+    ) -> list[Role]:
+        """Roles of `app_id` the user holds in exactly this org, not expired (USR-30)."""
+        result = await self.session.scalars(
+            select(Role)
+            .join(RoleAssignment, RoleAssignment.role_id == Role.id)
+            .where(
+                RoleAssignment.user_id == user_id,
+                RoleAssignment.org_id == org_id,
+                Role.app_id == app_id,
+                self._is_active(),
+            )
+            .order_by(Role.key)
+            .execution_options(populate_existing=True)
+        )
+        return list(result)
+
+    async def count_other_org_owners(
+        self, owner_role_id: uuid.UUID, org_id: uuid.UUID, exclude_user_id: uuid.UUID
+    ) -> int:
+        """Other holders of the owner role in the org that count (USR-30): a permanent
+        assignment (`expires_at IS NULL`) of an active, verified user."""
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(RoleAssignment)
+            .join(User, User.id == RoleAssignment.user_id)
+            .where(
+                RoleAssignment.role_id == owner_role_id,
+                RoleAssignment.org_id == org_id,
+                RoleAssignment.user_id != exclude_user_id,
+                RoleAssignment.expires_at.is_(None),
+                User.status == UserStatus.ACTIVE.value,
+                User.email_verified_at.is_not(None),
+            )
+        )
+        return total or 0
+
+    async def delete_org_assignments(
+        self, user_id: uuid.UUID, app_id: uuid.UUID, org_id: uuid.UUID
+    ) -> list[str]:
+        """Delete the user's non-expired org-scoped assignments of the app in that org; the
+        sorted role keys. The caller holds `lock_app` (ADR-0003 §9/§10)."""
+        app_roles = select(Role.id).where(Role.app_id == app_id)
+        deleted = (
+            delete(RoleAssignment)
+            .where(
+                RoleAssignment.user_id == user_id,
+                RoleAssignment.org_id == org_id,
+                RoleAssignment.role_id.in_(app_roles),
+                self._is_active(),
+            )
+            .returning(RoleAssignment.role_id)
+            .execution_options(synchronize_session=False)
+        )
+        role_ids = list((await self.session.scalars(deleted)).all())
+        if not role_ids:
+            return []
+        keys = await self.session.scalars(select(Role.key).where(Role.id.in_(role_ids)))
+        return sorted(keys)
+
     async def list_app_summaries(self) -> list[tuple[uuid.UUID, str, str, str]]:
         """(id, key, name, status) of every app, ordered by key."""
         result = await self.session.execute(

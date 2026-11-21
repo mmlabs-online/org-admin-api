@@ -9,13 +9,19 @@ from fastapi import APIRouter, Request, Response, status
 from app.api.deps import PageDep, SessionDep
 from app.core.config import Settings
 from app.core.pagination import Page
-from app.core.rate_limit import rate_limit
+from app.core.rate_limit import RateLimit, RateLimiter, rate_limit
 from app.modules.audit.deps import AuditContextDep
 from app.modules.auth.cookies import set_device_cookie
-from app.modules.auth.deps import AppContextDep, DeviceDep
+from app.modules.auth.deps import AppContextDep, DeviceDep, get_email_hasher
 from app.modules.auth.router import DeviceCookieDoc
 from app.modules.organizations.auth_service import OrgSelfService
-from app.modules.organizations.schemas import AuthOrgCreate, AuthOrgRead, MyOrgRead
+from app.modules.organizations.member_service import OrgMemberService
+from app.modules.organizations.schemas import (
+    AuthOrgCreate,
+    AuthOrgRead,
+    MyOrgRead,
+    OrgMemberRemove,
+)
 from app.modules.sessions.service import ResolvedDevice
 
 router = APIRouter(prefix="/auth/orgs", tags=["auth"])
@@ -84,3 +90,38 @@ async def list_my_orgs(
     ).list_mine(app, device, account_id, limit=page.limit, offset=page.offset)
     _finish(request, response, device)
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@router.post(
+    "/{org_id}/members/{user_id}/remove",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    dependencies=[rate_limit("org_member_remove")],
+    responses={401: _ERR, 403: _ERR, 404: _ERR, 409: _ERR, 422: _ERR, 429: _ERR},
+)
+async def remove_member(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    app: AppContextDep,
+    _cookie: DeviceCookieDoc,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: OrgMemberRemove,
+    device: DeviceDep,
+    ctx: AuditContextDep,
+) -> None:
+    """The caller (`account_id`) needs `<app>:org:remove-member` in this org. Deletes the target's
+    org roles of the calling app in that org; the account and all other roles stay."""
+    settings: Settings = request.app.state.settings
+    limiter: RateLimiter = request.app.state.rate_limiter
+    await OrgMemberService(
+        session,
+        email_hasher=get_email_hasher(request),
+        limiter=limiter,
+        user_limit=RateLimit(
+            settings.org_member_remove_user_rate_limit,
+            settings.org_member_remove_user_rate_window_seconds,
+        ),
+    ).remove(app, device, org_id, user_id, body.account_id, ctx=ctx)
+    _finish(request, response, device)

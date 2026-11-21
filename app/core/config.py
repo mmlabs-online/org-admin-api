@@ -114,6 +114,12 @@ class Settings(BaseSettings):
     release_deployment_max_bytes: int = Field(default=4096, ge=512)
     release_deployment_read_timeout_seconds: int = Field(default=10, ge=1)
 
+    # Org member removal (USR-30, ADR-0026): per IP, and per signed-in user after the session check.
+    org_member_remove_rate_limit: int = Field(default=30, ge=1)
+    org_member_remove_rate_window_seconds: int = Field(default=3600, ge=1)
+    org_member_remove_user_rate_limit: int = Field(default=10, ge=1)
+    org_member_remove_user_rate_window_seconds: int = Field(default=600, ge=1)
+
     # Org members read (USR-29, ADR-0025): per IP before auth, per credential after auth.
     app_org_members_rate_limit: int = Field(default=120, ge=1)
     app_org_members_rate_window_seconds: int = Field(default=60, ge=1)

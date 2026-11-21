@@ -85,8 +85,8 @@ MSG_ADMIN_PERMISSION = (
     "error: a --permission is an is_admin permission; the CLI never grants those to the member role"
 )
 MSG_RESERVED_SCOPE = (
-    "error: <key>:org:create is always a --permission and <key>:org:invite always an"
-    " --org-permission"
+    "error: <key>:org:create is always a --permission; <key>:org:invite and"
+    " <key>:org:remove-member always an --org-permission"
 )
 MSG_SCOPE_CONFLICT = "error: a permission cannot be in both --permission and --org-permission"
 MSG_ORG_MODE_REQUIRED = "error: --org-permission needs an app with org_mode required"

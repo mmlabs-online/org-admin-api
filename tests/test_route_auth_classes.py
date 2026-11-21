@@ -58,6 +58,7 @@ COOKIE = {
     ("POST", f"{V1}/auth/bug-reports/{{report_id}}/attachments"),
     ("POST", f"{V1}/auth/orgs/{{org_id}}/invitations"),
     ("POST", f"{V1}/auth/invitations/accept"),
+    ("POST", f"{V1}/auth/orgs/{{org_id}}/members/{{user_id}}/remove"),
 }
 # App credential (R3 class 4 (a), ADR-0016, ADR-0021): route -> the one scope it accepts.
 MANIFEST = f"{V1}/apps/{{key}}/manifest"

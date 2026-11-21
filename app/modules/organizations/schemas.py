@@ -76,3 +76,11 @@ class AppOrgMemberRead(BaseModel):
     status: UserStatus
     org_roles: list[str]  # full role keys of the app held in the org, not expired, sorted
     joined_at: datetime  # earliest creation among those assignments
+
+
+class OrgMemberRemove(BaseModel):
+    """`POST /auth/orgs/{org_id}/members/{user_id}/remove`: `account_id` is the caller's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: uuid.UUID
