@@ -62,9 +62,11 @@ COOKIE = {
 # App credential (R3 class 4 (a), ADR-0016, ADR-0021): route -> the one scope it accepts.
 MANIFEST = f"{V1}/apps/{{key}}/manifest"
 RELEASE_WRITE = f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}"
+ORG_MEMBERS = f"{V1}/apps/{{key}}/orgs/{{org_id}}/members"
 APP_CREDENTIAL: dict[tuple[str, str], str] = {
     ("PUT", MANIFEST): "manifest",
     ("PUT", RELEASE_WRITE): "releases",
+    ("GET", ORG_MEMBERS): "org-members:read",
 }
 APP_CREDENTIAL_ROUTES = set(APP_CREDENTIAL)
 # Deployer credential (R3 class 4 (b), ADR-0021): exactly one route (ADM-036).
@@ -305,6 +307,8 @@ def test_app_credential_allow_list_is_exact() -> None:
     # after the body was read, so a slow client never holds `lock_app`.
     assert with_dep[("PUT", MANIFEST)].lock is True
     assert with_dep[("PUT", RELEASE_WRITE)].lock is False
+    # Runtime scope (ADR-0025): never the app lock; `authenticate` does a throttled touch.
+    assert with_dep[("GET", ORG_MEMBERS)].lock is False
 
 
 def test_deployer_credential_allow_list_is_exact() -> None:

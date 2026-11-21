@@ -1,0 +1,35 @@
+# Consult — api-platform-engineer — USR-29 (2026-11-21)
+
+USR-29 api consult (read-only)
+
+FINDINGS
+- Existing app-credential routes are all `/api/v1/apps/{key}/...` with `key` as a path param read by RequireAppCredential (app/modules/app_credentials/deps.py:25-50). Scope enum has only MANIFEST/RELEASES (app_credentials/models.py:17-21); the docstring says ADM-042 widens it, and ADR-0022 §1 defines `usage:read|usage:write|limits:write` but the enum does not have them yet (so ADM-042 is unmerged or in flight; coordinate the CHECK migration and enum to avoid a conflict).
+- Route registry: tests/test_route_auth_classes.py:62-69 (APP_CREDENTIAL map route -> scope), plus the exact-allow-list test (:296-307), no-CORS (:476), 401 for an admin JWT (:508) and for a deployer key (:592). A new route must be added there, and also to the R3 text.
+- The USR-23 staff read (organizations/router.py:173-199) returns one row per ASSIGNMENT (OrgMemberRead, rbac/schemas.py:320-346; `total` counts assignments, order `created_at desc, id`, rbac/repository.py:621). This is wrong for the app contract: the app wants one row per USER. Reuse the query shape but GROUP BY user (aggregate `array_agg(role_key)` of non-expired assignments of `{key}`), and count distinct users. It already sets `Cache-Control: no-store` (router.py:198), copy that.
+- Existing user-facing orgs code answers 403 `org_access_denied` (docs/consumers.md:151,197), but the ticket asks for 404. Different class (cookie, the caller is a member) vs. here (the app addresses an org it may not know exists); 404 is defensible but is an inconsistency to state in the docs.
+
+RECOMMENDATIONS
+1. Path: `GET /api/v1/apps/{key}/orgs/{org_id}/members`. Keep `orgs` (short, matches `/auth/orgs`, and the app-key exception in R9 already covers the `apps/{key}` prefix). Add the route to the R9 exceptions list (it is a sub-collection under an app, fine as Page[T]; no new exception needed beyond `{key}`). Put it in a new module router (e.g. organizations/app_router.py), tag `app-orgs`, `rate_limit("app_org_members")` as a route dependency, like app_router.py:35-39.
+2. Scope name: `org-members:read`? ADR-0022 style is `<noun>:<verb>` for runtime keys (`usage:read`). Recommend `members:read` (plain), or `org-members:read` if more member scopes are wanted later. Not `orgs:read` (too broad: invites a later widening to org metadata). Treat it as a RUNTIME key (ADR-0022 §2: backend deploy env only, never CI, never shares a value with CI scopes, no `lock_app`, conditional `last_used_at` per ADR-0022 §3), refused for the `admin` app at issuance, at most 2 active keys per (app, scope). Say so in the new ADR-0025 (amends ADR-0021 §1 and ADR-0022 §1, R3 text).
+3. Response item `OrgMemberAppRead`: `user_id, email, email_verified, display_name, status (active|disabled), org_roles: list[str] (sorted), joined_at`. Define `joined_at` = MIN(assignment.created_at) over the user's non-expired `{key}` org roles in that org (document it; it is not "joined the org"). Stable order: `joined_at ASC, user_id ASC` (immutable-ish keys; avoids rows shifting while the app pages). Page[T] with limit<=100 (R9).
+4. Filters: `status=active|disabled` (enum, 422 otherwise). `updated_since` (timestamptz, must carry tz): needs a cheap, honest definition. Option A (recommended, small): defined over the member row = max(user.updated_at, max assignment.created_at/updated_at of the user's `{key}` roles in the org); ordering stays `joined_at, user_id` and a sync client re-reads until `total` is exhausted. Document that it does NOT report removals or expiry. Removed-member tombstones: do NOT include in v1 (no deletion record of assignments is guaranteed; expiry is a clock event not a row change). Tell simap to run a periodic full read (e.g. nightly) and treat `updated_since` as an optimisation only. If Ming wants tombstones, that is a separate ticket (needs an assignment-removal log). If assignment/user rows lack `updated_at`, ship `status` only and defer `updated_since` rather than invent semantics.
+5. Pending invitations: follow-up (USR-30-style ticket). They are a different object with different PII risk and a different sync story; keeping this M-size ticket small.
+6. Errors: 401 (missing/wrong type/admin JWT/deployer key; ADR-0016 §4), 403 `app_credential_mismatch`, 403 `app_credential_scope`, 403 `app_disabled`, 404 `org_access_denied` (unknown, unrelated, suspended; identical body and no timing branch on existence: do the same single query), 422 `org_not_supported` (`org_mode = none`; check first, it leaks nothing about orgs), 422 for bad filters, 429 with `Retry-After`. Declare all in `responses=` for OpenAPI (the route-class test asserts 401/403 in the operation, :345-348). Define the order of checks: credential -> app mode (422) -> org visibility (404) -> data.
+7. Audit one row per call (new action e.g. `APP_ORG_MEMBERS_READ`), actor `SystemActor("app:{key}/{key_id}")`, changes = org_id, count, filters flags only; denied-action wired in RequireAppCredential (deps.py:30). Note a successful read is still R4-ish (not a mutation); the ticket asks for it, fine, but it means one INSERT per read, so keep it in the same session and do not add a lock.
+8. Docs: new subsection in docs/consumers.md under "Organizations" (:155): request, scope, key handling (server only), field table, `joined_at` and `updated_since` semantics, the 404 vs. cookie-class 403 difference, rate limit, `no-store`, PII warning (emails), recommended sync cadence. Add a spec §5.8/§5.3 dated line and move §5.7 "Org members view" accordingly.
+
+RISKS
+- PII: a leaked key exposes all member emails of one app's orgs for any org id it can guess; bound by 404 for unrelated orgs and by org-per-app relation. Per-key rate limit plus audit rows counted anomalies are the mitigation.
+- Counting semantics (users, not assignments) differ from USR-23; tests must cover a user with two roles (one row, both roles) and an expired role (excluded; a user with only expired roles not listed).
+- Scope-enum/CHECK migration collides with ADM-042's migration: order them or share one revision (High path: migration).
+- `updated_since` without tombstones can mislead integrators into never reconciling removals.
+
+OPEN QUESTIONS FOR MING (defaults)
+1. Scope name: default `members:read`? (alt `org-members:read`). Default `members:read`, runtime key, refused for `admin`.
+2. 404 `org_access_denied` here vs. 403 elsewhere: default 404 as the ticket says, documented.
+3. Tombstones for removed members: default no; app does a periodic full read.
+4. `updated_since` in v1: default yes with the Option A definition, or drop if rows lack `updated_at`.
+5. Pending invitations: default follow-up ticket.
+6. Rows per user (not per assignment): default yes, `org_roles` array.
+
+Files: app/modules/app_credentials/deps.py, app/modules/app_credentials/models.py, app/modules/releases/app_router.py, app/modules/organizations/router.py, app/modules/rbac/repository.py, app/modules/rbac/schemas.py, tests/test_route_auth_classes.py, docs/consumers.md, docs/adr/0022-usage-key-scopes.md

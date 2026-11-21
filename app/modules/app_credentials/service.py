@@ -20,7 +20,7 @@ from app.modules.app_credentials.errors import (
     AppCredentialMismatchError,
     AppCredentialScopeError,
 )
-from app.modules.app_credentials.models import AppCredential, AppCredentialScope
+from app.modules.app_credentials.models import RUNTIME_SCOPES, AppCredential, AppCredentialScope
 from app.modules.app_credentials.repository import AppCredentialRepository
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditOutcome, AuditTarget
@@ -33,6 +33,7 @@ from app.modules.rbac.repository import RbacRepository
 logger = logging.getLogger(__name__)
 
 MAX_ACTIVE = 2  # rotation overlap (ADR-0016 §3)
+RUNTIME_TOUCH_INTERVAL_SECONDS = 60  # ADR-0022 §3
 _CHALLENGE = {"WWW-Authenticate": 'Bearer realm="app"'}
 
 
@@ -189,6 +190,11 @@ class AppCredentialService:
             logger.info("app_credential_denied reason=scope key_id=%s", key_id)
             await self._denied(denied_action, caller, ctx, AppCredentialScopeError.code)
             raise AppCredentialScopeError("Credential has the wrong scope for this route")
+        if scope in RUNTIME_SCOPES:  # no app lock; a revoke in flight may complete (ADR-0022 §3)
+            await self.repo.touch_last_used_throttled(
+                row.id, interval_seconds=RUNTIME_TOUCH_INTERVAL_SECONDS
+            )
+            return caller
         if lock:
             await self.confirm(caller)
         return caller

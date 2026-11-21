@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.app_credentials.models import AppCredential
@@ -79,6 +79,27 @@ class AppCredentialRepository:
         updated = await self.session.scalar(
             update(AppCredential)
             .where(AppCredential.id == credential_id, AppCredential.revoked_at.is_(None))
+            .values(last_used_at=func.now())
+            .returning(AppCredential.id)
+            .execution_options(synchronize_session=False)
+        )
+        return updated is not None
+
+    async def touch_last_used_throttled(
+        self, credential_id: uuid.UUID, *, interval_seconds: int
+    ) -> bool:
+        """Runtime keys (ADR-0022 §3): touch at most once per interval, never on a revoked row.
+        False when the row is revoked (or was touched recently): the caller re-reads if needed."""
+        updated = await self.session.scalar(
+            update(AppCredential)
+            .where(
+                AppCredential.id == credential_id,
+                AppCredential.revoked_at.is_(None),
+                or_(
+                    AppCredential.last_used_at.is_(None),
+                    AppCredential.last_used_at < func.now() - timedelta(seconds=interval_seconds),
+                ),
+            )
             .values(last_used_at=func.now())
             .returning(AppCredential.id)
             .execution_options(synchronize_session=False)

@@ -1,4 +1,4 @@
-from app.core.errors import PermissionDeniedError
+from app.core.errors import NotFoundError, PermissionDeniedError
 
 
 class OrgCreateForbiddenError(PermissionDeniedError):
@@ -17,3 +17,9 @@ class OrgLimitReachedError(PermissionDeniedError):
     """The user created `ORG_CREATE_MAX_PER_USER` organizations already."""
 
     code = "org_limit_reached"
+
+
+class OrgNotVisibleToAppError(NotFoundError):
+    """App-credential read: one 404 for an unknown, unrelated or suspended org (USR-29)."""
+
+    code = "org_access_denied"

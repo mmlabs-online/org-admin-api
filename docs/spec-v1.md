@@ -84,6 +84,7 @@ One account per person across all mmlabs apps, **fully self-hosted here** (D1): 
 - **Abuse protection:** no hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP limit, Turnstile after 3 failures; the same error for unknown email and wrong password (D11). CORS only for registered app origins; cookie-authenticated POSTs check Origin and `X-MM-App` (D12).
 - **Email flows:** email verification and password reset by one-time, expiring links, sent through Gmail SMTP behind an `EmailSender` interface; resend at most 1/min and 5/day per email (D3).
 - **Organizations:** optional per app (`org_mode`); one `organizations` table owned by this Identity module (D10, D15, USR-06).
+- **Org members for apps (2026-11-21, USR-29, ADR-0025):** an app backend with an `org-members:read` app credential may read the members of an organization that holds roles of that app (`GET /api/v1/apps/{key}/orgs/{org_id}/members`); read-only, server-to-server.
 - **Endpoints:** all under `/api/v1/auth/*` (cookie `__Host-mm_device`, `Path=/`, host-only; D13 as amended by D20); JWKS at `/.well-known/jwks.json` (D13).
 - **Admin:** staff can list, look up, disable/enable users, manage their roles per app and revoke their sessions (audited, §5.4). Session list and revocation per user: §5.10.
 
@@ -319,6 +320,7 @@ Left to PLAN: table names, endpoint paths, final scope names (via the ADR-0021 a
 No §3 non-goal conflict: billing stays a non-goal (OQ57); limits and usage are non-monetary counters, no prices, payments or invoices.
 
 ### §5.7 Later (not v1)
+_2026-11-21: the app-facing read of an org's members ships as USR-29 (ADR-0025); member management stays Later._
 Org members view (member management; the read-only staff view of an org's members and invitations ships in v1 as USR-23, owner-approved 2026-11-19), per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
 Bug reports (§5.12), deferred by the owner on 2026-11-19: **video attachments** (MP4/WebM/MOV ≤ 50 MB, Drive resumable upload; max video length to be set then); a reporter **"my reports"** view (list own reports and status); **staff delete** of a report or an attachment (permanent Drive delete); **notifications** (email to the reporter when done, staff alerts on new reports); a **dashboard tile** / Apps-screen count of open reports.
 Release log (§5.13), out of scope per the owner on 2026-11-19: public release notes / end-user "what's new", webhooks and notifications on releases, editing `changes` after deploy (beyond filling empty fields, OQ37), a full deployment-event history table (v1 keeps only the latest `deployed_at` / `deploy_run_url` per release, OQ40), a staging purge job (revisit at ~1 GB or ~100k rows, OQ41), credential `expires_at` / `label` (shared with ADR-0016). Rollback visibility and release records for this API and admin-pan moved into v1 (OQ40, OQ48).
@@ -347,7 +349,7 @@ Usage limits (§5.14): **billing / payments for AI usage tokens** (paid plans, b
 - [ ] Q3. Is this API the **source of truth** for orgs/users, or does it aggregate data owned by each product?
 - [x] Q4. How do products consume admin decisions — pull (API with service keys), push (webhooks/events), or both? **Answered 2026-11-17 (owner):** through an additive `ent` claim (`{plan, limits}`) in the access token, added only when the `org` claim is present; staleness up to the token TTL (12 h) is accepted. No pull endpoint and no app-credential widening for now (R3 class 4 unchanged). **2026-11-18:** with `org` but no active entitlement (none, disabled, app disabled) the token carries `"ent": null`; issuance is never gated on entitlements. See ADR-0017.
 - [x] Q5. Deployment target — **answered 2026-11-10:** same Mac self-hosted runner as stoktok, Docker Compose, Cloudflare Tunnel; Postgres runs as a service in the same compose stack on that Mac. Hostname `api.mmlabs.online` (renamed from `api-admin.mmlabs.online` on 2026-11-11).
-- [ ] Q6. Compliance needs (audit retention period, PII handling)?
+- [ ] Q6. Compliance needs (audit retention period, PII handling)? _2026-11-21 (USR-29): apps that read member emails through `org-members:read` must keep them server-side, store only what they need, and refresh or delete them on the full read._
 - [x] Q7. Sign-up — **answered 2026-11-11 (D2):** open self-registration with Turnstile + per-IP limit; verified email required to join an app.
 - [x] Q8. Email provider — **answered 2026-11-11 (D3):** Gmail SMTP (dedicated account, App Password, `smtp.gmail.com:587`) behind an `EmailSender` interface. Sender address: the dedicated account (exact address to be set in env).
 - [ ] OQ1. Organizations platform-wide (shared across apps) or per app? Working assumption: platform-wide + `apps.org_mode`; adding `organizations.app_key` later must be purely additive.

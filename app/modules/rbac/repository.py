@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +48,20 @@ AssignmentRow = tuple[RoleAssignment, str, str, bool]
 RoleHolderRow = tuple[RoleAssignment, str, str, bool, str, str | None, str]
 # (assignment, app key, role key, active, role name, email, display name, user status)
 OrgMemberRow = tuple[RoleAssignment, str, str, bool, str, str, str | None, str]
+
+
+@dataclass(frozen=True)
+class AppOrgMemberRow:
+    """One user of an org with their non-expired role keys of one app (USR-29)."""
+
+    user_id: uuid.UUID
+    email: str
+    email_verified: bool
+    display_name: str | None
+    status: str
+    org_roles: list[str]
+    joined_at: datetime
+
 
 # `session.info` flag: an app was written; the CORS origin cache is invalidated after commit.
 APPS_CHANGED_KEY = "rbac_apps_changed"
@@ -623,6 +639,82 @@ class RbacRepository:
             .offset(offset)
         )
         rows = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]) for r in result.all()]
+        return rows, total or 0
+
+    async def org_related_to_app(self, org_id: uuid.UUID, app_id: uuid.UUID) -> bool:
+        """An active org where at least one non-expired role of the app is held. False for an
+        unknown, unrelated or suspended org alike (one code path, no existence oracle)."""
+        found = await self.session.scalar(
+            select(
+                exists()
+                .where(
+                    RoleAssignment.org_id == org_id,
+                    Role.id == RoleAssignment.role_id,
+                    Role.app_id == app_id,
+                    Organization.id == RoleAssignment.org_id,
+                    Organization.status == OrganizationStatus.ACTIVE.value,
+                    self._is_active(),
+                )
+                .correlate(None)
+            )
+        )
+        return bool(found)
+
+    async def page_app_org_members(
+        self,
+        org_id: uuid.UUID,
+        app_id: uuid.UUID,
+        *,
+        status: str | None,
+        updated_since: datetime | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[AppOrgMemberRow], int]:
+        """One row per user, ordered by user id; two statements (count + rows). Explicit `User`
+        columns: never the entity, so `password_hash` cannot reach the result."""
+        agg = (
+            select(
+                RoleAssignment.user_id.label("user_id"),
+                func.array_agg(aggregate_order_by(Role.key, Role.key)).label("org_roles"),
+                func.min(RoleAssignment.created_at).label("joined_at"),
+                func.max(RoleAssignment.created_at).label("last_granted"),
+            )
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .where(RoleAssignment.org_id == org_id, Role.app_id == app_id, self._is_active())
+            .group_by(RoleAssignment.user_id)
+            .subquery()
+        )
+        filters: list[ColumnElement[bool]] = []
+        if status is not None:
+            filters.append(User.status == status)
+        if updated_since is not None:
+            filters.append(or_(User.updated_at > updated_since, agg.c.last_granted > updated_since))
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(agg)
+            .join(User, User.id == agg.c.user_id)
+            .where(*filters)
+        )
+        result = await self.session.execute(
+            select(
+                User.id,
+                User.email,
+                User.email_verified_at.is_not(None),
+                User.display_name,
+                User.status,
+                agg.c.org_roles,
+                agg.c.joined_at,
+            )
+            .select_from(agg)
+            .join(User, User.id == agg.c.user_id)
+            .where(*filters)
+            .order_by(User.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = [
+            AppOrgMemberRow(r[0], r[1], r[2], r[3], r[4], list(r[5]), r[6]) for r in result.all()
+        ]
         return rows, total or 0
 
     async def page_assignments(

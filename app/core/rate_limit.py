@@ -85,6 +85,7 @@ Scope = Literal[
     "app_manifest",
     "app_release",
     "release_deployment",
+    "app_org_members",
     "verify_email",
     "verify_email_resend",
     "forgot",
@@ -122,6 +123,9 @@ _LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
     "release_deployment": lambda s: RateLimit(
         s.release_deployment_rate_limit, s.release_deployment_rate_window_seconds
     ),
+    "app_org_members": lambda s: RateLimit(
+        s.app_org_members_rate_limit, s.app_org_members_rate_window_seconds
+    ),
     "verify_email": lambda s: RateLimit(
         s.verify_email_rate_limit, s.verify_email_rate_window_seconds
     ),
@@ -149,3 +153,23 @@ def rate_limit(scope: Scope) -> Any:
 
     dep: Callable[[Request], Coroutine[Any, Any, None]] = _check
     return Depends(dep)
+
+
+SubjectScope = Literal["app_org_members_key"]
+
+_SUBJECT_LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
+    "app_org_members_key": lambda s: RateLimit(
+        s.app_org_members_key_rate_limit, s.app_org_members_key_rate_window_seconds
+    ),
+}
+
+
+def enforce_subject_limit(request: Request, scope: SubjectScope, subject: str) -> None:
+    """Post-auth bucket per subject (e.g. a credential's key id): 429 when over (ADR-0022 §7)."""
+    if scope not in _SUBJECT_LIMITS:
+        raise ValueError("unknown rate-limit scope")
+    settings: Settings = request.app.state.settings
+    limiter: RateLimiter = request.app.state.rate_limiter
+    retry_after = limiter.hit(scope, f"k:{subject}", _SUBJECT_LIMITS[scope](settings))
+    if retry_after is not None:
+        raise RateLimitedError(retry_after)

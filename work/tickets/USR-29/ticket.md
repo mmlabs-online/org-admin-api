@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P1 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -12,7 +12,7 @@
 | Attempts | 0 |
 | Created | 2026-11-20 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/92 |
 
 ## Goal
 An `org_mode = required` app (first consumer: simap; calechip is the same shape) can list, from its backend, the members of one org for its own app, so Managers can assign seats and devices to people who have not opened the app yet and the app can show display names. simap keeps no person records of its own: every person is an mmlabs Identity account.
@@ -53,6 +53,12 @@ An `org_mode = required` app (first consumer: simap; calechip is the same shape)
 - API tests per criterion; route-class tests; migration round-trip if any.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-21, batch 2026-11-21-1) — Ming: "duyệt hết; câu 1–25 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-20 (orchestrator): requested by the simap project. Alternative to weigh: a `name` claim (display name) in per-app access tokens as a smaller first step for names only — does not cover "people who have not opened the app yet", so it complements rather than replaces this ticket. Proposed as a separate S ticket if Ming wants it.
 
 ## Handoff
+
+### 2026-11-21 — claude — DONE (waiting for merge)
+- Agent calls: 8, tokens ~552k total (database-optimizer×1 34k, api-platform-engineer×1 41k, identity-access-engineer×1 43k, security-architect×1 44k, planner×1 opus 140k, implementer×1 sonnet 110k, reviewer×1 opus 61k, appsec-engineer×1 79k)
+- Done: scope `org-members:read` + migration a4c81e6d27f3, runtime-key path (no lock_app, throttled touch, per-key limiter), member read route, ADR-0025/D34, docs. Review PASS attempt 1 (3811 passed); appsec PASS (4 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/92 (tier high).
+- Stopped (--auto-merge merge rule): tier high → never agent-merged; CI `check` also red on the known kit lint. Ming merges #92, then `/run-batch --resume` builds USR-30 (rebase onto USR-29's rate_limit/config/docs).

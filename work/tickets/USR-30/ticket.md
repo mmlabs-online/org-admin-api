@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P1 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-20 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-21T03:50Z |
 | PR | — |
 
 ## Goal
@@ -50,6 +50,7 @@ An org member holding a new org-level permission (simap grants it to its org own
 - API tests per criterion; concurrency test; token claim test after removal.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-21, batch 2026-11-21-1) — Ming: "duyệt hết; câu 1–25 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-20 (orchestrator): requested by simap as a second item next to USR-29. Choices made here (Ming may change them at the plan gate): cookie class rather than app credential; permission name `<app>:org:remove-member` (the requested four-segment key is invalid); depends on USR-29 only for docs ordering in consumers.md — it can run independently if Ming prefers.
 
 ## Handoff
