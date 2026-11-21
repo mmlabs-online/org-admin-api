@@ -34,3 +34,6 @@ Static review of fdfe1b9 against origin/main (git, grep and reads only; no pytes
 **Follow-ups (out of scope)**
 - Guard staff disable or revoke against leaving an org with no owner (already listed in ADR-0026).
 - Push notification or webhook on removal, to shorten the up-to-12 h access-token lag (ADR-0026 §8).
+
+## Attempt 2
+Not re-run: the rework commit a2e17de changes only `tests/test_org_member_remove.py` (audit helper scoped by `org_id`) and `impl-log.md`; the attempt-1 PASS applies (orchestrator note).

@@ -41,3 +41,33 @@ None. The orchestrator adds any from security-review.md.
 
 ### Follow-ups (out of scope)
 - Those already listed in impl-log: de-duplicate `_user` (5 copies), self-service "leave org", cookie-side member list, guard staff revoke of the last org owner, webhook on removal.
+
+## Attempt 2 — 2026-11-21
+Verdict: PASS
+
+Reviewed rework commit a2e17de (on top of fdfe1b9) against origin/main.
+
+### Scope of the rework
+`git diff --stat 79e936e a2e17de`: only `tests/test_org_member_remove.py` (+15/-6) and `work/tickets/USR-30/impl-log.md`. No app, migration or other test change. The fix: `_rows(db, org_id)` now filters `AuditLog.action.in_(ACTIONS), AuditLog.org_id == org_id`; all 4 call sites pass `renv.org.id`. Each test builds its own org, so the concurrency test's committed (append-only) audit rows no longer leak into these assertions.
+
+### Attempt-1 blocker: resolved
+- Concurrency first: `uv run pytest -p no:randomly tests/test_org_member_remove_concurrency.py tests/test_org_member_remove.py` → exit=0, `37 passed in 11.15s` (collection order confirmed: concurrency file ran first).
+- Reverse order: → exit=0, `37 passed in 11.02s`.
+
+### Checks (`make check` components)
+- `ruff check .` → fails only in `.github/scripts/risk_tier.py` (13 errors, known kit file, out of scope); `ruff check --exclude .github .` → `All checks passed!`
+- `ruff format --check .` → `1 file would be reformatted` = `.github/scripts/risk_tier.py` only (kit, out of scope).
+- `mypy app` → `Success: no issues found in 203 source files`
+- `pytest -q` (full suite) → `3857 passed, 1 warning in 724.54s`
+
+### Carried from attempt 1
+All other attempt-1 findings (acceptance criteria evidence, scope, R1–R11, security review) stand unchanged; the rework touched no production code.
+
+### Nits
+None new.
+
+### Follow-ups
+- Kit: `.github/scripts/risk_tier.py` fails repo ruff lint/format; fix upstream in spaceM project-kit (not here).
+
+### Review agents (attempt 2)
+- appsec-engineer: attempt 1 `Verdict: PASS` (no 🔴/🟡, 4 💭) stands; the attempt-2 rework (a2e17de) changed only `tests/test_org_member_remove.py` and `impl-log.md`. No blockers from review agents.
