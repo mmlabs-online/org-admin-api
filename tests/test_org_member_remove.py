@@ -57,10 +57,13 @@ async def _held(db: AsyncSession, who: Person) -> list[RoleAssignment]:
     )
 
 
-async def _rows(db: AsyncSession) -> list[AuditLog]:
+async def _rows(db: AsyncSession, org_id: uuid.UUID) -> list[AuditLog]:
+    """This org's rows (the concurrency test commits rows; audit_log is append-only)."""
     return list(
         await db.scalars(
-            select(AuditLog).where(AuditLog.action.in_(ACTIONS)).order_by(AuditLog.occurred_at)
+            select(AuditLog)
+            .where(AuditLog.action.in_(ACTIONS), AuditLog.org_id == org_id)
+            .order_by(AuditLog.occurred_at)
         )
     )
 
@@ -407,7 +410,7 @@ async def test_success_writes_one_audit_row_without_email(
     target = await member(db_session, renv, renv.env.owner)
     await assign(db_session, target.user, renv.env.viewer, org_id=renv.org.id)
     assert (await _remove(client, renv.owner, target, renv.org.id)).status_code == 204
-    (row,) = await _rows(db_session)
+    (row,) = await _rows(db_session, renv.org.id)
     assert row.action == "organization.member_removed"
     assert row.actor_user_id == renv.owner.user.id
     assert (row.target_type, row.target_id) == ("user", target.user.id)
@@ -430,7 +433,7 @@ async def test_refusals_write_no_audit_row(client: AsyncClient, db_session: Asyn
     assert (await _remove(client, manager, uuid.uuid4(), renv.org.id)).status_code == 404
     caller = await _super(db_session, renv)
     assert (await _remove(client, caller, renv.owner, renv.org.id)).status_code == 409
-    assert await _rows(db_session) == []
+    assert await _rows(db_session, renv.org.id) == []
 
 
 async def test_pending_invitations_to_target_revoked(
@@ -454,10 +457,16 @@ async def test_pending_invitations_to_target_revoked(
     await db_session.refresh(pending)
     await db_session.refresh(elsewhere)
     assert pending.revoked_at is not None and elsewhere.revoked_at is None
-    revoked = [r for r in await _rows(db_session) if r.action == "organization.invitation_revoked"]
+    revoked = [
+        r
+        for r in await _rows(db_session, renv.org.id)
+        if r.action == "organization.invitation_revoked"
+    ]
     assert len(revoked) == 1
     assert (revoked[0].target_id, revoked[0].changes) == (pending.id, {"reason": "member_removed"})
-    assert [r.action for r in await _rows(db_session)].count("organization.member_removed") == 1
+    assert [r.action for r in await _rows(db_session, renv.org.id)].count(
+        "organization.member_removed"
+    ) == 1
 
 
 async def test_token_after_removal(client: AsyncClient, db_session: AsyncSession) -> None:

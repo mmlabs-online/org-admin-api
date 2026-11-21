@@ -44,3 +44,17 @@
 
 ### Scope self-check
 - Could the diff be smaller? No.
+
+## Attempt 2 (REWORK)
+
+### Files touched
+- `tests/test_org_member_remove.py`: `_rows` now takes `org_id` and filters audit rows by `AuditLog.org_id` (required because the concurrency test commits audit rows; audit_log is append-only so they cannot be cleaned up). All call sites pass `renv.org.id`.
+
+### Checks
+- `pytest tests/test_org_member_remove_concurrency.py tests/test_org_member_remove.py`: 37 passed
+- reverse order: 37 passed
+- full `pytest`: 3857 passed, 1 warning
+- `ruff check app tests`: clean; `mypy app`: no issues in 203 files
+
+### Out-of-plan files / follow-ups
+- None.
