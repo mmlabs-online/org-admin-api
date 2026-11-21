@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | DONE |
 | Priority | P2 |
 | Size | M |
 | Areas | api, auth, security |
@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-20T13:00Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/89 |
 
 ## Goal
 After the health check, the deploy workflow records whether a release deployed or failed, even if the app's own write never arrived.
@@ -45,3 +45,9 @@ After the health check, the deploy workflow records whether a release deployed o
 - Plan approved (2026-11-20, batch 2026-11-20-2) — Ming: "câu 1–28 theo mặc định /run-batch --resume" (all batch questions answered with defaults; resume to BUILD taken as plan approval).
 
 ## Handoff
+
+### 2026-11-20 — claude — DONE
+- Agent calls: 7, tokens ~548k total (api-platform-engineer×1 42k, identity-access-engineer×1 58k, security-architect×1 55k, planner×1 opus 140k, implementer×1 sonnet 118k, reviewer×1 opus 72k, appsec-engineer×1 63k)
+- Done: deployer report route, transitions, report-first thin record, registry/OpenAPI, docs. Review PASS attempt 1; appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/89 (tier high).
+- In progress / next: Ming merges #89; then ADM-040. M-3 ops todo added (first deployer key).
+- Gotchas: `insert_if_absent` now merges `{"status": pending, **fields}` (ADM-034 behaviour unchanged).

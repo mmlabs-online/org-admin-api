@@ -91,6 +91,7 @@ class AuditAction(StrEnum):
     RELEASE_DELETED = "release.deleted"
     RELEASE_CREATED = "release.created"
     RELEASE_UPDATED = "release.updated"
+    RELEASE_DEPLOYMENT_REPORTED = "release.deployment_reported"
     USAGE_METRIC_CREATED = "usage_metric.created"
     USAGE_METRIC_UPDATED = "usage_metric.updated"
     USAGE_METRIC_ARCHIVED = "usage_metric.archived"

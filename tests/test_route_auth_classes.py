@@ -67,8 +67,9 @@ APP_CREDENTIAL: dict[tuple[str, str], str] = {
     ("PUT", RELEASE_WRITE): "releases",
 }
 APP_CREDENTIAL_ROUTES = set(APP_CREDENTIAL)
-# Deployer credential (R3 class 4 (b), ADR-0021): no route accepts it until ADM-036.
-DEPLOYER_CREDENTIAL: set[tuple[str, str]] = set()
+# Deployer credential (R3 class 4 (b), ADR-0021): exactly one route (ADM-036).
+DEPLOY_REPORT = f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}/deployment"
+DEPLOYER_CREDENTIAL: set[tuple[str, str]] = {("PUT", DEPLOY_REPORT)}
 DOCS = {"/openapi.json", "/docs", "/docs/oauth2-redirect"}  # Starlette routes, no dependant
 
 BEARER = {
@@ -294,7 +295,7 @@ def test_app_credential_allow_list_is_exact() -> None:
 
 
 def test_deployer_credential_allow_list_is_exact() -> None:
-    assert not DEPLOYER_CREDENTIAL
+    assert {("PUT", DEPLOY_REPORT)} == DEPLOYER_CREDENTIAL
     routes = _api_routes(_app())
     with_dep = {r for r, d in routes.items() if current_deployer in dependant_calls(d)}
     assert with_dep == DEPLOYER_CREDENTIAL
@@ -312,10 +313,20 @@ def test_openapi_bearer_scheme() -> None:
         "scheme": "bearer",
         "bearerFormat": "mmak",
     }
+    assert schema["components"]["securitySchemes"]["deployerCredential"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "mmdk",
+    }
     for path, operations in schema["paths"].items():
         for method, operation in operations.items():
             route = (method.upper(), path)
-            if route in BEARER:
+            if route in DEPLOYER_CREDENTIAL:
+                assert operation["security"] == [{"deployerCredential": []}], route
+                assert "401" in operation["responses"], route
+                assert "403" not in operation["responses"], route
+                assert "x-permission" not in operation, route
+            elif route in BEARER:
                 assert operation["security"] == [{"bearerAuth": []}], route
                 assert {"401", "403"} <= set(operation["responses"]), route
             elif route in APP_CREDENTIAL_ROUTES:
@@ -508,6 +519,51 @@ async def test_credential_on_bearer_routes_401(
 
 def _deployer_raw() -> str:
     return new_deployer_key()[1]
+
+
+@pytest.mark.parametrize(("method", "path"), sorted(DEPLOYER_CREDENTIAL))
+async def test_deployer_route_no_cors(
+    client: AsyncClient, db_session: AsyncSession, method: str, path: str
+) -> None:
+    await AppService(db_session).set_admin_origins(
+        AdminOriginsSet(origins=["https://admin-portal.mmlabs.online"]), app_env="test"
+    )
+    await make_app(db_session, "stoktok", origins=["https://stoktok.mmlabs.online"])
+    url = _fill(path)
+    for origin in ("https://admin-portal.mmlabs.online", "https://stoktok.mmlabs.online"):
+        resp = await client.request(method, url, json={}, headers={"Origin": origin})
+        assert resp.status_code == 401
+        assert "access-control-allow-origin" not in resp.headers
+        pre = await client.options(
+            url,
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "authorization",
+            },
+        )
+        assert "access-control-allow-origin" not in pre.headers
+
+
+@pytest.mark.parametrize(("method", "path"), sorted(DEPLOYER_CREDENTIAL))
+async def test_admin_jwt_on_deployer_route_401(
+    client: AsyncClient, db_session: AsyncSession, method: str, path: str
+) -> None:
+    staff = await make_staff(db_session, "admin:*")
+    resp = await _call(client, method, path, bearer(mint(staff)))
+    assert resp.status_code == 401
+    assert resp.headers["www-authenticate"] == 'Bearer realm="deployer"'
+
+
+@pytest.mark.parametrize(("method", "path"), sorted(DEPLOYER_CREDENTIAL))
+async def test_app_credential_on_deployer_route_401(
+    client: AsyncClient, db_session: AsyncSession, method: str, path: str
+) -> None:
+    app = await make_app(db_session, "stoktok")
+    _, raw = await make_credential(db_session, app, scope="releases")
+    resp = await _call(client, method, path, bearer(raw))
+    assert resp.status_code == 401
+    assert resp.headers["www-authenticate"] == 'Bearer realm="deployer"'
 
 
 @pytest.mark.parametrize(("method", "path"), list(BEARER) + sorted(SELF_SCOPED))
