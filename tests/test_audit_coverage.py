@@ -40,6 +40,7 @@ from tests.conftest import MakeClient
 from tests.deployer_credential_factories import make_deployer_credential
 from tests.invitation_factories import make_invitation
 from tests.join_request_factories import make_approval_app, make_join_request
+from tests.org_member_factories import member, remove_body, remove_url, setup_removal
 from tests.rbac_factories import (
     assign,
     grant,
@@ -909,12 +910,27 @@ async def _id_reset(s: AsyncSession) -> IdCall:
     return f"{AUTH}/password/reset", {"token": raw, "new_password": "a brand new phrase 42"}, {}
 
 
+async def _id_member_remove(s: AsyncSession) -> IdCall:
+    renv = await setup_removal(s)
+    target = await member(s, renv, renv.env.viewer)
+    return (
+        remove_url(renv.org.id, target.user.id),
+        remove_body(renv.owner),
+        renv.owner.headers(),
+    )
+
+
 # route -> (action, success scenario, success status)
 IDENTITY_AUDITED: dict[tuple[str, str], tuple[str, IdScenario, int]] = {
     ("POST", f"{AUTH}/login"): ("auth.login_succeeded", _id_login, 200),
     ("POST", f"{AUTH}/logout"): ("auth.logged_out", _id_logout, 204),
     ("POST", f"{AUTH}/apps/{{key}}/join"): ("app.joined", _id_join, 200),
     ("POST", f"{AUTH}/bug-reports"): ("bug_report.created", _id_report, 201),
+    ("POST", f"{AUTH}/orgs/{{org_id}}/members/{{user_id}}/remove"): (
+        "organization.member_removed",
+        _id_member_remove,
+        204,
+    ),
     ("POST", f"{AUTH}/verify-email"): ("auth.email_verified", _id_verify, 204),
     ("POST", f"{AUTH}/password/reset"): ("auth.password_reset_completed", _id_reset, 204),
 }

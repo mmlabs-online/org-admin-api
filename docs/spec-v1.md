@@ -84,6 +84,7 @@ One account per person across all mmlabs apps, **fully self-hosted here** (D1): 
 - **Abuse protection:** no hard lockout; per-email exponential backoff after 5 failures (cap 15 min), per-IP limit, Turnstile after 3 failures; the same error for unknown email and wrong password (D11). CORS only for registered app origins; cookie-authenticated POSTs check Origin and `X-MM-App` (D12).
 - **Email flows:** email verification and password reset by one-time, expiring links, sent through Gmail SMTP behind an `EmailSender` interface; resend at most 1/min and 5/day per email (D3).
 - **Organizations:** optional per app (`org_mode`); one `organizations` table owned by this Identity module (D10, D15, USR-06).
+- **Org member removal (2026-11-21, USR-30, ADR-0026, owner-approved at the plan gate):** a member holding `<app>:org:remove-member` in an org removes another member's org roles of that app in that org (cookie class); the account and all other roles stay.
 - **Org members for apps (2026-11-21, USR-29, ADR-0025):** an app backend with an `org-members:read` app credential may read the members of an organization that holds roles of that app (`GET /api/v1/apps/{key}/orgs/{org_id}/members`); read-only, server-to-server.
 - **Endpoints:** all under `/api/v1/auth/*` (cookie `__Host-mm_device`, `Path=/`, host-only; D13 as amended by D20); JWKS at `/.well-known/jwks.json` (D13).
 - **Admin:** staff can list, look up, disable/enable users, manage their roles per app and revoke their sessions (audited, §5.4). Session list and revocation per user: §5.10.
@@ -320,7 +321,7 @@ Left to PLAN: table names, endpoint paths, final scope names (via the ADR-0021 a
 No §3 non-goal conflict: billing stays a non-goal (OQ57); limits and usage are non-monetary counters, no prices, payments or invoices.
 
 ### §5.7 Later (not v1)
-_2026-11-21: the app-facing read of an org's members ships as USR-29 (ADR-0025); member management stays Later._
+_2026-11-21: the app-facing read of an org's members ships as USR-29 (ADR-0025); member management stays Later, except removal of a member by an org owner (USR-30, ADR-0026)._
 Org members view (member management; the read-only staff view of an org's members and invitations ships in v1 as USR-23, owner-approved 2026-11-19), per-org feature flags, announcements, impersonation (heavily audited), webhooks/events to products.
 Bug reports (§5.12), deferred by the owner on 2026-11-19: **video attachments** (MP4/WebM/MOV ≤ 50 MB, Drive resumable upload; max video length to be set then); a reporter **"my reports"** view (list own reports and status); **staff delete** of a report or an attachment (permanent Drive delete); **notifications** (email to the reporter when done, staff alerts on new reports); a **dashboard tile** / Apps-screen count of open reports.
 Release log (§5.13), out of scope per the owner on 2026-11-19: public release notes / end-user "what's new", webhooks and notifications on releases, editing `changes` after deploy (beyond filling empty fields, OQ37), a full deployment-event history table (v1 keeps only the latest `deployed_at` / `deploy_run_url` per release, OQ40), a staging purge job (revisit at ~1 GB or ~100k rows, OQ41), credential `expires_at` / `label` (shared with ADR-0016). Rollback visibility and release records for this API and admin-pan moved into v1 (OQ40, OQ48).

@@ -4,10 +4,11 @@ from app.modules.rbac.models import OrgMode, PermissionScope
 
 
 def reserved_scope(app_key: str, key: str) -> PermissionScope | None:
-    """Scope fixed by the key: `org:create` is checked at app scope, `org:invite` in the org."""
+    """Scope fixed by the key: `org:create` is checked at app scope; `org:invite` and
+    `org:remove-member` in the org."""
     if key == f"{app_key}:org:create":
         return PermissionScope.APP
-    if key == f"{app_key}:org:invite":
+    if key in (f"{app_key}:org:invite", f"{app_key}:org:remove-member"):
         return PermissionScope.ORG
     return None
 

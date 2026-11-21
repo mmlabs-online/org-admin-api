@@ -42,6 +42,7 @@ class AuditAction(StrEnum):
     ORGANIZATION_INVITATION_CREATED = "organization.invitation_created"
     ORGANIZATION_INVITATION_ACCEPTED = "organization.invitation_accepted"
     ORGANIZATION_INVITATION_REVOKED = "organization.invitation_revoked"
+    ORGANIZATION_MEMBER_REMOVED = "organization.member_removed"
     USER_CREATED = "user.created"
     USER_DISABLED = "user.disabled"
     USER_ENABLED = "user.enabled"

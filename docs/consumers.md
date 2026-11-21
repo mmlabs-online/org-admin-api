@@ -177,7 +177,7 @@ A member holding `<app>:org:invite` **in that org** invites an email address:
 `POST /api/v1/auth/orgs/{org_id}/invitations` `{account_id, email, role}` (cookie class,
 `credentials: "include"`, `X-MM-App`). `role` is a role key of the calling app: no `is_admin`
 permission, and nothing beyond the inviter's own permissions in that org (the owner role is
-invitable by an owner; there is no member removal in v1, staff only). The answer is always
+invitable by an owner; members are removed as described under "Removing a member" below). The answer is always
 `201 {id, org_id, role, expires_at}`, whether or not the address has an account, is a member, or
 hit the per-address send limit: do not promise delivery. The global daily send cap answers
 429 `rate_limited` with `Retry-After` instead. The mail links to
@@ -248,6 +248,38 @@ role after it. Removals and expiry are invisible to it, so run a full read at le
 
 Member emails are personal data: keep them on your server, store only what you need, and refresh
 or delete them on the full read.
+
+### Removing a member (USR-30, ADR-0026)
+
+`POST /api/v1/auth/orgs/{org_id}/members/{user_id}/remove` with `{account_id}` (the **caller's**
+account; `{user_id}` is the person removed). Cookie class: `credentials: "include"`, `Origin`,
+`X-MM-App`. Success is `204` with no body. The caller needs `<app>:org:remove-member` **in that
+org**. Declare it in your manifest (`scope: "org"`, `is_admin: false`); staff then add it to your org
+owner role, because the manifest sync does not change that role. Effect: the person's org roles of
+your app in that org are deleted, and their pending invitations to it are revoked. Their account,
+app-level roles and other orgs are untouched.
+
+Who may remove whom: not yourself; not a person with an `is_admin` permission or a permission you do
+not hold in that org (owners may remove co-owners); never the last owner.
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `session_invalid` | the account is not signed in on this device |
+| 403 | `origin_not_allowed`, `email_unverified` | bad origin or app, unverified caller |
+| 403 | `org_access_denied` | unknown, suspended or not-a-member org (one answer) |
+| 403 | `org_remove_member_forbidden` | the caller lacks the permission in that org |
+| 403 | `self_removal_forbidden`, `member_outranks_caller` | target is the caller, or holds more than the caller |
+| 403 | `org_member_remove_unavailable` | your app has no org owner role set |
+| 404 | `member_not_found` | the person holds no org role of your app there; a retry after success gets this too, treat it as done |
+| 409 | `last_org_owner` | the removal would leave the org without an owner |
+| 422 | `org_not_supported`, `validation_error` | `org_mode = none`, bad body or id |
+| 429 | `rate_limited` | per IP and per user limits; honour `Retry-After` |
+
+Token lag: access tokens issued before the removal keep the removed `org_roles` until they expire
+(up to `ACCESS_TOKEN_TTL_SECONDS`, 12 h in production). `POST /auth/token` with that `org_id` is
+refused (403 `org_access_denied`) at once. Before a destructive org action, re-check the person
+through the member read above or force a token refresh. A removal leaves no row, so the
+`updated_since` read cannot see it: run a full read.
 
 ## Email verification
 

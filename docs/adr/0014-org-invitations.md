@@ -14,7 +14,7 @@ single use, expiring, hashed at rest, and must not become an account or membersh
    union). Unknown, suspended and not-a-member orgs share one 403 `org_access_denied`.
 2. **Subset rule.** The invited role is a role key of the calling app, holds no `is_admin`
    permission, and every permission of it passes `permits(inviter_org_permissions, key)`. The
-   owner role is invitable by an owner (no member removal in v1; staff only).
+   owner role is invitable by an owner (no member removal in v1; staff only; _amended by ADR-0026: members holding `<app>:org:remove-member` can remove members_).
 3. **Storage.** `org_invitations` stores `SHA-256(token)` and an `HMAC` of the normalized email
    (`IDENTITY_HMAC_KEY`); no email column. Rotating the HMAC key voids pending invitations.
    Token: `secrets.token_urlsafe(32)`, link `{validated Origin}/accept-invitation#token=...`,
@@ -57,4 +57,4 @@ single use, expiring, hashed at rest, and must not become an account or membersh
 - Residual risk (moved to ADR-0015): a staff-granted app-scope role carrying org-level permissions
   still reaches every org token through `roles`; consumers must authorize from `org_roles`.
 - Gmail dots and plus tags are not folded: the invitee signs in with exactly the invited address.
-- Follow-ups: retention purge of `org_invitations`, cookie-side list/revoke endpoints and member management. Staff list and revoke (Bearer, `/api/v1/organizations/{org_id}/invitations`) shipped in USR-23.
+- Follow-ups: retention purge of `org_invitations`, cookie-side list/revoke endpoints and the rest of member management (removal shipped in USR-30, ADR-0026). Staff list and revoke (Bearer, `/api/v1/organizations/{org_id}/invitations`) shipped in USR-23.

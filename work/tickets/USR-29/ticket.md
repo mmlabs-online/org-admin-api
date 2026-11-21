@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P1 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -62,3 +62,6 @@ An `org_mode = required` app (first consumer: simap; calechip is the same shape)
 - Agent calls: 8, tokens ~552k total (database-optimizer×1 34k, api-platform-engineer×1 41k, identity-access-engineer×1 43k, security-architect×1 44k, planner×1 opus 140k, implementer×1 sonnet 110k, reviewer×1 opus 61k, appsec-engineer×1 79k)
 - Done: scope `org-members:read` + migration a4c81e6d27f3, runtime-key path (no lock_app, throttled touch, per-key limiter), member read route, ADR-0025/D34, docs. Review PASS attempt 1 (3811 passed); appsec PASS (4 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/92 (tier high).
 - Stopped (--auto-merge merge rule): tier high → never agent-merged; CI `check` also red on the known kit lint. Ming merges #92, then `/run-batch --resume` builds USR-30 (rebase onto USR-29's rate_limit/config/docs).
+
+### 2026-11-21 — claude — MERGED
+- PR #92 merged by the agent at Ming's explicit request ("merge cho tôi #92"), merge commit d933e76. Owner exception to the "High is never agent-merged" rule, logged. CI `check` failed only on the known kit lint (`risk_tier.py`, 13 errors, stops before tests); full suite run locally by the reviewer (3811 passed).
