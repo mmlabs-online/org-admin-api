@@ -212,6 +212,43 @@ can supersede another member's pending invitation to the same address by re-invi
 the org). Residual risk: a staff-granted app-scope role that carries org-level permissions still
 reaches every org token through `roles`; authorize org data from `org_roles` only (below).
 
+### Reading an org's members from your backend (USR-29, ADR-0025)
+
+`GET /api/v1/apps/{key}/orgs/{org_id}/members` with `Authorization: Bearer mmak_...` (a key with
+the scope `org-members:read`, issued by staff). Server-to-server only: keep the key in your
+backend deploy environment, never in a browser or mobile app, and rotate it when a staff member
+who knew it leaves. There is no CORS. The key works only for its own app (`{key}`).
+
+Query: `limit` (max 100), `offset`, `status` (`active` or `disabled`), `updated_since` (RFC 3339
+with a time zone offset). The response is `Page[T]` ordered by `user_id`, with `Cache-Control:
+no-store`.
+
+| Field | Meaning |
+|---|---|
+| `user_id` | the account id, equal to the access-token `sub` |
+| `email` | account email; `null` when `status` is `disabled` |
+| `email_verified` | whether the address was verified |
+| `display_name` | may be `null`; always `null` when `status` is `disabled` |
+| `status` | `active` or `disabled` |
+| `org_roles` | full role keys of your app held in this org, not expired, sorted |
+| `joined_at` | earliest creation time of those assignments (not "joined the org"; it can move when the earliest role expires or is removed) |
+
+Only users holding at least one org-scoped role of your app in that org are listed. Disabled users
+are listed. `updated_since` is additive: it returns users changed after the time, or granted a
+role after it. Removals and expiry are invisible to it, so run a full read at least daily.
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `unauthorized` | missing, malformed, unknown or revoked key; a deployer key or an admin token |
+| 403 | `app_credential_mismatch`, `app_credential_scope`, `app_disabled` | key of another app, wrong scope, disabled app |
+| 404 | `org_access_denied` | unknown org, an org with no relation to your app, or a suspended org (one answer for all; the cookie routes answer 403 with this code) |
+| 422 | `org_not_supported` | your app has `org_mode = none` |
+| 422 | `validation_error` | bad query (the value is not echoed) |
+| 429 | `rate_limited` | per IP and per key limits; honour `Retry-After` |
+
+Member emails are personal data: keep them on your server, store only what you need, and refresh
+or delete them on the full read.
+
 ## Email verification
 
 A new account is unverified; `/token` (and join, USR-03b) answer 403 `email_unverified` until the

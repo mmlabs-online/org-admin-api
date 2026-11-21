@@ -352,3 +352,28 @@ async def test_issued_audit_has_scope(make_client: MakeClient, db_session: Async
     (row,) = [r for r in await _audit(db_session, app.key) if r.action == "app_credential.issued"]
     assert row.changes["scope"] == {"from": None, "to": "releases"}
     assert resp.json()["credential"] not in str(row.changes)
+
+
+async def test_issue_org_members_scope(make_client: MakeClient, db_session: AsyncSession) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        for _ in range(2):
+            resp = await client.post(_url(app.key), json={"scope": "org-members:read"})
+            assert resp.status_code == 201, resp.text
+            assert resp.json()["scope"] == "org-members:read"
+        third = await client.post(_url(app.key), json={"scope": "org-members:read"})
+        assert third.status_code == 409
+        assert third.json()["error"]["details"][0]["reason"] == "credential_limit"
+        listed = await client.get(_url(app.key))
+    assert {i["scope"] for i in listed.json()["items"]} == {"org-members:read"}
+
+
+async def test_org_members_scope_refused_for_admin_app(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url("admin"), json={"scope": "org-members:read"})
+    assert resp.status_code == 409
+    assert resp.json()["error"]["details"][0]["reason"] == "admin_app"

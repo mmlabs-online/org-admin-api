@@ -1,6 +1,7 @@
 # ADR-0022: Usage key scopes (runtime app credentials)
 
 Status: Accepted (2026-11-20)
+Amended by ADR-0025 (§1 and §10: `org-members:read` is a runtime scope and the first user of the runtime path)
 Date: 2026-11-20
 
 Amends ADR-0021 §1 (scope set and auth path), §3 (rate limits) and §12 (R3 text).

@@ -339,3 +339,86 @@ async def test_confirm_rechecks_status_under_lock(db_session: AsyncSession) -> N
     caller = AuthenticatedApp(row.id, row.key_id, app.id, app.key, "releases")
     with pytest.raises(AppCredentialAppDisabledError):
         await credential_service.AppCredentialService(db_session).confirm(caller)
+
+
+# --- runtime scope path (USR-29, ADR-0022 §3, ADR-0025) ---------------------------
+
+
+async def _runtime_setup(db: AsyncSession) -> tuple[str, str, str, uuid.UUID]:
+    from tests.rbac_factories import assign, make_org, make_role, make_user
+
+    app = await make_app(db, _key(), org_mode="required")
+    org = await make_org(db)
+    role = await make_role(db, app, f"{app.key}:member")
+    await assign(db, await make_user(db), role, org_id=org.id)
+    row, raw = await make_credential(db, app, scope="org-members:read")
+    out = (app.key, raw, row.key_id, org.id)
+    await db.commit()
+    return out
+
+
+def _members_url(key: str, org_id: uuid.UUID) -> str:
+    return f"{V1}/apps/{key}/orgs/{org_id}/members"
+
+
+async def _last_used(db: AsyncSession, key_id: str) -> datetime | None:
+    return await db.scalar(
+        select(AppCredential.last_used_at)
+        .where(AppCredential.key_id == key_id)
+        .execution_options(populate_existing=True)
+    )
+
+
+async def test_runtime_scope_takes_no_app_lock(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.rbac.repository import RbacRepository
+
+    key, raw, _, org_id = await _runtime_setup(db_session)
+
+    async def _boom(self: object, key: str) -> None:
+        raise AssertionError("lock_app must not run for a runtime scope")
+
+    monkeypatch.setattr(RbacRepository, "lock_app", _boom)
+    resp = await client.get(_members_url(key, org_id), headers=_auth(raw))
+    assert resp.status_code == 200, resp.text
+
+
+async def test_runtime_touch_throttled_60s(client: AsyncClient, db_session: AsyncSession) -> None:
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    key, raw, key_id, org_id = await _runtime_setup(db_session)
+    assert await _last_used(db_session, key_id) is None
+    await client.get(_members_url(key, org_id), headers=_auth(raw))
+    first = await _last_used(db_session, key_id)
+    assert first is not None
+    await client.get(_members_url(key, org_id), headers=_auth(raw))
+    assert await _last_used(db_session, key_id) == first
+    stale = datetime.now(UTC) - timedelta(seconds=61)
+    await db_session.execute(
+        update(AppCredential).where(AppCredential.key_id == key_id).values(last_used_at=stale)
+    )
+    await db_session.commit()
+    await client.get(_members_url(key, org_id), headers=_auth(raw))
+    refreshed = await _last_used(db_session, key_id)
+    assert refreshed is not None and refreshed > stale + timedelta(seconds=30)
+
+
+async def test_revoked_runtime_key_401(client: AsyncClient, db_session: AsyncSession) -> None:
+    app = await make_app(db_session, _key(), org_mode="required")
+    _, raw = await make_credential(db_session, app, scope="org-members:read", revoked=True)
+    key = app.key
+    await db_session.commit()
+    resp = await client.get(_members_url(key, uuid.uuid4()), headers=_auth(raw))
+    assert resp.status_code == 401
+
+
+def test_require_app_credential_refuses_lock_for_runtime_scope() -> None:
+    from app.modules.app_credentials.deps import RequireAppCredential
+
+    with pytest.raises(ValueError):
+        RequireAppCredential(
+            AppCredentialScope.ORG_MEMBERS_READ, AuditAction.ORGANIZATION_MEMBERS_READ, lock=True
+        )

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from starlette.requests import Request
 
@@ -131,3 +133,30 @@ def test_ipv6_keyed_by_64() -> None:
     assert ip_key("2001:db8:1:2:bbbb::9") == "2001:db8:1:2::/64"
     assert ip_key("2001:db8:1:3::1") != ip_key("2001:db8:1:2::1")
     assert ip_key("198.51.100.7") == "198.51.100.7"
+
+
+def test_subject_limit_counts_per_subject() -> None:
+    from types import SimpleNamespace
+
+    from app.core.config import Settings
+    from app.core.errors import RateLimitedError
+    from app.core.rate_limit import enforce_subject_limit
+
+    state = SimpleNamespace(
+        settings=Settings(app_org_members_key_rate_limit=1),
+        rate_limiter=InMemoryRateLimiter(clock=FakeClock()),
+    )
+    request: Any = SimpleNamespace(app=SimpleNamespace(state=state))
+    enforce_subject_limit(request, "app_org_members_key", "a")
+    with pytest.raises(RateLimitedError):
+        enforce_subject_limit(request, "app_org_members_key", "a")
+    enforce_subject_limit(request, "app_org_members_key", "b")
+
+
+def test_unknown_subject_scope_refused() -> None:
+    from typing import cast
+
+    from app.core.rate_limit import SubjectScope, enforce_subject_limit
+
+    with pytest.raises(ValueError):
+        enforce_subject_limit(cast(Any, None), cast(SubjectScope, "nope"), "a")

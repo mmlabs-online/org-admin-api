@@ -103,3 +103,34 @@ def test_scope_check_rejects_unknown_scope() -> None:
         assert "ck_app_credentials_scope_valid" in str(exc)
     else:
         raise AssertionError("the CHECK accepted an unknown scope")
+
+
+def test_org_members_scope_round_trip() -> None:
+    """USR-29 migration (`a4c81e6d27f3`): the CHECK widens, the downgrade deletes those keys."""
+    cfg = _cfg()
+    k_org, k_man = "c" * 16, "d" * 16
+    insert = text(
+        "INSERT INTO app_credentials (id, app_id, key_id, secret_hash, scope) "
+        "SELECT gen_random_uuid(), id, :k, :h, :s FROM apps WHERE key = 'admin'"
+    )
+    cleanup = text("DELETE FROM app_credentials WHERE key_id IN (:a, :b)")
+    try:
+        asyncio.run(
+            _run(
+                (insert, {"k": k_org, "h": HASH, "s": "org-members:read"}),
+                (insert, {"k": k_man, "h": HASH, "s": "manifest"}),
+            )
+        )
+        command.downgrade(cfg, "911eb99ddf8b")
+        (scopes,) = asyncio.run(_run((_SCOPES, {})))
+        assert dict(scopes) == {k_man: "manifest"}
+        try:
+            asyncio.run(_run((insert, {"k": k_org, "h": HASH, "s": "org-members:read"})))
+            raise AssertionError("the old CHECK accepted org-members:read")
+        except Exception as exc:
+            assert "ck_app_credentials_scope_valid" in str(exc)
+        command.upgrade(cfg, "head")
+        asyncio.run(_run((insert, {"k": k_org, "h": HASH, "s": "org-members:read"})))
+    finally:
+        command.upgrade(cfg, "head")
+        asyncio.run(_run((cleanup, {"a": k_org, "b": k_man})))
