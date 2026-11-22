@@ -14,11 +14,11 @@ from app.modules.rbac.models import APP_KEY_RE
 from app.modules.releases.models import ReleaseEnvironment, ReleaseStatus
 from app.modules.releases.repository import ListFilter
 from app.modules.releases.schemas import (
-    ReleaseDetail,
     ReleaseSort,
     ReleaseSummary,
-    release_detail,
+    StaffReleaseDetail,
     release_summary,
+    staff_release_detail,
 )
 from app.modules.releases.service import ReleaseService
 
@@ -92,11 +92,12 @@ async def live_releases(
 
 @router.get(
     "/{release_id}",
-    response_model=ReleaseDetail,
+    response_model=StaffReleaseDetail,
     **require_permission(PERM, errors={404: _404}),
 )
-async def get_release(session: SessionDep, release_id: uuid.UUID) -> ReleaseDetail:
-    return release_detail(await ReleaseService(session).get(release_id))
+async def get_release(session: SessionDep, release_id: uuid.UUID) -> StaffReleaseDetail:
+    view, counts = await ReleaseService(session).get_detail(release_id)
+    return staff_release_detail(view, counts)
 
 
 @router.delete(

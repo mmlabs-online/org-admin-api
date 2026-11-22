@@ -31,7 +31,13 @@ from app.modules.bug_reports.errors import (
     BugReportDailyLimitError,
     BugReportOpenLimitError,
 )
-from app.modules.bug_reports.models import BugReport, BugReportAttachment, BugReportStatus
+from app.modules.bug_reports.models import (
+    BugReport,
+    BugReportAttachment,
+    BugReportReleaseMatch,
+    BugReportStatus,
+)
+from app.modules.bug_reports.release_link import INFERRED_ENVIRONMENT, environment_for_version
 from app.modules.bug_reports.repository import BugReportAttachmentRepository, BugReportRepository
 from app.modules.bug_reports.schemas import (
     BugReportAttachmentRead,
@@ -42,6 +48,7 @@ from app.modules.bug_reports.upload import read_exact
 from app.modules.membership.service import join_available
 from app.modules.rbac.authz import AuthzService
 from app.modules.rbac.models import App, OrgMode
+from app.modules.releases.repository import AppReleaseRepository
 from app.modules.sessions.errors import SessionInvalidError
 from app.modules.sessions.repository import SessionRepository
 from app.modules.sessions.service import ResolvedDevice
@@ -95,6 +102,21 @@ class BugReportSubmitService:
         self.repo = BugReportRepository(session)
         self.authz = AuthzService(session)
         self.audit = AuditLogger(session)
+        self.releases = AppReleaseRepository(session)
+
+    async def _link_release(
+        self, app: App, app_version: str | None
+    ) -> tuple[uuid.UUID | None, BugReportReleaseMatch]:
+        """Informational link (ADR-0028): reported version, else the live production release."""
+        environment = None if app_version is None else environment_for_version(app_version)
+        if app_version is not None and environment is not None:
+            found = await self.releases.find_for_report_link(app.id, environment.value, app_version)
+            if found is not None:
+                return found, BugReportReleaseMatch.REPORTED
+        live = await self.releases.live_for_report_link(app.id, INFERRED_ENVIRONMENT.value)
+        if live is not None:
+            return live, BugReportReleaseMatch.INFERRED
+        return None, BugReportReleaseMatch.NONE
 
     async def submit(
         self, app: App, device: ResolvedDevice, data: BugReportCreate, *, ctx: AuditContext
@@ -131,6 +153,7 @@ class BugReportSubmitService:
         if await self.repo.count_open(user.id, app.id) >= self.max_open:
             raise BugReportOpenLimitError(self.max_open)
 
+        release_id, match = await self._link_release(app, data.app_version)
         report = await self.repo.add(
             BugReport(
                 app_id=app.id,
@@ -141,6 +164,8 @@ class BugReportSubmitService:
                 app_version=data.app_version,
                 user_agent=data.user_agent,
                 status=BugReportStatus.OPEN.value,
+                release_id=release_id,
+                release_match=match.value,
             )
         )
         # Ids and counts only, never the description, context fields or attachment content.
@@ -151,10 +176,18 @@ class BugReportSubmitService:
             target=(AuditTarget.BUG_REPORT, report.id),
             app_key=app.key,
             org_id=None,
-            changes={"attachment_count": 0},
+            changes={
+                "attachment_count": 0,
+                "release_id": None if release_id is None else str(release_id),
+                "release_match": match.value,
+            },
         )
         logger.info(
-            "bug_report_created report_id=%s app=%s user_id=%s", report.id, app.key, user.id
+            "bug_report_created report_id=%s app=%s user_id=%s release_match=%s",
+            report.id,
+            app.key,
+            user.id,
+            match.value,
         )
         return BugReportCreated(
             id=report.id, status=BugReportStatus(report.status), created_at=report.created_at

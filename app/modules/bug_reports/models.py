@@ -30,6 +30,12 @@ class BugReportStatus(StrEnum):
     DONE = "done"
 
 
+class BugReportReleaseMatch(StrEnum):
+    REPORTED = "reported"
+    INFERRED = "inferred"
+    NONE = "none"
+
+
 class BugReport(UUIDPkMixin, TimestampMixin, Base):
     """A bug report filed by a member of an app. Done iff `handled_at` is set."""
 
@@ -47,6 +53,12 @@ class BugReport(UUIDPkMixin, TimestampMixin, Base):
             "page_url IS NULL OR page_url ~ '^https?://[^/?#@[:space:]]+/[^?#[:space:]]*$'",
             name="page_url_reduced",
         ),
+        CheckConstraint(
+            "release_match IN ('reported', 'inferred', 'none')", name="release_match_valid"
+        ),
+        CheckConstraint(
+            "release_id IS NULL OR release_match <> 'none'", name="release_link_consistent"
+        ),
         Index("ix_bug_reports_created_at_id", "created_at", "id"),
         Index("ix_bug_reports_app_id_status_created_at_id", "app_id", "status", "created_at", "id"),
         Index("ix_bug_reports_user_id_created_at", "user_id", "created_at"),
@@ -57,6 +69,12 @@ class BugReport(UUIDPkMixin, TimestampMixin, Base):
             postgresql_where=text("status = 'open'"),
         ),
         Index("ix_bug_reports_org_id", "org_id", postgresql_where=text("org_id IS NOT NULL")),
+        Index(
+            "ix_bug_reports_release_id_status",
+            "release_id",
+            "status",
+            postgresql_where=text("release_id IS NOT NULL"),
+        ),
     )
 
     app_id: Mapped[uuid.UUID] = mapped_column(
@@ -87,6 +105,17 @@ class BugReport(UUIDPkMixin, TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL", name="fk_bug_reports_handled_by_users")
     )
     handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    release_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "app_releases.id", ondelete="SET NULL", name="fk_bug_reports_release_id_app_releases"
+        )
+    )
+    release_match: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        server_default=text("'none'"),
+        default=BugReportReleaseMatch.NONE.value,
+    )
 
     def __repr__(self) -> str:
         return f"<BugReport id={self.id} status={self.status}>"

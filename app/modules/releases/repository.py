@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.bug_reports.models import BugReport
 from app.modules.rbac.models import App
 from app.modules.releases.models import AppRelease, ReleaseStatus
 from app.modules.releases.schemas import ReleaseSort
@@ -228,6 +229,47 @@ class AppReleaseRepository:
         )
         total = await self.session.scalar(select(func.count()).select_from(latest))
         return [_view(r) for r in rows.all()], int(total or 0)
+
+    async def find_for_report_link(
+        self, app_id: uuid.UUID, environment: str, version: str
+    ) -> uuid.UUID | None:
+        """FOR KEY SHARE pins the row: a concurrent release delete cannot turn the report insert
+        into an FK error."""
+        return await self.session.scalar(
+            select(AppRelease.id)
+            .where(
+                AppRelease.app_id == app_id,
+                AppRelease.environment == environment,
+                AppRelease.version == version,
+            )
+            .with_for_update(read=True, key_share=True)
+        )
+
+    async def live_for_report_link(self, app_id: uuid.UUID, environment: str) -> uuid.UUID | None:
+        """Latest deployed release with `deployed_at` <= now(); `now()` is the transaction time,
+        equal to the report's `created_at` default."""
+        return await self.session.scalar(
+            select(AppRelease.id)
+            .where(
+                AppRelease.app_id == app_id,
+                AppRelease.environment == environment,
+                AppRelease.status == ReleaseStatus.DEPLOYED.value,
+                AppRelease.deployed_at <= func.now(),
+            )
+            .order_by(AppRelease.deployed_at.desc(), AppRelease.id.desc())
+            .limit(1)
+            .with_for_update(read=True, key_share=True)
+        )
+
+    async def bug_report_counts(self, release_id: uuid.UUID) -> tuple[int, int]:
+        """(open, done) reports linked to the release."""
+        rows = await self.session.execute(
+            select(BugReport.status, func.count())
+            .where(BugReport.release_id == release_id)
+            .group_by(BugReport.status)
+        )
+        counts = {status: n for status, n in rows.all()}
+        return counts.get("open", 0), counts.get("done", 0)
 
     async def delete_returning(self, release_id: uuid.UUID) -> DeletedRelease | None:
         row = (

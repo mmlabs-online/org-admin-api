@@ -481,7 +481,7 @@ async def test_submit_audit_row_ids_only(client: AsyncClient, db_session: AsyncS
         None,
     )
     assert row.outcome == "success"
-    assert set(row.changes or {}) == {"attachment_count"}
+    assert set(row.changes or {}) == {"attachment_count", "release_id", "release_match"}
     dumped = str((row.changes, row.user_agent))
     for secret in ("save button", "secret-path", "9.9.9"):
         assert secret not in dumped

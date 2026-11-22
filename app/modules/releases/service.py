@@ -28,6 +28,11 @@ class ReleaseService:  # `list` is defined last: it shadows the builtin in the c
             raise NotFoundError("Release not found")
         return view
 
+    async def get_detail(self, release_id: uuid.UUID) -> tuple[ReleaseView, tuple[int, int]]:
+        """The release and its linked bug-report counts (open, done)."""
+        view = await self.get(release_id)
+        return view, await self.repo.bug_report_counts(release_id)
+
     async def live(
         self, app_key: str | None, environment: str | None, *, limit: int, offset: int
     ) -> tuple[list[ReleaseView], int]:
