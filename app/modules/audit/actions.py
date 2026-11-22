@@ -102,3 +102,8 @@ class AuditAction(StrEnum):
     USAGE_LIMIT_OVERRIDE_SET = "usage_limit_override.set"
     USAGE_LIMIT_OVERRIDE_UPDATED = "usage_limit_override.updated"
     USAGE_LIMIT_OVERRIDE_REMOVED = "usage_limit_override.removed"
+    # Denied-only: uses themselves are not audit entries (ADR-0022 §9).
+    USAGE_READ = "usage.read"
+    USAGE_CONSUMED = "usage.consumed"
+    USAGE_SETTLED = "usage.settled"
+    USAGE_REFUNDED = "usage.refunded"

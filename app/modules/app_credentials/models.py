@@ -20,11 +20,20 @@ class AppCredentialScope(StrEnum):
     MANIFEST = "manifest"
     RELEASES = "releases"
     ORG_MEMBERS_READ = "org-members:read"
+    USAGE_READ = "usage:read"
+    USAGE_WRITE = "usage:write"
+    LIMITS_WRITE = "limits:write"  # issuance refused until ADM-044
 
 
 # Runtime scopes: no app lock, throttled `last_used_at` (ADR-0022 §3, ADR-0025).
-# ADM-042 adds `usage:*` / `limits:write` here.
-RUNTIME_SCOPES = frozenset({AppCredentialScope.ORG_MEMBERS_READ})
+RUNTIME_SCOPES = frozenset(
+    {
+        AppCredentialScope.ORG_MEMBERS_READ,
+        AppCredentialScope.USAGE_READ,
+        AppCredentialScope.USAGE_WRITE,
+        AppCredentialScope.LIMITS_WRITE,
+    }
+)
 
 
 class AppCredential(UUIDPkMixin, Base):
@@ -34,9 +43,10 @@ class AppCredential(UUIDPkMixin, Base):
     __table_args__ = (
         CheckConstraint("key_id ~ '^[0-9a-f]{16}$'", name="key_id_format"),
         CheckConstraint("octet_length(secret_hash) = 32", name="secret_hash_length"),
-        # ADM-042 recreates `ck_app_credentials_scope_valid` from the USR-29 list.
         CheckConstraint(
-            "scope IN ('manifest', 'releases', 'org-members:read')", name="scope_valid"
+            "scope IN ('manifest', 'releases', 'org-members:read', 'usage:read', 'usage:write', "
+            "'limits:write')",
+            name="scope_valid",
         ),
         Index("ix_app_credentials_app_id_created_at", "app_id", "created_at"),
         Index(

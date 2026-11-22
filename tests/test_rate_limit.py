@@ -160,3 +160,25 @@ def test_unknown_subject_scope_refused() -> None:
 
     with pytest.raises(ValueError):
         enforce_subject_limit(cast(Any, None), cast(SubjectScope, "nope"), "a")
+
+
+def test_enforce_failure_limit() -> None:
+    from types import SimpleNamespace
+
+    from app.core.config import Settings
+    from app.core.errors import RateLimitedError
+    from app.core.rate_limit import enforce_failure_limit
+
+    settings = Settings(usage_auth_failed_rate_limit=2)
+    state = SimpleNamespace(settings=settings, rate_limiter=InMemoryRateLimiter(clock=FakeClock()))
+    req = _request("203.0.113.5")
+    req.scope["app"] = SimpleNamespace(state=state)
+    enforce_failure_limit(req, "usage_auth_failed")
+    enforce_failure_limit(req, "usage_auth_failed")
+    with pytest.raises(RateLimitedError):
+        enforce_failure_limit(req, "usage_auth_failed")
+    other = _request("203.0.113.6")
+    other.scope["app"] = SimpleNamespace(state=state)
+    enforce_failure_limit(other, "usage_auth_failed")  # another IP has its own bucket
+    with pytest.raises(ValueError):
+        enforce_failure_limit(req, "nope")  # type: ignore[arg-type]

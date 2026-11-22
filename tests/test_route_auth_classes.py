@@ -60,14 +60,22 @@ COOKIE = {
     ("POST", f"{V1}/auth/invitations/accept"),
     ("POST", f"{V1}/auth/orgs/{{org_id}}/members/{{user_id}}/remove"),
 }
-# App credential (R3 class 4 (a), ADR-0016, ADR-0021): route -> the one scope it accepts.
+# App credential (R3 class 4 (a), ADR-0016, ADR-0021, ADR-0022): route -> the scopes it accepts.
 MANIFEST = f"{V1}/apps/{{key}}/manifest"
 RELEASE_WRITE = f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}"
 ORG_MEMBERS = f"{V1}/apps/{{key}}/orgs/{{org_id}}/members"
-APP_CREDENTIAL: dict[tuple[str, str], str] = {
-    ("PUT", MANIFEST): "manifest",
-    ("PUT", RELEASE_WRITE): "releases",
-    ("GET", ORG_MEMBERS): "org-members:read",
+USAGE_READ = f"{V1}/apps/{{key}}/usage/users/{{user_id}}"
+USAGE_CONSUME = f"{V1}/apps/{{key}}/usage/consume"
+USAGE_SETTLE = f"{V1}/apps/{{key}}/usage/settle"
+USAGE_REFUND = f"{V1}/apps/{{key}}/usage/refund"
+APP_CREDENTIAL: dict[tuple[str, str], frozenset[str]] = {
+    ("PUT", MANIFEST): frozenset({"manifest"}),
+    ("PUT", RELEASE_WRITE): frozenset({"releases"}),
+    ("GET", ORG_MEMBERS): frozenset({"org-members:read"}),
+    ("GET", USAGE_READ): frozenset({"usage:read", "usage:write"}),
+    ("POST", USAGE_CONSUME): frozenset({"usage:write"}),
+    ("POST", USAGE_SETTLE): frozenset({"usage:write"}),
+    ("POST", USAGE_REFUND): frozenset({"usage:write"}),
 }
 APP_CREDENTIAL_ROUTES = set(APP_CREDENTIAL)
 # Deployer credential (R3 class 4 (b), ADR-0021): exactly one route (ADM-036).
@@ -303,13 +311,22 @@ def test_app_credential_allow_list_is_exact() -> None:
         for call in dependant_calls(dependant):
             if isinstance(call, RequireAppCredential):
                 with_dep[route] = call
-    assert {r: c.scope.value for r, c in with_dep.items()} == APP_CREDENTIAL
+    assert {r: frozenset(x.value for x in c.scopes) for r, c in with_dep.items()} == (
+        APP_CREDENTIAL
+    )
     # The manifest route takes the app lock in auth; the release write defers it to its service,
     # after the body was read, so a slow client never holds `lock_app`.
     assert with_dep[("PUT", MANIFEST)].lock is True
     assert with_dep[("PUT", RELEASE_WRITE)].lock is False
     # Runtime scope (ADR-0025): never the app lock; `authenticate` does a throttled touch.
     assert with_dep[("GET", ORG_MEMBERS)].lock is False
+    for route in (
+        ("GET", USAGE_READ),
+        ("POST", USAGE_CONSUME),
+        ("POST", USAGE_SETTLE),
+        ("POST", USAGE_REFUND),
+    ):
+        assert with_dep[route].lock is False  # ADR-0022 §3: runtime scopes never lock
 
 
 def test_deployer_credential_allow_list_is_exact() -> None:
