@@ -10,6 +10,8 @@ from sqlalchemy.orm import aliased
 from app.db.base import bumped_updated_at
 from app.modules.bug_reports.models import BugReport, BugReportAttachment, BugReportStatus
 from app.modules.rbac.models import App
+from app.modules.releases.models import AppRelease
+from app.modules.releases.repository import ReleaseView
 from app.modules.users.models import User
 
 
@@ -158,6 +160,9 @@ class ListFilter:
     reporter_id: uuid.UUID | None = None
     created_from: datetime | None = None  # inclusive
     created_to: datetime | None = None  # exclusive
+    release_id: uuid.UUID | None = None
+    app_version: str | None = None  # exact, case-sensitive
+    release_match: str | None = None
 
 
 @dataclass(frozen=True)
@@ -181,11 +186,30 @@ class BugReportView:
     handled_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    release_match: str
+    release: ReleaseView | None
 
 
 PREVIEW_LENGTH = 200
 _REPORTER = aliased(User)
 _HANDLER = aliased(User)
+
+
+_RELEASE_COLUMNS = (
+    AppRelease.id,
+    AppRelease.environment,
+    AppRelease.version,
+    AppRelease.status,
+    AppRelease.git_sha,
+    AppRelease.deployment_pr,
+    AppRelease.has_migrations,
+    AppRelease.deploy_run_url,
+    AppRelease.created_via,
+    func.jsonb_array_length(AppRelease.changes),
+    AppRelease.created_at,
+    AppRelease.updated_at,
+    AppRelease.deployed_at,
+)
 
 
 def _select(description: Any) -> Any:
@@ -208,10 +232,13 @@ def _select(description: Any) -> Any:
             BugReport.handled_at,
             BugReport.created_at,
             BugReport.updated_at,
+            BugReport.release_match,
+            *_RELEASE_COLUMNS,
         )
         .join(App, App.id == BugReport.app_id)
         .join(_REPORTER, _REPORTER.id == BugReport.user_id)
         .outerjoin(_HANDLER, _HANDLER.id == BugReport.handled_by)
+        .outerjoin(AppRelease, AppRelease.id == BugReport.release_id)
     )
 
 
@@ -227,11 +254,39 @@ def _where(f: ListFilter) -> list[ColumnElement[bool]]:
         conds.append(BugReport.created_at >= f.created_from)
     if f.created_to is not None:
         conds.append(BugReport.created_at < f.created_to)
+    if f.release_id is not None:
+        conds.append(BugReport.release_id == f.release_id)
+    if f.app_version is not None:
+        conds.append(BugReport.app_version == f.app_version)
+    if f.release_match is not None:
+        conds.append(BugReport.release_match == f.release_match)
     return conds
 
 
 def _view(row: Any) -> BugReportView:
-    return BugReportView(*row)
+    rel = row[18:]
+    release = None if rel[0] is None else ReleaseView(rel[0], row[1], *rel[1:])
+    return BugReportView(
+        id=row[0],
+        app_key=row[1],
+        org_id=row[2],
+        status=row[3],
+        reporter_id=row[4],
+        reporter_email=row[5],
+        reporter_display_name=row[6],
+        description=row[7],
+        page_url=row[8],
+        app_version=row[9],
+        user_agent=row[10],
+        resolution_note=row[11],
+        handler_id=row[12],
+        handler_display_name=row[13],
+        handled_at=row[14],
+        created_at=row[15],
+        updated_at=row[16],
+        release_match=row[17],
+        release=release,
+    )
 
 
 class BugReportStaffRepository:

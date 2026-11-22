@@ -18,7 +18,11 @@ from app.modules.admin_auth.deps import AdminDep, current_admin, require_permiss
 from app.modules.attachments.store import AttachmentStore, ImageType
 from app.modules.audit.deps import AuditContextDep
 from app.modules.bug_reports import image_types
-from app.modules.bug_reports.models import BugReportAttachment, BugReportStatus
+from app.modules.bug_reports.models import (
+    BugReportAttachment,
+    BugReportReleaseMatch,
+    BugReportStatus,
+)
 from app.modules.bug_reports.repository import BugReportView, ListFilter
 from app.modules.bug_reports.schemas import (
     BugReportAttachmentRead,
@@ -30,6 +34,7 @@ from app.modules.bug_reports.schemas import (
 )
 from app.modules.bug_reports.staff_service import BugReportStaffService
 from app.modules.rbac.models import APP_KEY_RE
+from app.modules.releases.schemas import release_summary
 
 router = APIRouter(
     prefix="/bug-reports", tags=["bug-reports"], dependencies=[Depends(current_admin)]
@@ -68,6 +73,9 @@ def _item(v: BugReportView) -> BugReportListItem:
         org_id=v.org_id,
         status=BugReportStatus(v.status),
         description_preview=v.description,
+        app_version=v.app_version,
+        release_match=BugReportReleaseMatch(v.release_match),
+        release=None if v.release is None else release_summary(v.release),
         handled_at=v.handled_at,
         created_at=v.created_at,
         updated_at=v.updated_at,
@@ -93,6 +101,8 @@ def _read(v: BugReportView, attachments: Sequence[BugReportAttachment]) -> BugRe
         description=v.description,
         page_url=v.page_url,
         app_version=v.app_version,
+        release_match=BugReportReleaseMatch(v.release_match),
+        release=None if v.release is None else release_summary(v.release),
         user_agent=v.user_agent,
         resolution_note=v.resolution_note,
         handled_at=v.handled_at,
@@ -127,6 +137,14 @@ async def list_bug_reports(
         AwareDatetime | None, Query(alias="from", description="Inclusive.")
     ] = None,
     created_to: Annotated[AwareDatetime | None, Query(alias="to", description="Exclusive.")] = None,
+    release_id: Annotated[
+        uuid.UUID | None, Query(description="Linked release, whatever `release_match` is.")
+    ] = None,
+    app_version: Annotated[
+        str | None,
+        Query(min_length=1, max_length=64, description="Exact, case-sensitive match."),
+    ] = None,
+    release_match: Annotated[BugReportReleaseMatch | None, Query()] = None,
 ) -> Page[BugReportListItem]:
     f = ListFilter(
         app_key=app_key,
@@ -134,6 +152,9 @@ async def list_bug_reports(
         reporter_id=reporter_id,
         created_from=created_from,
         created_to=created_to,
+        release_id=release_id,
+        app_version=app_version,
+        release_match=None if release_match is None else release_match.value,
     )
     items, total = await BugReportStaffService(session).list(
         f, limit=page.limit, offset=page.offset

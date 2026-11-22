@@ -12,6 +12,7 @@ if TYPE_CHECKING:  # the repository imports this module
 
 __all__ = [
     "ChangeRisk",
+    "ReleaseBugReportCounts",
     "ReleaseChange",
     "ReleaseCreatedVia",
     "ReleaseDetail",
@@ -20,8 +21,10 @@ __all__ = [
     "ReleaseSort",
     "ReleaseStatus",
     "ReleaseSummary",
+    "StaffReleaseDetail",
     "release_detail",
     "release_summary",
+    "staff_release_detail",
 ]
 
 _FROM_REPORT = "null for a record created from a deploy report."
@@ -78,6 +81,19 @@ class ReleaseDetail(ReleaseSummary):
     changes: list[ReleaseChange]
 
 
+class ReleaseBugReportCounts(BaseModel):
+    open: int
+    done: int
+
+
+class StaffReleaseDetail(ReleaseDetail):
+    """Staff read only: the machine routes return `ReleaseDetail` without bug-report data."""
+
+    bug_reports: ReleaseBugReportCounts = Field(
+        description="Reports linked to this release (reported and inferred), by status."
+    )
+
+
 def release_summary(v: "ReleaseView") -> ReleaseSummary:
     return ReleaseSummary.model_validate(v, from_attributes=True)
 
@@ -87,4 +103,11 @@ def release_detail(v: "ReleaseView") -> ReleaseDetail:
         **release_summary(v).model_dump(),
         images=[ReleaseImage(**i) for i in v.images],
         changes=[ReleaseChange(**c) for c in v.changes],
+    )
+
+
+def staff_release_detail(v: "ReleaseView", counts: tuple[int, int]) -> StaffReleaseDetail:
+    return StaffReleaseDetail(
+        **release_detail(v).model_dump(),
+        bug_reports=ReleaseBugReportCounts(open=counts[0], done=counts[1]),
     )

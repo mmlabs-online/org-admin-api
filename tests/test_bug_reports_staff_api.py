@@ -14,6 +14,7 @@ from app.modules.rbac.models import App
 from app.modules.users.models import User
 from tests.conftest import MakeClient
 from tests.rbac_factories import make_app, make_user
+from tests.release_factories import make_release
 
 URL = "/api/v1/bug-reports"
 READ, WRITE = "admin:bug-reports:read", "admin:bug-reports:write"
@@ -191,7 +192,7 @@ async def test_list_item_shape(
     item = (await _list(make_client, limit=1)).json()["items"][0]
     assert set(item) == {
         "id", "app_key", "org_id", "status", "reporter", "description_preview", "handler",
-        "handled_at", "created_at", "updated_at",
+        "handled_at", "created_at", "updated_at", "app_version", "release_match", "release",
     }  # fmt: skip
     assert item["reporter"] == {
         "id": str(seeded["u1"].id),
@@ -505,3 +506,97 @@ async def test_patch_if_match_star_200(make_client: MakeClient, seeded: dict[str
         make_client, seeded["r"][0].id, {"status": "done"}, headers={"If-Match": "*"}
     )
     assert resp.status_code == 200
+
+
+# --- release link (ADM-038) -----------------------------------------------------
+
+
+async def test_list_and_detail_show_release_link(
+    make_client: MakeClient, db_session: AsyncSession, seeded: dict[str, Any]
+) -> None:
+    rel = await make_release(
+        db_session,
+        seeded["a1"],
+        version="v1.2.3",
+        status="deployed",
+        deployed_at=T0,
+        deployment_pr="https://github.com/mmlabs-online/deployment/pull/3",
+    )
+    linked = await _report(
+        db_session,
+        seeded["a1"],
+        seeded["u1"],
+        release_id=rel.id,
+        release_match="reported",
+        app_version="v1.2.3",
+    )
+    items = (await _list(make_client, release_id=str(rel.id))).json()["items"]
+    assert [i["id"] for i in items] == [str(linked.id)]
+    item = items[0]
+    assert (item["release_match"], item["app_version"]) == ("reported", "v1.2.3")
+    expected = {
+        "id": str(rel.id),
+        "version": "v1.2.3",
+        "environment": "production",
+        "status": "deployed",
+        "deployment_pr": "https://github.com/mmlabs-online/deployment/pull/3",
+    }
+    assert expected.items() <= item["release"].items()
+    assert item["release"]["app_key"] == seeded["a1"].key
+    async with make_client(admin_permissions=[READ]) as c:
+        detail = (await c.get(f"{URL}/{linked.id}")).json()
+        unlinked = (await c.get(f"{URL}/{seeded['r'][0].id}")).json()
+    assert detail["release_match"] == "reported"
+    assert expected.items() <= detail["release"].items()
+    assert (unlinked["release_match"], unlinked["release"]) == ("none", None)
+
+
+async def test_list_filter_release_id(
+    make_client: MakeClient, db_session: AsyncSession, seeded: dict[str, Any]
+) -> None:
+    rel = await make_release(db_session, seeded["a1"])
+    a = await _report(
+        db_session, seeded["a1"], seeded["u1"], release_id=rel.id, release_match="reported"
+    )
+    b = await _report(
+        db_session, seeded["a1"], seeded["u1"], release_id=rel.id, release_match="inferred"
+    )
+    body = (await _list(make_client, release_id=str(rel.id))).json()
+    assert {i["id"] for i in body["items"]} == {str(a.id), str(b.id)}
+    assert body["total"] == 2
+
+
+async def test_list_filter_app_version_exact(
+    make_client: MakeClient, db_session: AsyncSession, seeded: dict[str, Any]
+) -> None:
+    hit = await _report(db_session, seeded["a1"], seeded["u1"], app_version="v1.2.3")
+    await _report(db_session, seeded["a1"], seeded["u1"], app_version="V1.2.3")
+    body = (await _list(make_client, app_version="v1.2.3")).json()
+    assert [i["id"] for i in body["items"]] == [str(hit.id)]
+
+
+async def test_list_filter_release_match(
+    make_client: MakeClient, db_session: AsyncSession, seeded: dict[str, Any]
+) -> None:
+    rel = await make_release(db_session, seeded["a1"])
+    inferred = await _report(
+        db_session, seeded["a1"], seeded["u1"], release_id=rel.id, release_match="inferred"
+    )
+    body = (await _list(make_client, release_match="inferred")).json()
+    assert [i["id"] for i in body["items"]] == [str(inferred.id)]
+    assert (await _list(make_client, release_match="none")).json()["total"] == 3
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"release_id": "nope"},
+        {"release_match": "bogus"},
+        {"app_version": "v" * 65},
+        {"app_version": ""},
+    ],
+)
+async def test_list_release_filters_validation_422(
+    make_client: MakeClient, params: dict[str, str]
+) -> None:
+    assert (await _list(make_client, **params)).status_code == 422

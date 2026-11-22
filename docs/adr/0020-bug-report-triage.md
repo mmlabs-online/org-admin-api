@@ -40,3 +40,4 @@ reopen it, and keep a resolution note. ADM-028 added the table and the submit ro
 ## Consequences
 - ADM-030 extends `BugReportAttachmentRead` (additive) and adds the download route.
 - No staff delete in v1.
+- Amended by ADR-0028: list and detail gain `release_match`, `release` (list also `app_version`) and release filters.

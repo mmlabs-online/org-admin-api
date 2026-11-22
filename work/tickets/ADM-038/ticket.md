@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Size | S |
 | Areas | db, api |
@@ -12,7 +12,7 @@
 | Attempts | 0 |
 | Created | 2026-11-19 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/94 |
 
 ## Goal
 Staff see, next to an end-user bug report, the release the user was running: version, deploy time, changes and deployment PR.
@@ -45,6 +45,12 @@ Staff see, next to an end-user bug report, the release the user was running: ver
 - API tests per criterion; migration round-trip.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-22, batch 2026-11-22-1) — Ming: "duyệt hết; câu 1–22 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-19 (orchestrator): adopted from the parallel draft (commit ea8ce4b). Environment taken from the validated `Origin` replaces the OQ50 default (version format → environment); confirm at the plan gate. Store-at-submit vs compute-at-read stays a PLAN choice (spec §5.12).
 
 ## Handoff
+
+### 2026-11-22 — claude — DONE (waiting for merge)
+- Agent calls: 6, tokens ~363k total (database-optimizer×1 28k, api-platform-engineer×1 31k, planner×1 opus 103k, implementer×1 sonnet 87k, reviewer×1 opus 65k, appsec-engineer×1 49k)
+- Done: release link at submit (release_id + release_match, migration b7d3f1a9c542), spec §5.12 rule, staff filters and counts, ADR-0028/D37. Review PASS attempt 1 (3893 passed); appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/94 (tier high).
+- Next: Ming merges #94 (single session branch), then ADM-042 builds on b7d3f1a9c542.

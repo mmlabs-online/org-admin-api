@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api, auth, security |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-20 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-22T03:49Z |
 | PR | — |
 
 ## Goal
@@ -33,5 +33,6 @@ Both the app and this API enforce limits: the app backend consumes before each A
 - [ ] Wrong scope 403, other app 403, admin JWT 401.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-22, batch 2026-11-22-1) — Ming: "duyệt hết; câu 1–22 theo mặc định" (all batch questions answered with the defaults).
 
 ## Handoff
