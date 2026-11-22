@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
 | Areas | db, api |
@@ -54,3 +54,6 @@ Staff see, next to an end-user bug report, the release the user was running: ver
 - Agent calls: 6, tokens ~363k total (database-optimizer×1 28k, api-platform-engineer×1 31k, planner×1 opus 103k, implementer×1 sonnet 87k, reviewer×1 opus 65k, appsec-engineer×1 49k)
 - Done: release link at submit (release_id + release_match, migration b7d3f1a9c542), spec §5.12 rule, staff filters and counts, ADR-0028/D37. Review PASS attempt 1 (3893 passed); appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/94 (tier high).
 - Next: Ming merges #94 (single session branch), then ADM-042 builds on b7d3f1a9c542.
+
+### 2026-11-22 — claude — MERGED
+- PR #94 merged by the agent at Ming's explicit request ("merge cho tôi #94"), merge commit e4ba66b. Owner exception to the "High is never agent-merged" rule, logged. CI `check` failed only on the known kit lint (`risk_tier.py`, 13 errors, stops before tests); full suite run locally by the reviewer (3893 passed).
