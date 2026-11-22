@@ -33,5 +33,6 @@ Both the app and this API enforce limits: the app backend consumes before each A
 - [ ] Wrong scope 403, other app 403, admin JWT 401.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-22, batch 2026-11-22-1) — Ming: "duyệt hết; câu 1–22 theo mặc định" (all batch questions answered with the defaults).
 
 ## Handoff

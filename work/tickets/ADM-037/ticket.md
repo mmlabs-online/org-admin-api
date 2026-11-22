@@ -36,5 +36,6 @@ App teams and the deployment repo can add the release-log calls the first time, 
 - Manual: run the curl steps against a local server.
 
 ## Notes / answers from Ming
+- 2026-11-22 (batch 2026-11-22-1): Gate none; Ming answered the batch round "duyệt hết; câu 1–22 theo mặc định".
 
 ## Handoff

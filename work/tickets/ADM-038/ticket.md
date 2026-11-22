@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | S |
 | Areas | db, api |
@@ -45,6 +45,7 @@ Staff see, next to an end-user bug report, the release the user was running: ver
 - API tests per criterion; migration round-trip.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-22, batch 2026-11-22-1) — Ming: "duyệt hết; câu 1–22 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-19 (orchestrator): adopted from the parallel draft (commit ea8ce4b). Environment taken from the validated `Origin` replaces the OQ50 default (version format → environment); confirm at the plan gate. Store-at-submit vs compute-at-read stays a PLAN choice (spec §5.12).
 
 ## Handoff

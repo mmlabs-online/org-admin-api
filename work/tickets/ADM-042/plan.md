@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > Blocked only for owner choices (High-path ticket, stops at PLAN anyway). Every question below has a
 > default; "all defaults" makes this plan READY with no other edit.

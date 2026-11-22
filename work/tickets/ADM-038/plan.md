@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > BLOCKED on Q1 only (spec vs ticket conflict on how the environment is picked and what "inferred" means). The plan
 > below is complete and written for the **default answer to Q1 (the spec wins)**. If Ming picks the ticket's rule
