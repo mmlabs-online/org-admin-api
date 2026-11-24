@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P2 |
 | Size | S |
 | Areas | api, auth, security, db |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-24 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-24T12:37Z |
 | PR | — |
 
 ## Goal
