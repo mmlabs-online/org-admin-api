@@ -17,7 +17,7 @@ make dev          # http://localhost:8000/docs
 `.env.example` lists keys without values (defaults apply). An older `.env` with `APP_ENV=local`
 disables the APP_ENV safety gate for non-loopback `DATABASE_URL`s — delete that line.
 
-Deploy: see [`docs/deploy.md`](docs/deploy.md) (push branch `release/vX.Y.Z` from main → api.mmlabs.online).
+Deploy: see [`docs/deploy.md`](docs/deploy.md) (push branch `release/X.Y.Z` from main → api.mmlabs.online).
 
 Run everything CI runs:
 
