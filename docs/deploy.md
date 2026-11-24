@@ -542,8 +542,8 @@ runbook. The browser console is not a supported path.
 
 An app pushes its permission manifest with a per-app credential (ADR-0016, route `PUT /api/v1/apps/{key}/manifest`, USR-05b).
 Staff issue, list and revoke credentials through the admin API. Issuing needs `admin:*` on top of
-`admin:apps:write`; at most **2 active** credentials per app; the `admin` app and disabled apps
-get none. Run these calls inside the marked section of the "Admin access" subshell (token only via
+`admin:apps:write`; at most **2 active** credentials per (app, scope); disabled apps get none, and the `admin` app
+(org-admin-api) may only get `releases` keys. Run these calls inside the marked section of the "Admin access" subshell (token only via
 `-H @"$hdr"`). The credential value is shown **once**: write it straight to a 0600 file, never to
 stdout, argv, a log or an issue. The `key_id` is safe to share.
 
@@ -575,6 +575,11 @@ List (metadata only, newest first; revoked ones stay with `active: false`):
 curl -fsS -H @"$hdr" "$api/apps/<key>/credentials"
 ```
 
+- **Release-log key (ADM-037):** the issue call takes an optional body `{"scope": "releases"}`
+  (default `manifest`; add `-H "Content-Type: application/json" -d '{"scope":"releases"}'` to the
+  curl above) for a key that lets the app repo write its release record. Store it as the
+  Environment secret `MMLABS_RELEASE_CREDENTIAL` in the app repo (environment limited to the release
+  branch). Rotation and revocation work as below. Guide: [release-log.md](release-log.md).
 - **Rotation:** issue the second credential, update the secret, deploy once, then revoke the old
   one (find its `id` by `key_id` in the list): `curl -fsS -X DELETE -H @"$hdr" "$api/apps/<key>/credentials/<id>"`.
 - **Leak:** revoke at once (`DELETE` as above; revoking twice is a no-op), then issue a new one.
@@ -592,7 +597,7 @@ The release deployment report (ADM-036) is sent by the deployment repo with a **
 through the admin API; all three calls need `admin:*`. At most **2 active** keys. The only route that
 accepts it is `PUT /api/v1/apps/{key}/releases/{environment}/{version}/deployment` with body
 `{"status": "deployed"|"failed", "deployed_at": ..., "deploy_run_url": ...}`; in CI a 4xx/429 answer
-is warning-only. Run the calls inside the marked section of
+is warning-only (copy-paste steps: [release-log.md](release-log.md)). Run the calls inside the marked section of
 the "Admin access" subshell (token only via `-H @"$hdr"`). The value is shown **once**
 (`Cache-Control: no-store`): write it straight to a 0600 file, never to stdout, argv, a log or an issue.
 

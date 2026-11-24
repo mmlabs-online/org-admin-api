@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | DONE |
 | Priority | P3 |
 | Size | S |
 | Areas | api |
@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-19 |
-| Claimed by | claude@2026-11-22T03:49Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/96 |
 
 ## Goal
 App teams and the deployment repo can add the release-log calls the first time, without ever blocking a release or deploy.
@@ -39,3 +39,8 @@ App teams and the deployment repo can add the release-log calls the first time, 
 - 2026-11-22 (batch 2026-11-22-1): Gate none; Ming answered the batch round "duyệt hết; câu 1–22 theo mặc định".
 
 ## Handoff
+
+### 2026-11-24 — claude — DONE (waiting for merge)
+- Agent calls: 3, tokens ~142k total (planner×1 sonnet 42k, implementer×1 sonnet 41k, reviewer×1 opus 59k); fast lane, no consults, no review agents (docs only).
+- Done: docs/release-log.md guide + docs/deploy.md; review PASS attempt 1; the reviewer's should-fix (temp credential file cleanup) applied by the orchestrator as a docs-only commit. PR https://github.com/mmlabs-online/org-admin-api/pull/96 (tier low; no --auto-merge, so Ming merges).
+- Next: Ming merges #96; after merge, one real call per the guide (criterion 4).
