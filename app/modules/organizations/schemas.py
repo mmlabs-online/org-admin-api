@@ -78,6 +78,13 @@ class AppOrgMemberRead(BaseModel):
     joined_at: datetime  # earliest creation among those assignments
 
 
+class AppOrgInvitationRead(BaseModel):
+    id: uuid.UUID
+    role: str  # full role key of the app, e.g. "simap:member"
+    created_at: datetime
+    expires_at: datetime
+
+
 class OrgMemberRemove(BaseModel):
     """`POST /auth/orgs/{org_id}/members/{user_id}/remove`: `account_id` is the caller's."""
 

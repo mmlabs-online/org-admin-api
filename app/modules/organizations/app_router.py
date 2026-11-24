@@ -12,10 +12,10 @@ from pydantic import AwareDatetime
 from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
 from app.core.rate_limit import enforce_subject_limit, rate_limit
-from app.modules.app_credentials.deps import OrgMembersCredentialDep
+from app.modules.app_credentials.deps import OrgInvitationsCredentialDep, OrgMembersCredentialDep
 from app.modules.audit.deps import AuditContextDep
-from app.modules.organizations.app_service import AppOrgMemberService
-from app.modules.organizations.schemas import AppOrgMemberRead
+from app.modules.organizations.app_service import AppOrgInvitationService, AppOrgMemberService
+from app.modules.organizations.schemas import AppOrgInvitationRead, AppOrgMemberRead
 from app.modules.users.models import UserStatus
 
 router = APIRouter(prefix="/apps", tags=["app-orgs"])
@@ -63,6 +63,37 @@ async def list_org_members(
         limit=page.limit,
         offset=page.offset,
         ctx=ctx,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@router.get(
+    "/{key}/orgs/{org_id}/invitations",
+    response_model=Page[AppOrgInvitationRead],
+    dependencies=[rate_limit("app_org_members")],
+    summary="List an org's pending invitations for the app (org-members:read app credential)",
+    description=(
+        "Pending invitations of the app in the org: not accepted, not revoked, not expired at "
+        "read time (server clock), oldest first. Fields: id, role, created_at, expires_at; never "
+        "the invitee email, token or inviter. Pending is not a seat guarantee. Shares the rate "
+        "limits of the member read. Server-to-server only, no CORS, never cached."
+    ),
+    responses=_RESPONSES,
+)
+async def list_org_invitations(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    ctx: AuditContextDep,
+    caller: OrgInvitationsCredentialDep,
+    page: PageDep,
+    key: str,
+    org_id: uuid.UUID,
+) -> Page[AppOrgInvitationRead]:
+    enforce_subject_limit(request, "app_org_members_key", caller.key_id)
+    items, total = await AppOrgInvitationService(session).list(
+        caller, org_id, limit=page.limit, offset=page.offset, ctx=ctx
     )
     response.headers["Cache-Control"] = "no-store"
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)

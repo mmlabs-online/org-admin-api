@@ -91,6 +91,16 @@ OrgMembersCredentialDep = Annotated[
         )
     ),
 ]
+OrgInvitationsCredentialDep = Annotated[
+    AuthenticatedApp,
+    Depends(
+        RequireAppCredential(
+            AppCredentialScope.ORG_MEMBERS_READ,
+            AuditAction.ORGANIZATION_INVITATIONS_READ,
+            lock=False,
+        )
+    ),
+]
 UsageReadCredentialDep = Annotated[
     AuthenticatedApp,
     Depends(

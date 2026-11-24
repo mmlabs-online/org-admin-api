@@ -49,6 +49,21 @@ all defaults) and the spec carries dated lines for it.
 9. **Blast radius.** A leaked key exposes the emails of every org member of that app (PII, spec
    §8 Q6). It cannot write anything. Revoke and re-issue; consumers store only what they need.
 
+## Amendment (USR-31, 2026-11-24)
+
+- **Route (§2).** `org-members:read` also grants `GET /api/v1/apps/{key}/orgs/{org_id}/invitations`
+  and no other route. Same app-match rule, runtime key (no `lock_app`), no CORS.
+- **Fields (§6).** `Page[T]` of `id`, `role` (full key), `created_at`, `expires_at`, oldest first.
+  Only pending invitations of `{key}` in the org (not accepted, not revoked, not expired on the DB
+  clock). Never the invitee email, HMAC, token hash or inviter. `no-store`.
+- **Guards (§5).** One shared guard: 422 `org_not_supported`, one 404 `org_access_denied` for
+  unknown, unrelated or suspended orgs, run before any invitation query.
+- **Audit (§8).** Action `organization.invitations_read`: counts only, plus a denied row per 404.
+- **Limits (§4).** Shares the per-IP and per-key buckets of the member read.
+- **Residual risk.** A pending invitation is not a seat guarantee. Timing can tell an org with
+  invitations from an empty one only after the relation check passed. An org with no app roles left
+  answers 404 even with pending invitations.
+
 ## Rejected alternatives
 - A `name` claim in the access token alone: does not cover people who have not opened the app.
 - Relating an org to the app through `org_entitlements`: adds a second source of truth.

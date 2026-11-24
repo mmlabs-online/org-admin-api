@@ -64,6 +64,7 @@ COOKIE = {
 MANIFEST = f"{V1}/apps/{{key}}/manifest"
 RELEASE_WRITE = f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}"
 ORG_MEMBERS = f"{V1}/apps/{{key}}/orgs/{{org_id}}/members"
+ORG_INVITATIONS = f"{V1}/apps/{{key}}/orgs/{{org_id}}/invitations"
 USAGE_READ = f"{V1}/apps/{{key}}/usage/users/{{user_id}}"
 USAGE_CONSUME = f"{V1}/apps/{{key}}/usage/consume"
 USAGE_SETTLE = f"{V1}/apps/{{key}}/usage/settle"
@@ -72,6 +73,7 @@ APP_CREDENTIAL: dict[tuple[str, str], frozenset[str]] = {
     ("PUT", MANIFEST): frozenset({"manifest"}),
     ("PUT", RELEASE_WRITE): frozenset({"releases"}),
     ("GET", ORG_MEMBERS): frozenset({"org-members:read"}),
+    ("GET", ORG_INVITATIONS): frozenset({"org-members:read"}),
     ("GET", USAGE_READ): frozenset({"usage:read", "usage:write"}),
     ("POST", USAGE_CONSUME): frozenset({"usage:write"}),
     ("POST", USAGE_SETTLE): frozenset({"usage:write"}),
@@ -320,6 +322,7 @@ def test_app_credential_allow_list_is_exact() -> None:
     assert with_dep[("PUT", RELEASE_WRITE)].lock is False
     # Runtime scope (ADR-0025): never the app lock; `authenticate` does a throttled touch.
     assert with_dep[("GET", ORG_MEMBERS)].lock is False
+    assert with_dep[("GET", ORG_INVITATIONS)].lock is False
     for route in (
         ("GET", USAGE_READ),
         ("POST", USAGE_CONSUME),

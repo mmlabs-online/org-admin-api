@@ -249,6 +249,30 @@ role after it. Removals and expiry are invisible to it, so run a full read at le
 Member emails are personal data: keep them on your server, store only what you need, and refresh
 or delete them on the full read.
 
+#### Pending invitations (USR-31)
+
+`GET /api/v1/apps/{key}/orgs/{org_id}/invitations` with the same `org-members:read` key. Query:
+`limit` (at most 100) and `offset`. The response is `Page[T]`, oldest first (`created_at`, then
+`id`), with `Cache-Control: no-store`. No CORS; server-to-server only.
+
+| Field | Meaning |
+|---|---|
+| `id` | the invitation id |
+| `role` | the full role key of your app the invitation grants, e.g. `simap:member` |
+| `created_at` | when it was sent |
+| `expires_at` | when it stops being acceptable |
+
+Only pending invitations of your app in that org are listed: not accepted, not revoked, and
+`expires_at` after now on the server clock. There is never an email, token or inviter in the
+response. Errors are the same as the member read above (401, 403, 404 `org_access_denied`, 422
+`org_not_supported`, 422 `validation_error`, 429). The member and invitation reads share one per-IP
+and one per-key rate limit budget.
+
+Pending is not a seat guarantee: an invitation can still be revoked, expire, or be refused on
+accept (the inviter lost the right to invite). The list is a snapshot: an item can expire right
+after the read. An org whose last member of your app has left answers 404 even if invitations are
+still pending.
+
 ### Removing a member (USR-30, ADR-0026)
 
 `POST /api/v1/auth/orgs/{org_id}/members/{user_id}/remove` with `{account_id}` (the **caller's**
