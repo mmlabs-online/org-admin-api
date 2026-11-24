@@ -891,6 +891,25 @@ class RbacRepository:
         )
         return [(r[0], r[1], r[2], r[3]) for r in result]
 
+    async def is_active_app_member(self, user_id: uuid.UUID, app_id: uuid.UUID) -> bool:
+        """OQ5 predicate of `member_counts` for one user: `active`, with a non-expired role
+        assignment on the app (app scope or any org). Unverified email still counts."""
+        stmt = (
+            select(RoleAssignment.id)
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(
+                User,
+                and_(User.id == RoleAssignment.user_id, User.status == UserStatus.ACTIVE.value),
+            )
+            .where(
+                RoleAssignment.user_id == user_id,
+                Role.app_id == app_id,
+                or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
+            )
+            .limit(1)
+        )
+        return await self.session.scalar(stmt) is not None
+
     async def member_counts(
         self, app_ids: Sequence[uuid.UUID] | None = None
     ) -> dict[uuid.UUID, int]:

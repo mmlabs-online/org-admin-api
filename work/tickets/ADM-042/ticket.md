@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | DONE |
 | Priority | P2 |
 | Size | M |
 | Areas | db, api, auth, security |
@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-20 |
-| Claimed by | claude@2026-11-22T03:49Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/95 |
 
 ## Goal
 Both the app and this API enforce limits: the app backend consumes before each AI action and is refused when the user is over the limit.
@@ -36,3 +36,8 @@ Both the app and this API enforce limits: the app backend consumes before each A
 - Plan approved (2026-11-22, batch 2026-11-22-1) — Ming: "duyệt hết; câu 1–22 theo mặc định" (all batch questions answered with the defaults).
 
 ## Handoff
+
+### 2026-11-22 — claude — DONE (waiting for merge)
+- Agent calls: 8, tokens ~692k total (database-optimizer×1 42k, api-platform-engineer×1 39k, identity-access-engineer×1 49k, security-architect×1 56k, planner×1 opus 148k, implementer×1 sonnet 179k, reviewer×1 opus 93k, appsec-engineer×1 86k)
+- Done: usage scopes + multi-scope auth, counters/events migration c91e4b7a3d58, consume/settle/refund/read routes, rate buckets, D36, docs. Review PASS attempt 1 (4044 passed); appsec PASS with 1 🟡 (failed-auth bucket checked after authenticate). PR https://github.com/mmlabs-online/org-admin-api/pull/95 (tier high).
+- Next: Ming decides the 🟡 and merges #95; then ADM-037 (docs).

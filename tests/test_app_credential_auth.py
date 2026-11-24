@@ -422,3 +422,53 @@ def test_require_app_credential_refuses_lock_for_runtime_scope() -> None:
         RequireAppCredential(
             AppCredentialScope.ORG_MEMBERS_READ, AuditAction.ORGANIZATION_MEMBERS_READ, lock=True
         )
+
+
+def test_scope_set_accepts_any_member_and_refuses_lock_or_mixing() -> None:
+    from app.modules.app_credentials.deps import RequireAppCredential
+
+    both = frozenset({AppCredentialScope.USAGE_READ, AppCredentialScope.USAGE_WRITE})
+    dep = RequireAppCredential(both, AuditAction.USAGE_READ, lock=False)
+    assert dep.scopes == both
+    single = RequireAppCredential(AppCredentialScope.MANIFEST, AuditAction.APP_MANIFEST_SYNCED)
+    assert single.scopes == frozenset({AppCredentialScope.MANIFEST})
+    with pytest.raises(ValueError):  # a runtime set never locks
+        RequireAppCredential(both, AuditAction.USAGE_READ, lock=True)
+    with pytest.raises(ValueError):  # no mixing of runtime and CI scopes
+        RequireAppCredential(
+            frozenset({AppCredentialScope.USAGE_READ, AppCredentialScope.MANIFEST}),
+            AuditAction.USAGE_READ,
+            lock=False,
+        )
+
+
+async def test_scope_set_authenticate_members_and_wrong_scope(db_session: AsyncSession) -> None:
+    from app.core.errors import PermissionDeniedError
+    from app.modules.app_credentials.service import AppCredentialService
+
+    app = await make_app(db_session, _key())
+    _, read_raw = await make_credential(db_session, app, scope="usage:read")
+    _, write_raw = await make_credential(db_session, app, scope="usage:write")
+    _, other_raw = await make_credential(db_session, app, scope="org-members:read")
+    svc = AppCredentialService(db_session)
+    both = frozenset({AppCredentialScope.USAGE_READ, AppCredentialScope.USAGE_WRITE})
+    for raw in (read_raw, write_raw):
+        caller = await svc.authenticate(
+            raw,
+            app.key,
+            scope=both,
+            denied_action=AuditAction.USAGE_READ,
+            ctx=AuditContext.NONE,
+            lock=False,
+        )
+        assert caller.app_key == app.key
+    with pytest.raises(PermissionDeniedError) as exc:
+        await svc.authenticate(
+            other_raw,
+            app.key,
+            scope=both,
+            denied_action=AuditAction.USAGE_READ,
+            ctx=AuditContext.NONE,
+            lock=False,
+        )
+    assert exc.value.code == "app_credential_scope"

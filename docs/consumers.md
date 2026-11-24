@@ -281,6 +281,54 @@ refused (403 `org_access_denied`) at once. Before a destructive org action, re-c
 through the member read above or force a token refresh. A removal leaves no row, so the
 `updated_since` read cannot see it: run a full read.
 
+## Metering AI usage from your backend (ADM-042, ADR-0022)
+
+Your backend meters each AI action against the user's limit before it runs. Staff define metrics
+and limits (ADM-039, ADM-040); this API keeps the counters. Server-to-server only: keys never go
+to a browser or mobile app, there is no CORS, and every call is rate limited.
+
+Keys: staff issue one per scope for your app. `MMLABS_USAGE_CREDENTIAL` is a `usage:write` key
+(consume, settle, refund, and the read); `MMLABS_USAGE_READ_CREDENTIAL` is an optional `usage:read`
+key (the read only). Send `Authorization: Bearer mmak_...`. A key works only for its own app.
+
+| Call | Body | Result |
+|---|---|---|
+| `POST /api/v1/apps/{key}/usage/consume` | `{user_id, metric, amount, idempotency_key}` | 200: charged. 409 `usage_limit_exceeded` if it does not fit (nothing consumed) |
+| `POST /api/v1/apps/{key}/usage/settle` | `{user_id, metric, amount, idempotency_key}` | 200: the actual `amount` replaces the estimate (once). Above the estimate is accepted even past the limit |
+| `POST /api/v1/apps/{key}/usage/refund` | `{user_id, metric, idempotency_key}` | 200: the whole current charge is credited (once), never below 0 |
+| `GET /api/v1/apps/{key}/usage/users/{user_id}?metric=` | none | 200: `{user_id, metrics: [{metric, display_name, unit, period, period_start, period_end, limit, used, remaining}]}`, active metrics only |
+
+`metric` is the metric key, `user_id` the user's UUID (the token `sub`); no email is ever sent or
+returned. Bodies are at most 2 KiB `application/json` with a `Content-Length`; unknown fields are
+a 422. Amounts are positive integers up to `USAGE_MAX_AMOUNT_PER_CALL` (default 1,000,000).
+
+Flow: consume before the action; for a duration metric consume an estimate first and settle the
+actual amount after; if the action fails, refund. Use one stable `idempotency_key` per user action
+(1-128 printable ASCII characters, no spaces) and reuse it on every retry and for the settle and
+refund of that action. A retried consume with the same user, metric and amount returns the first
+result with `replayed: true`; `limit`, `used` and `remaining` in a result are the current values
+of the period the consume was charged to, not a snapshot. The same key with another user, metric
+or amount is a 409 `idempotency_key_reused`. Settle and refund are accepted for 24 hours after the
+consume (409 `usage_adjust_window_closed` after), and a replay of one that already happened is
+still a 200. A refund after a settle credits the settled amount.
+
+| Status | `error.code` | Meaning |
+|---|---|---|
+| 200 | | done or replayed |
+| 401 | `unauthorized` | missing, malformed, unknown or revoked key; an admin token |
+| 403 | `app_credential_mismatch`, `app_credential_scope`, `app_disabled`, `usage_user_denied` | other app's key, wrong scope, disabled app; the user is unknown, not a member of your app, or disabled |
+| 404 | `usage_metric_not_found`, `usage_event_not_found` | unknown or archived metric; settle or refund of an unknown key |
+| 409 | `usage_limit_exceeded`, `idempotency_key_reused`, `usage_event_state_conflict`, `usage_adjust_window_closed` | over the limit; key reuse; settle after a refund; window closed |
+| 422 | `validation_error` | bad body, zero or negative amount, amount above the maximum |
+| 429 | `rate_limited` | honour `Retry-After` |
+
+Failure policy: fail closed by default. An app may apply a grace (allow the action unmetered) only
+on transport errors, timeouts and 5xx, never on 401, 403, 409, 422 or 429 (ADR-0022 §6; the grace
+setting itself is ADM-046). Latency target: p95 under 100 ms on the server side. Use a client
+timeout of 2 s and retry once with the same `idempotency_key`. Limits: per IP 1200 and per key 600
+calls a minute, and 20 failed authentications a minute per IP, each multiplied by the number of API
+workers (the counters are in process, ADR-0002).
+
 ## Email verification
 
 A new account is unverified; `/token` (and join, USR-03b) answer 403 `email_unverified` until the

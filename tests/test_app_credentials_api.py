@@ -279,7 +279,7 @@ async def test_issue_unknown_scope_422(make_client: MakeClient, db_session: Asyn
     actor = await make_user(db_session)
     app = await _app(db_session)
     async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
-        resp = await client.post(_url(app.key), json={"scope": "usage:read"})
+        resp = await client.post(_url(app.key), json={"scope": "bogus:scope"})
     assert resp.status_code == 422
     assert await _creds(db_session, app.id) == []
 
@@ -377,3 +377,40 @@ async def test_org_members_scope_refused_for_admin_app(
         resp = await client.post(_url("admin"), json={"scope": "org-members:read"})
     assert resp.status_code == 409
     assert resp.json()["error"]["details"][0]["reason"] == "admin_app"
+
+
+async def test_issue_usage_read_and_write(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        for scope in ("usage:read", "usage:write"):
+            resp = await client.post(_url(app.key), json={"scope": scope})
+            assert resp.status_code == 201, resp.text
+            assert resp.json()["scope"] == scope
+            assert resp.json()["credential"].startswith("mmak_")
+
+
+async def test_issue_limits_write_refused_409(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    """`limits:write` is in the CHECK but cannot be issued until ADM-044 (limits routes)."""
+    actor = await make_user(db_session)
+    app = await _app(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        resp = await client.post(_url(app.key), json={"scope": "limits:write"})
+    assert resp.status_code == 409
+    assert resp.json()["error"]["details"][0]["reason"] == "scope_not_available"
+    assert await _creds(db_session, app.id) == []
+
+
+async def test_admin_app_refuses_usage_scopes(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_user(db_session)
+    async with make_client(admin_permissions=SUPER, admin_user=actor) as client:
+        for scope in ("usage:read", "usage:write", "limits:write"):
+            resp = await client.post(_url("admin"), json={"scope": scope})
+            assert resp.status_code == 409, scope
+            assert resp.json()["error"]["details"][0]["reason"] == "admin_app"

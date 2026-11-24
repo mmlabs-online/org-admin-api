@@ -126,6 +126,20 @@ class Settings(BaseSettings):
     app_org_members_key_rate_limit: int = Field(default=60, ge=1)
     app_org_members_key_rate_window_seconds: int = Field(default=60, ge=1)
 
+    # Usage metering (ADM-042, ADR-0022 §5, §7): per IP before auth, per IP for failed auth, per
+    # key after auth (shared by the four usage routes); amount cap, body cap, read deadline and
+    # the window in which a consume may still be settled or refunded.
+    usage_rate_limit: int = Field(default=1200, ge=1)
+    usage_rate_window_seconds: int = Field(default=60, ge=1)
+    usage_auth_failed_rate_limit: int = Field(default=20, ge=1)
+    usage_auth_failed_rate_window_seconds: int = Field(default=60, ge=1)
+    usage_key_rate_limit: int = Field(default=600, ge=1)
+    usage_key_rate_window_seconds: int = Field(default=60, ge=1)
+    usage_max_amount_per_call: int = Field(default=1_000_000, ge=1, le=2**31 - 1)
+    usage_max_bytes: int = Field(default=2048, ge=512)
+    usage_read_timeout_seconds: int = Field(default=5, ge=1)
+    usage_adjust_window_seconds: int = Field(default=86400, ge=60)
+
     # Access-token signing (ADR-0005): base64 of a PEM P-256 private key on one line. Required
     # in staging/production; local/test fall back to an ephemeral per-process key.
     jwt_signing_key: SecretStr | None = None

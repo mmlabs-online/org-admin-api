@@ -988,6 +988,11 @@ APP_CREDENTIAL_AUDITED = {
         "release.updated",
     },
     ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/members"): {"organization.members_read"},
+    # Uses are not audit entries (ADR-0022 §9): only the denied rows of the credential check.
+    ("GET", f"{V1}/apps/{{key}}/usage/users/{{user_id}}"): {"usage.read"},
+    ("POST", f"{V1}/apps/{{key}}/usage/consume"): {"usage.consumed"},
+    ("POST", f"{V1}/apps/{{key}}/usage/settle"): {"usage.settled"},
+    ("POST", f"{V1}/apps/{{key}}/usage/refund"): {"usage.refunded"},
 }
 
 
@@ -1129,3 +1134,22 @@ async def test_user_disable_with_pending_requests_writes_multiple_rows(
     for row in rows:
         assert (row.outcome, row.actor_user_id) == ("success", actor.id)
         assert "@" not in str(row.changes)
+
+
+async def test_usage_routes_write_no_audit_row_on_success(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """ADR-0022 §9: read, consume, settle and refund are not audit entries."""
+    from tests.usage_factories import consume, refund, settle, world
+
+    w = await world(db_session, limit=10)
+    before = await _count(db_session)
+    assert (await consume(client, w, "k", 2)).status_code == 200
+    assert (await settle(client, w, "k", 3)).status_code == 200
+    assert (await refund(client, w, "k")).status_code == 200
+    read = await client.get(
+        f"{V1}/apps/{w.app.key}/usage/users/{w.user.id}",
+        headers={"Authorization": f"Bearer {w.raw}"},
+    )
+    assert read.status_code == 200
+    assert await _count(db_session) == before

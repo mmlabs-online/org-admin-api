@@ -96,13 +96,13 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-035 | Deployer credential: data model and staff issue, list, revoke | MERGED | P2 | db, auth, security | 1 | 2026-11-20 |
 | ADM-036 | Release log: deploy result report (deployer credential) | MERGED | P2 | api, auth, security | 1 | 2026-11-20 |
 | ADM-037 | Release log: guide for app repos and the deployment repo | PLANNING | P3 | api | 0 | 2026-11-19 |
-| ADM-038 | Bug reports carry the release the user was running | DONE | P2 | db, api | 1 | 2026-11-22 |
+| ADM-038 | Bug reports carry the release the user was running | MERGED | P2 | db, api | 1 | 2026-11-22 |
 | USR-29 | App-facing read of an org's members for org-mode apps (requested by simap) | MERGED | P1 | api, auth, security, db | 1 | 2026-11-21 |
 | USR-30 | Org owners remove a member's org roles from the app (requested by simap) | MERGED | P1 | api, auth, security, db | 2 | 2026-11-21 |
 | ADM-039 | Usage metrics, defaults and periods (staff config) | MERGED | P2 | db, api, auth | 0 | 2026-11-20 |
 | ADM-040 | Per-user usage limit overrides (staff) | MERGED | P2 | db, api | 1 | 2026-11-21 |
 | ADM-041 | Usage key scopes (ADR-0022, amends ADR-0021) | MERGED | P2 | architecture, auth, security | 0 | 2026-11-20 |
-| ADM-042 | Usage consume, refund and current-usage read for app backends | PLANNING | P2 | db, api, auth, security | 0 | 2026-11-20 |
+| ADM-042 | Usage consume, refund and current-usage read for app backends | DONE | P2 | db, api, auth, security | 1 | 2026-11-22 |
 | ADM-043 | Staff usage reads | BACKLOG | P3 | api | 0 | 2026-11-20 |
 | ADM-044 | App-admin usage actions through limits:write with on_behalf_of | BACKLOG | P3 | auth, api, security | 0 | 2026-11-20 |
 | ADM-045 | Usage event retention purge | BACKLOG | P3 | db | 0 | 2026-11-20 |
