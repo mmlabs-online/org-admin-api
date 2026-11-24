@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
 | Areas | api, auth, security, db |
@@ -57,3 +57,6 @@ An org-mode app backend (first consumer: simap) can see the org's pending invita
 - Agent calls: 7, tokens ~415k total (database-optimizer×1 27k, api-platform-engineer×1 31k, identity-access-engineer×1 34k, security-architect×1 35k, planner×1 opus 98k, implementer×1 sonnet 73k, reviewer×1 opus 61k, appsec-engineer×1 56k)
 - Done: invitations route on org-members:read, shared guard helper, audit action, ADR-0025 amendment + D38, docs. Review PASS attempt 1 (4066 passed); appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/97 (tier high).
 - Next: Ming merges #97, then USR-32.
+
+### 2026-11-24 — claude — MERGED
+- PR #97 merged by Ming on GitHub (merge commit 079586b).
