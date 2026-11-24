@@ -11,8 +11,8 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-24 |
-| Claimed by | claude@2026-11-24T13:30Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/98 |
 
 ## Goal
 Apps can show the signed-in user's display name straight from the access token, without a server call (simap request; complements the USR-29 member read, which covers people who have not opened the app yet).
@@ -51,3 +51,8 @@ Apps can show the signed-in user's display name straight from the access token, 
 - 2026-11-24: created at Ming's request ("tạo USR-31, USR-32") as the alternative/complement raised by simap with USR-29.
 
 ## Handoff
+
+### 2026-11-24 — claude — DONE (waiting for merge)
+- Agent calls: 6, tokens ~260k total (identity-access-engineer×1 33k, security-architect×1 32k, planner×1 opus 57k, implementer×1 sonnet 53k, reviewer×1 opus 39k, appsec-engineer×1 46k)
+- Done: `name` claim for app tokens with issuance guard, ADR-0005 amendment + D39, spec/docs. Review PASS attempt 1 (4091 passed); appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/98 (tier high).
+- Next: Ming merges #98; USR-33 (display-name write path) makes the claim useful.
