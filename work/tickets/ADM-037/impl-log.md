@@ -17,3 +17,6 @@ None.
 - Manual curl test plan (criterion 4) still to run; `docs/consumers.md` pointer skipped (no natural place).
 ### Scope self-check
 Only docs/** and work/tickets/ADM-037/**.
+
+## Attempt 1 — orchestrator follow-up (review should-fix)
+- docs/release-log.md: both run snippets now set `trap 'rm -f -- "$hdr" "$body"' EXIT` right after `mktemp`, so the temp header file holding the credential is removed even when building the body fails (review.md attempt 1 should-fix, line 141); the trailing explicit `rm` lines were dropped. Both YAML snippets re-parsed OK.

@@ -136,7 +136,7 @@ from the recipe above.
           IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
         run: |
           set -u
-          hdr=$(mktemp); body=$(mktemp)
+          hdr=$(mktemp); body=$(mktemp); trap 'rm -f -- "$hdr" "$body"' EXIT
           printf 'Authorization: Bearer %s\n' "$MMLABS_RELEASE_CREDENTIAL" > "$hdr"
           python3 - "$body" <<'PY' || { echo "::warning::release log: could not build the body"; exit 0; }
           import json, os, sys
@@ -152,7 +152,6 @@ from the recipe above.
             -H @"$hdr" -H "Content-Type: application/json" --data @"$body" \
             "https://api.mmlabs.online/api/v1/apps/<app-key>/releases/production/${VERSION}" \
             || echo "::warning::release log write failed (release is not affected)"
-          rm -f -- "$hdr" "$body"
 ```
 
 For staging use `staging` and `sha-<first 7 of GIT_SHA>` as the version.
@@ -173,7 +172,7 @@ After the deploy step, with `if: always()` so a failed deploy is reported too. `
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
         run: |
           set -u
-          hdr=$(mktemp); body=$(mktemp)
+          hdr=$(mktemp); body=$(mktemp); trap 'rm -f -- "$hdr" "$body"' EXIT
           printf 'Authorization: Bearer %s\n' "$MMLABS_DEPLOYER_CREDENTIAL" > "$hdr"
           if [ "$DEPLOY_STATUS" = deployed ]; then
             printf '{"status":"deployed","deploy_run_url":"%s","deployed_at":"%s"}' \
@@ -185,7 +184,6 @@ After the deploy step, with `if: always()` so a failed deploy is reported too. `
             -H @"$hdr" -H "Content-Type: application/json" --data @"$body" \
             "https://api.mmlabs.online/api/v1/apps/<app-key>/releases/production/${VERSION}/deployment" \
             || echo "::warning::release log deploy report failed (deploy is not affected)"
-          rm -f -- "$hdr" "$body"
 ```
 
 ## Bug reports and the release version
