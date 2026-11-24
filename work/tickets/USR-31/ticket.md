@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Size | S |
 | Areas | api, auth, security, db |
@@ -12,7 +12,7 @@
 | Attempts | 0 |
 | Created | 2026-11-24 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/97 |
 
 ## Goal
 An org-mode app backend (first consumer: simap) can see the org's pending invitations for its own app next to the member list, so Managers can see who is invited but not yet joined and plan seats for them.
@@ -48,6 +48,12 @@ An org-mode app backend (first consumer: simap) can see the org's pending invita
 - API tests per criterion; route-class registry test; no-email log/audit test.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-24, batch 2026-11-24-1) — Ming: "duyệt hết; câu 1–13 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-24: created at Ming's request ("tạo USR-31, USR-32") as the USR-29 follow-up for pending invitations (simap request).
 
 ## Handoff
+
+### 2026-11-24 — claude — DONE (waiting for merge)
+- Agent calls: 7, tokens ~415k total (database-optimizer×1 27k, api-platform-engineer×1 31k, identity-access-engineer×1 34k, security-architect×1 35k, planner×1 opus 98k, implementer×1 sonnet 73k, reviewer×1 opus 61k, appsec-engineer×1 56k)
+- Done: invitations route on org-members:read, shared guard helper, audit action, ADR-0025 amendment + D38, docs. Review PASS attempt 1 (4066 passed); appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/97 (tier high).
+- Next: Ming merges #97, then USR-32.

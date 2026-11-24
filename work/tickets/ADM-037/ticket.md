@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P3 |
 | Size | S |
 | Areas | api |
@@ -44,3 +44,6 @@ App teams and the deployment repo can add the release-log calls the first time, 
 - Agent calls: 3, tokens ~142k total (planner×1 sonnet 42k, implementer×1 sonnet 41k, reviewer×1 opus 59k); fast lane, no consults, no review agents (docs only).
 - Done: docs/release-log.md guide + docs/deploy.md; review PASS attempt 1; the reviewer's should-fix (temp credential file cleanup) applied by the orchestrator as a docs-only commit. PR https://github.com/mmlabs-online/org-admin-api/pull/96 (tier low; no --auto-merge, so Ming merges).
 - Next: Ming merges #96; after merge, one real call per the guide (criterion 4).
+
+### 2026-11-24 — claude — MERGED
+- PR #96 merged by Ming on GitHub (merge commit ca33109).

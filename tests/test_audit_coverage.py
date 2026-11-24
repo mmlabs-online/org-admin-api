@@ -988,6 +988,7 @@ APP_CREDENTIAL_AUDITED = {
         "release.updated",
     },
     ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/members"): {"organization.members_read"},
+    ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/invitations"): {"organization.invitations_read"},
     # Uses are not audit entries (ADR-0022 §9): only the denied rows of the credential check.
     ("GET", f"{V1}/apps/{{key}}/usage/users/{{user_id}}"): {"usage.read"},
     ("POST", f"{V1}/apps/{{key}}/usage/consume"): {"usage.consumed"},
@@ -1062,6 +1063,24 @@ async def test_org_members_read_route_is_audited(
     rows = (await _rows(db_session))[before:]
     route = ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/members")
     assert [r.action for r in rows] == ["organization.members_read"]
+    assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[route]
+
+
+async def test_org_invitations_read_route_is_audited(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, _key(), org_mode="required")
+    org = await _org(db_session)
+    role = await make_role(db_session, app, f"{app.key}:member")
+    await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    _, raw = await make_credential(db_session, app, scope="org-members:read")
+    url = f"{V1}/apps/{app.key}/orgs/{org.id}/invitations"
+    before = await _count(db_session)
+    resp = await client.get(url, headers={"Authorization": f"Bearer {raw}"})
+    assert resp.status_code == 200
+    rows = (await _rows(db_session))[before:]
+    route = ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/invitations")
+    assert [r.action for r in rows] == ["organization.invitations_read"]
     assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[route]
 
 

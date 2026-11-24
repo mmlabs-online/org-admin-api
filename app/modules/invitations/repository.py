@@ -24,6 +24,9 @@ InvitationRow = tuple[
     str,
 ]
 
+# (id, role key, created_at, expires_at) — the app-facing read; never email, hash or inviter.
+AppInvitationRow = tuple[uuid.UUID, str, datetime, datetime]
+
 
 class InvitationRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -170,6 +173,33 @@ class InvitationRepository:
             )
             .where(*filters)
             .order_by(OrgInvitation.created_at.desc(), OrgInvitation.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return [(*r,) for r in result.all()], total or 0
+
+    async def page_pending_for_app(
+        self, org_id: uuid.UUID, app_id: uuid.UUID, *, limit: int, offset: int
+    ) -> tuple[list[AppInvitationRow], int]:
+        """Pending (not accepted, not revoked, not expired on the DB clock) of one app in an org."""
+        filters: list[ColumnElement[bool]] = [
+            OrgInvitation.org_id == org_id,
+            OrgInvitation.app_id == app_id,
+            OrgInvitation.accepted_at.is_(None),
+            OrgInvitation.revoked_at.is_(None),
+            OrgInvitation.expires_at > func.now(),
+        ]
+        total = await self.session.scalar(
+            select(func.count()).select_from(OrgInvitation).where(*filters)
+        )
+        result = await self.session.execute(
+            select(OrgInvitation.id, Role.key, OrgInvitation.created_at, OrgInvitation.expires_at)
+            .join(
+                Role,
+                (Role.id == OrgInvitation.role_id) & (Role.app_id == OrgInvitation.app_id),
+            )
+            .where(*filters)
+            .order_by(OrgInvitation.created_at.asc(), OrgInvitation.id.asc())
             .limit(limit)
             .offset(offset)
         )
