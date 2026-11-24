@@ -47,6 +47,7 @@ Apps can show the signed-in user's display name straight from the access token, 
 - Token issuance tests per criterion; JWT decode in tests asserting the claim.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-24, batch 2026-11-24-1) — Ming: "duyệt hết; câu 1–13 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-24: created at Ming's request ("tạo USR-31, USR-32") as the alternative/complement raised by simap with USR-29.
 
 ## Handoff

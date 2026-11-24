@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 # Plan — USR-32: Display name claim in app access tokens
 

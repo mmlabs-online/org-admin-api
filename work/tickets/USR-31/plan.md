@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > BLOCKED only for owner choices at the plan gate (Areas include auth; `app/modules/app_credentials/deps.py` is a High path). Every question below has a default, and the plan is written on the defaults. If Ming answers "all defaults", change this line to `READY` and leave the rest unchanged. A non-default answer changes only the sections that question names.
 

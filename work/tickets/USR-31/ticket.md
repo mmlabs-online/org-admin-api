@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | S |
 | Areas | api, auth, security, db |
@@ -48,6 +48,7 @@ An org-mode app backend (first consumer: simap) can see the org's pending invita
 - API tests per criterion; route-class registry test; no-email log/audit test.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-24, batch 2026-11-24-1) — Ming: "duyệt hết; câu 1–13 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-24: created at Ming's request ("tạo USR-31, USR-32") as the USR-29 follow-up for pending invitations (simap request).
 
 ## Handoff
