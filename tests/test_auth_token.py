@@ -896,3 +896,145 @@ async def test_token_logs_no_entitlement_values(
     assert "zzplanmarker" not in caplog.text
     assert "zzlimitmarker" not in caplog.text
     assert len([r for r in caplog.records if "token_issued" in r.getMessage()]) == 1
+
+
+_NAME_CLAIMS = {
+    "iss", "aud", "sub", "email", "email_verified", "roles", "iat", "exp", "jti", "name",
+}  # fmt: skip
+
+
+async def _mint_stoktok(client: AsyncClient, raw: str, account_id: uuid.UUID) -> str:
+    resp = await client.post(TOKEN, json=_body(account_id), headers=auth_headers(cookie=raw))
+    assert resp.status_code == 200, resp.text
+    token: str = resp.json()["access_token"]
+    return token
+
+
+async def test_token_name_claim_present(
+    client: AsyncClient, db_session: AsyncSession, viewer: Role
+) -> None:
+    user, raw, account = await _member(db_session, viewer)
+    user.display_name = "Nguyễn Văn A"
+    await db_session.flush()
+    jwks = (await client.get(JWKS)).json()
+    claims = verify_reference(
+        await _mint_stoktok(client, raw, account.id),
+        jwks,
+        audience="stoktok",
+        issuer=TEST_JWT_ISSUER,
+    )
+    assert claims["name"] == "Nguyễn Văn A"
+    assert set(claims) == _NAME_CLAIMS
+
+
+async def test_token_name_claim_absent_when_unset(
+    client: AsyncClient, db_session: AsyncSession, viewer: Role
+) -> None:
+    _, raw, account = await _member(db_session, viewer)
+    token = await _mint_stoktok(client, raw, account.id)
+    assert "name" not in jwt.decode(token, options={"verify_signature": False})
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+async def test_token_name_claim_absent_when_empty_or_blank(
+    client: AsyncClient, db_session: AsyncSession, viewer: Role, value: str
+) -> None:
+    user, raw, account = await _member(db_session, viewer)
+    user.display_name = value
+    await db_session.flush()
+    token = await _mint_stoktok(client, raw, account.id)
+    assert "name" not in jwt.decode(token, options={"verify_signature": False})
+
+
+async def test_token_admin_has_no_name_claim(client: AsyncClient, db_session: AsyncSession) -> None:
+    await _admin_with_origin(db_session)
+    user, raw, account = await _member(db_session, await super_admin_role(db_session))
+    user.display_name = "Staff Person"
+    await db_session.flush()
+    resp = await client.post(
+        TOKEN,
+        json=_body(account.id, audience="admin"),
+        headers=auth_headers(app_key="admin", cookie=raw),
+    )
+    assert resp.status_code == 200, resp.text
+    claims = jwt.decode(resp.json()["access_token"], options={"verify_signature": False})
+    assert set(claims) == {
+        "iss", "aud", "sub", "email", "email_verified", "roles", "iat", "exp", "jti", "sid",
+    }  # fmt: skip
+
+
+async def test_token_name_claim_with_org(client: AsyncClient, db_session: AsyncSession) -> None:
+    _, org, raw, account = await _entitled_org(db_session, plan="pro", limits={})
+    user = await db_session.scalar(select(User).where(User.id == account.user_id))
+    assert user is not None
+    user.display_name = "Org Person"
+    await db_session.flush()
+    resp = await client.post(
+        TOKEN, json=_body(account.id, "calechip", org_id=str(org.id)), headers=_cal_headers(raw)
+    )
+    assert resp.status_code == 200, resp.text
+    jwks = (await client.get(JWKS)).json()
+    claims = verify_reference(
+        resp.json()["access_token"], jwks, audience="calechip", issuer=TEST_JWT_ISSUER
+    )
+    assert claims["name"] == "Org Person"
+    assert set(claims) == {
+        "iss", "aud", "sub", "email", "email_verified", "roles", "org", "org_roles", "ent",
+        "name", "iat", "exp", "jti",
+    }  # fmt: skip
+
+
+@pytest.mark.parametrize("bad", ["Ada" + chr(c) for c in (0x202E, 0x200B, 0x0007)])
+async def test_token_name_out_of_contract_omitted(
+    client: AsyncClient, db_session: AsyncSession, viewer: Role, bad: str
+) -> None:
+    user, raw, account = await _member(db_session, viewer)
+    user.display_name = bad
+    await db_session.flush()
+    token = await _mint_stoktok(client, raw, account.id)
+    assert "name" not in jwt.decode(token, options={"verify_signature": False})
+
+
+async def test_token_name_reflects_update_on_next_mint(
+    client: AsyncClient, db_session: AsyncSession, viewer: Role
+) -> None:
+    user, raw, account = await _member(db_session, viewer)
+    user.display_name = "Old Name"
+    await db_session.flush()
+    first = await _mint_stoktok(client, raw, account.id)
+    user.display_name = "New Name"
+    await db_session.flush()
+    second = await _mint_stoktok(client, raw, account.id)
+    assert jwt.decode(first, options={"verify_signature": False})["name"] == "Old Name"
+    assert jwt.decode(second, options={"verify_signature": False})["name"] == "New Name"
+
+
+async def test_token_logs_no_name(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    viewer: Role,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("app.modules.tokens.service", "app.modules.sessions.service"):
+        monkeypatch.setattr(logging.getLogger(name), "disabled", False)
+    user, raw, account = await _member(db_session, viewer)
+    user.display_name = "zznamemarker"
+    await db_session.flush()
+    with caplog.at_level(logging.DEBUG):
+        token = await _mint_stoktok(client, raw, account.id)
+    assert jwt.decode(token, options={"verify_signature": False})["name"] == "zznamemarker"
+    assert "zznamemarker" not in caplog.text
+    assert len([r for r in caplog.records if "token_issued" in r.getMessage()]) == 1
+
+    # Out-of-contract name: one warning with user_id, never the value.
+    user.display_name = "zznamemarker" + chr(0x202E)
+    await db_session.flush()
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        token = await _mint_stoktok(client, raw, account.id)
+    assert "name" not in jwt.decode(token, options={"verify_signature": False})
+    rejected = [r.getMessage() for r in caplog.records if "name_out_of_contract" in r.getMessage()]
+    assert len(rejected) == 1
+    assert str(user.id) in rejected[0]
+    assert "zznamemarker" not in caplog.text

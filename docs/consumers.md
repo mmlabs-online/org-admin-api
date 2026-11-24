@@ -546,7 +546,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 9. Use `PyJWT[crypto]>=2.10.1` (2.10.0 has CVE-2024-53861, a partial `iss` match; also needed
    for `strict_aud`).
 10. Set a `User-Agent` on the JWKS fetch: Cloudflare may block the urllib default.
-11. Revocation lag: a logout, a disabled user, a removed role or org role, a suspended org, an entitlement disable, revoke, plan or limit change and an
+11. Revocation lag: a logout, a disabled user, a display-name change, a removed role or org role, a suspended org, an entitlement disable, revoke, plan or limit change and an
     expired assignment reach a token only at its `exp` (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).
     Apps that need faster revocation check server-side, as the admin API does, or keep an
     app-local deny list by `sub`. Only `aud=admin` tokens are session-bound, and that check is
@@ -559,11 +559,14 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
     verification, membership and roles.
 14. Do not add your own maximum-age check below the TTL for ordinary requests; tokens up to the TTL
     are valid.
+15. `name` is untrusted user text: render it as text only (never as HTML), never use it for
+    identity or authorization (key users on `sub`), expect it to be absent and up to the token TTL
+    stale, and never log decoded claims.
 
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
 as a string), `org_roles` (only with `org`: the sorted role keys held in that org only), `ent`
-(only with `org`, see Entitlements below), `iat`, `exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
+(only with `org`, see Entitlements below), `name` (optional display name; app tokens only; absent when the user has none; never require it), `iat`, `exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
 
 For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles plus the roles
 held in the `org` org). Authorize org-scoped data and actions **only** from `org_roles`, mapped
