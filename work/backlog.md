@@ -100,7 +100,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-29 | App-facing read of an org's members for org-mode apps (requested by simap) | MERGED | P1 | api, auth, security, db | 1 | 2026-11-21 |
 | USR-30 | Org owners remove a member's org roles from the app (requested by simap) | MERGED | P1 | api, auth, security, db | 2 | 2026-11-21 |
 | USR-31 | Pending org invitations in the app-facing member read (requested by simap) | MERGED | P2 | api, auth, security, db | 1 | 2026-11-24 |
-| USR-32 | Display name claim in app access tokens | DONE | P2 | auth, security | 1 | 2026-11-24 |
+| USR-32 | Display name claim in app access tokens | MERGED | P2 | auth, security | 1 | 2026-11-24 |
 | USR-33 | Let users and staff set a display name | BACKLOG | P2 | api, auth, security, db | 0 | 2026-11-24 |
 | ADM-039 | Usage metrics, defaults and periods (staff config) | MERGED | P2 | db, api, auth | 0 | 2026-11-20 |
 | ADM-040 | Per-user usage limit overrides (staff) | MERGED | P2 | db, api | 1 | 2026-11-21 |

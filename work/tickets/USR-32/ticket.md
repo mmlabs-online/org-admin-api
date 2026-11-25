@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
 | Areas | auth, security |
@@ -56,3 +56,6 @@ Apps can show the signed-in user's display name straight from the access token, 
 - Agent calls: 6, tokens ~260k total (identity-access-engineer×1 33k, security-architect×1 32k, planner×1 opus 57k, implementer×1 sonnet 53k, reviewer×1 opus 39k, appsec-engineer×1 46k)
 - Done: `name` claim for app tokens with issuance guard, ADR-0005 amendment + D39, spec/docs. Review PASS attempt 1 (4091 passed); appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/98 (tier high).
 - Next: Ming merges #98; USR-33 (display-name write path) makes the claim useful.
+
+### 2026-11-25 — claude — MERGED
+- PR #98 merged by Ming on GitHub (merge commit 02e9b44).
