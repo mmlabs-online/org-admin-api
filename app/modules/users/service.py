@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,9 @@ from app.modules.rbac.service import SUPER_ADMIN_ROLE
 from app.modules.sessions.repository import SessionRepository
 from app.modules.users.models import User, UserStatus
 from app.modules.users.repository import UserRepository
+from app.modules.users.schemas import UserUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -38,6 +42,48 @@ class UserService:
         self, *, email: str | None, status: UserStatus | None, limit: int, offset: int
     ) -> tuple[list[User], int]:
         return await self.repo.list(email=email, status=status, limit=limit, offset=offset)
+
+    async def update(
+        self, user_id: uuid.UUID, body: UserUpdate, *, actor: Actor, ctx: AuditContext
+    ) -> User:
+        """Status first (its own lock order), then the name; one transaction."""
+        if body.status is not None:
+            user = await self.set_status(user_id, body.status, actor=actor, ctx=ctx)
+            if "display_name" not in body.model_fields_set:
+                return user
+        return await self.set_display_name(user_id, body.display_name, actor=actor, ctx=ctx)
+
+    async def set_display_name(
+        self, user_id: uuid.UUID, value: str | None, *, actor: Actor, ctx: AuditContext
+    ) -> User:
+        """G5: a privileged target needs `admin:*`. The value is never logged or audited (R11)."""
+        user = await self.repo.get_for_update(user_id)
+        if user is None:
+            raise NotFoundError("User not found")
+        if user.display_name == value:
+            return user  # no write: updated_at stays unchanged
+        try:
+            if await RbacRepository(self.repo.session).user_has_privileged_assignment(user.id):
+                require_super(actor)
+        except DENIED_ERRORS as exc:
+            await self.audit.record_denied(
+                AuditAction.USER_DISPLAY_NAME_CHANGED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.USER, user_id),
+            )
+            raise
+        await self.repo.set_display_name(user, value)
+        await self.audit.record(
+            AuditAction.USER_DISPLAY_NAME_CHANGED,
+            actor=actor,
+            ctx=ctx,
+            target=(AuditTarget.USER, user.id),
+            changes={"display_name": {"set": value is not None}},
+        )
+        logger.info("display_name_changed user_id=%s cleared=%s via=staff", user.id, value is None)
+        return user
 
     async def set_status(
         self, user_id: uuid.UUID, status: UserStatus, *, actor: Actor, ctx: AuditContext

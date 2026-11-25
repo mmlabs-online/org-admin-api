@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -12,7 +12,7 @@
 | Attempts | 0 |
 | Created | 2026-11-24 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/99 |
 
 ## Goal
 Give `users.display_name` a real write path so the USR-32 `name` claim and the USR-29 member read's `display_name` carry a value; today nothing can set it and every name is NULL in production.
@@ -44,6 +44,12 @@ Give `users.display_name` a real write path so the USR-32 `name` claim and the U
 - API tests per criterion; token claim test after a change.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-25, batch 2026-11-25-1) — Ming: "duyệt hết; câu 1–23 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-24: created from batch 2026-11-24-1 Q8 (default a), approved by Ming ("duyệt hết; câu 1–13 theo mặc định").
 
 ## Handoff
+
+### 2026-11-25 — claude — DONE (waiting for merge)
+- Agent calls: 8, tokens ~523k total (database-optimizer×1 23k, api-platform-engineer×1 30k, identity-access-engineer×1 37k, security-architect×1 30k, planner×1 opus 138k, implementer×1 sonnet 130k, reviewer×1 opus 68k, appsec-engineer×1 67k)
+- Done: self-service + staff display-name write paths, shared validation, CHECK migration d4a8e2c6f175, D40, docs. Review PASS attempt 1 (4161 passed); appsec PASS with 1 🟡 (invisible-combining-mark-only names). PR https://github.com/mmlabs-online/org-admin-api/pull/99 (tier high).
+- Next: Ming decides the 🟡 and merges #99; then ADM-043.

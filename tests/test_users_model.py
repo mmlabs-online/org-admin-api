@@ -36,3 +36,12 @@ def test_repr_has_no_password_hash() -> None:
     user = User(id=uuid.uuid4(), email="a@x.io", password_hash="$argon2id$secret-hash")
     assert "argon2" not in repr(user)
     assert "secret-hash" not in repr(user)
+
+
+async def test_display_name_check_rejects_empty(db_session: AsyncSession) -> None:
+    db_session.add(User(email="a@x.io", password_hash="h", display_name="a"))
+    db_session.add(User(email="b@x.io", password_hash="h", display_name=None))
+    await db_session.flush()
+    db_session.add(User(email="c@x.io", password_hash="h", display_name=""))
+    with pytest.raises(IntegrityError, match="ck_users_display_name_length"):
+        await db_session.flush()

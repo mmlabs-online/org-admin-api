@@ -82,6 +82,7 @@ Scope = Literal[
     "invitation_create",
     "invitation_accept",
     "org_member_remove",
+    "profile",
     "jwks",
     "app_manifest",
     "app_release",
@@ -120,6 +121,7 @@ _LIMITS: dict[str, Callable[[Settings], RateLimit]] = {
     "org_member_remove": lambda s: RateLimit(
         s.org_member_remove_rate_limit, s.org_member_remove_rate_window_seconds
     ),
+    "profile": lambda s: RateLimit(s.profile_rate_limit, s.profile_rate_window_seconds),
     "jwks": lambda s: RateLimit(s.jwks_rate_limit, s.jwks_rate_window_seconds),
     "app_manifest": lambda s: RateLimit(
         s.app_manifest_rate_limit, s.app_manifest_rate_window_seconds

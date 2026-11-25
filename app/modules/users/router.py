@@ -1,8 +1,8 @@
 """Admin (Bearer) endpoints — R3 class 1.
 
-Bearer `aud=admin` + `require_permission` (ADR-0008). Status changes of privileged users also
-need `admin:*` (ADM-002b guards in `UserService.set_status`). USR-10: staff session list and
-revoke, all `admin:*`.
+Bearer `aud=admin` + `require_permission` (ADR-0008). Status or display-name changes of
+privileged users also need `admin:*` (ADM-002b guards in `UserService`). USR-10: staff session
+list and revoke, all `admin:*`.
 """
 
 import uuid
@@ -17,7 +17,7 @@ from app.modules.audit.deps import AuditContextDep
 from app.modules.sessions.schemas import UserSessionRead
 from app.modules.sessions.staff_service import StaffSessionService
 from app.modules.users.models import UserStatus
-from app.modules.users.schemas import UserRead, UserStatusUpdate
+from app.modules.users.schemas import UserRead, UserUpdate
 from app.modules.users.service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(current_admin)])
@@ -60,14 +60,15 @@ async def get_user(session: SessionDep, user_id: uuid.UUID) -> UserRead:
         super_when="Target user holds a privileged role assignment",
     ),
 )
-async def update_user_status(
+async def update_user(
     session: SessionDep,
     principal: AdminDep,
     ctx: AuditContextDep,
     user_id: uuid.UUID,
-    body: UserStatusUpdate,
+    body: UserUpdate,
 ) -> UserRead:
-    user = await UserService(session).set_status(user_id, body.status, actor=principal, ctx=ctx)
+    """Set status and/or display name (`display_name: null` clears it)."""
+    user = await UserService(session).update(user_id, body, actor=principal, ctx=ctx)
     return UserRead.model_validate(user)
 
 
