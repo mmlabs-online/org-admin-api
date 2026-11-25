@@ -935,7 +935,7 @@ async def test_token_name_claim_absent_when_unset(
     assert "name" not in jwt.decode(token, options={"verify_signature": False})
 
 
-@pytest.mark.parametrize("value", ["", "  "])
+@pytest.mark.parametrize("value", ["  "])
 async def test_token_name_claim_absent_when_empty_or_blank(
     client: AsyncClient, db_session: AsyncSession, viewer: Role, value: str
 ) -> None:

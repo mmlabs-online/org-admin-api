@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     org_member_remove_user_rate_limit: int = Field(default=10, ge=1)
     org_member_remove_user_rate_window_seconds: int = Field(default=600, ge=1)
 
+    # Display name write (USR-33, D40): per IP, and per signed-in user after the session check.
+    profile_rate_limit: int = Field(default=20, ge=1)
+    profile_rate_window_seconds: int = Field(default=60, ge=1)
+    profile_user_rate_limit: int = Field(default=10, ge=1)
+    profile_user_rate_window_seconds: int = Field(default=3600, ge=1)
+
     # Org members read (USR-29, ADR-0025): per IP before auth, per credential after auth.
     app_org_members_rate_limit: int = Field(default=120, ge=1)
     app_org_members_rate_window_seconds: int = Field(default=60, ge=1)

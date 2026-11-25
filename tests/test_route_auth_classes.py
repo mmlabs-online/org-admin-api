@@ -55,6 +55,7 @@ COOKIE = {
     ("POST", f"{V1}/auth/orgs"),
     ("GET", f"{V1}/auth/orgs"),
     ("POST", f"{V1}/auth/bug-reports"),
+    ("POST", f"{V1}/auth/profile"),
     ("POST", f"{V1}/auth/bug-reports/{{report_id}}/attachments"),
     ("POST", f"{V1}/auth/orgs/{{org_id}}/invitations"),
     ("POST", f"{V1}/auth/invitations/accept"),

@@ -5,7 +5,7 @@ import unicodedata
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app.core.text import mask_email
+from app.core.text import DisplayName, UserDisplayName, mask_email
 from app.modules.rbac.schemas import AppName, Description
 
 APP_NAME = TypeAdapter(AppName)
@@ -87,3 +87,52 @@ def test_none_passes_through() -> None:
 )
 def test_mask_email(email: str, masked: str) -> None:
     assert mask_email(email) == masked
+
+
+USER_NAME = TypeAdapter(UserDisplayName)
+
+
+@pytest.mark.parametrize(
+    "value", ["Ming", "Nguyễn Thị Ánh", "Nguye\u0302\u0303n", "a" * 100, "x\u0300\u0301"]
+)
+def test_user_display_name_accepts(value: str) -> None:
+    assert USER_NAME.validate_python(value) == unicodedata.normalize("NFC", value)
+
+
+def test_user_display_name_normalises() -> None:
+    assert USER_NAME.validate_python("  Ming  \u3000 Le ") == "Ming Le"
+    assert USER_NAME.validate_python("Nguye\u0302\u0303n") == "Nguy\u1ec5n"
+    assert USER_NAME.validate_python("a" * 98 + "   " + "b") == "a" * 98 + " b"
+    with pytest.raises(ValidationError):
+        USER_NAME.validate_python("a" * 99 + " b")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "   ",
+        "a" * 101,
+        "Ada\u202e",
+        "Ada\u200b",
+        "Ada\u0007",
+        "Ada\tB",
+        "\u3164",
+        "a\u3164b",
+        "\u115f",
+        "\u1160",
+        "\uffa0",
+        "\u2800",
+        "x\u0300\u0301\u0302",
+    ],
+)
+def test_user_display_name_rejects(value: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        USER_NAME.validate_python(value)
+    assert exc.value.errors()[0]["type"] == "display_text"
+    assert "Ada" not in exc.value.errors()[0]["msg"]
+
+
+def test_display_name_usage_unchanged() -> None:
+    assert TypeAdapter(DisplayName).validate_python("x\u0300\u0301\u0302") == "x\u0300\u0301\u0302"
+    assert TypeAdapter(DisplayName).validate_python("a\u00a0b") == "a\u00a0b"

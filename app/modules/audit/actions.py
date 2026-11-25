@@ -47,6 +47,7 @@ class AuditAction(StrEnum):
     USER_CREATED = "user.created"
     USER_DISABLED = "user.disabled"
     USER_ENABLED = "user.enabled"
+    USER_DISPLAY_NAME_CHANGED = "user.display_name_changed"
     USER_SESSION_REVOKED = "user.session_revoked"
     USER_SESSIONS_REVOKED = "user.sessions_revoked"
     APP_CREATED = "app.created"

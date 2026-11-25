@@ -497,7 +497,12 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _inv_revoke_unknown,
         404,
     ),
-    ("PATCH", USER): ({"user.disabled", "user.enabled"}, _user_status, _user_unknown, 404),
+    ("PATCH", USER): (
+        {"user.disabled", "user.enabled", "user.display_name_changed"},
+        _user_status,
+        _user_unknown,
+        404,
+    ),
     ("DELETE", f"{USER}/sessions/{{session_id}}"): (
         {"user.session_revoked"},
         _session_revoke,
@@ -892,6 +897,18 @@ async def _id_report(s: AsyncSession) -> IdCall:
     return f"{AUTH}/bug-reports", body, auth_headers(cookie=raw)
 
 
+async def _id_profile(s: AsyncSession) -> IdCall:
+    app = await make_login_app(s)
+    await make_member_role(s, app)
+    user = await make_login_user(s)
+    raw, _, (account,) = await make_device(s, user)
+    return (
+        f"{AUTH}/profile",
+        {"account_id": str(account.id), "display_name": "Ming"},
+        auth_headers(cookie=raw),
+    )
+
+
 async def _id_token(s: AsyncSession, purpose: str) -> tuple[uuid.UUID, str]:
     user = await make_login_user(s, verified=False)
     raw = uuid.uuid4().hex + uuid.uuid4().hex
@@ -926,6 +943,7 @@ IDENTITY_AUDITED: dict[tuple[str, str], tuple[str, IdScenario, int]] = {
     ("POST", f"{AUTH}/logout"): ("auth.logged_out", _id_logout, 204),
     ("POST", f"{AUTH}/apps/{{key}}/join"): ("app.joined", _id_join, 200),
     ("POST", f"{AUTH}/bug-reports"): ("bug_report.created", _id_report, 201),
+    ("POST", f"{AUTH}/profile"): ("user.display_name_changed", _id_profile, 200),
     ("POST", f"{AUTH}/orgs/{{org_id}}/members/{{user_id}}/remove"): (
         "organization.member_removed",
         _id_member_remove,

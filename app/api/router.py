@@ -16,6 +16,7 @@ from app.modules.releases.router import router as releases_router
 from app.modules.stats.router import router as stats_router
 from app.modules.usage.app_router import router as usage_app_router
 from app.modules.usage.router import router as usage_metrics_router
+from app.modules.users.auth_router import router as users_auth_router
 
 api_router = APIRouter()
 api_router.include_router(organizations_router)
@@ -25,6 +26,7 @@ api_router.include_router(deployer_credentials_router)
 api_router.include_router(auth_router)
 api_router.include_router(org_auth_router)
 api_router.include_router(bug_report_auth_router)
+api_router.include_router(users_auth_router)
 api_router.include_router(bug_report_router)
 api_router.include_router(invitations_router)
 api_router.include_router(releases_router)

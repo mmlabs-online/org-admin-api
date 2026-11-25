@@ -478,6 +478,28 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/accounts", {
 - Same errors as `/token` for the cookie and app context (401 `session_invalid`, 403
   `app_header_required` / `origin_not_allowed`, 429 `rate_limited`).
 
+### Setting the display name
+
+```js
+const resp = await fetch("https://api.mmlabs.online/api/v1/auth/profile", {
+  method: "POST",
+  credentials: "include",
+  headers: { "X-MM-App": "ricotdin", "Content-Type": "application/json" },
+  body: JSON.stringify({ account_id, display_name: "Nguyễn Ánh" }), // null clears
+});
+// 200 {"account_id", "email", "email_verified", "display_name"}
+```
+
+- The account sets or clears (`null`) its own name. The email must be verified.
+- The name is trimmed, NFC-normalised, runs of spaces collapse to one; 1-100 characters; no
+  control, bidi, zero-width or blank-looking characters; at most 2 combining marks in a row.
+  `""` is a 422 (`validation_error`; the value is never echoed).
+- Errors: 401 `session_invalid`, 403 `app_header_required` / `origin_not_allowed` /
+  `email_unverified`, 422, 429 `rate_limited`.
+- The name is untrusted text: render it as text and key users on `sub`, never on the name.
+- Tokens pick the new name up on the next issue (at most one token TTL); `GET /auth/accounts`
+  and the USR-29 member read show it at once.
+
 ### Joining ("Continue as <account>")
 
 `join_approval_unavailable` is gone from the HTTP API (it was provisional until USR-03g).

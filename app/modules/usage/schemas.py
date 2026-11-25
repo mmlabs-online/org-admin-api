@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -12,9 +11,8 @@ from pydantic import (
     Field,
     model_validator,
 )
-from pydantic_core import PydanticCustomError
 
-from app.core.text import nfc_if_str, reject_disallowed_categories
+from app.core.text import DisplayName, nfc_if_str, reject_disallowed_categories, trimmed
 from app.modules.usage.models import (
     MAX_LIMIT,
     METRIC_KEY_RE,
@@ -23,32 +21,13 @@ from app.modules.usage.models import (
     UsagePeriod,
 )
 
-
-def _trimmed(max_length: int) -> Callable[[str], str]:
-    """Strip, then 1..max_length (pydantic checks `min_length` before it strips)."""
-
-    def check(value: str) -> str:
-        value = value.strip()
-        if not 1 <= len(value) <= max_length:
-            raise PydanticCustomError("display_text", f"must be 1-{max_length} characters")
-        return value
-
-    return check
-
-
 # Trimmed, not blank, NFC, no control/bidi characters. Reused by ADM-040/044.
 Reason = Annotated[
     str,
     BeforeValidator(nfc_if_str),
-    AfterValidator(_trimmed(500)),
+    AfterValidator(trimmed(500)),
     AfterValidator(reject_disallowed_categories),
     Field(description="Why the change is made (1-500 chars); stored in the audit entry only."),
-]
-DisplayName = Annotated[
-    str,
-    BeforeValidator(nfc_if_str),
-    AfterValidator(_trimmed(100)),
-    AfterValidator(reject_disallowed_categories),
 ]
 Limit = Annotated[int, Field(strict=True, ge=0, le=MAX_LIMIT)]
 

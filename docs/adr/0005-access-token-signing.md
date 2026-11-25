@@ -133,4 +133,4 @@ libraries and apps (`mmlabs-auth`, admin-pan, ricotdin, TuDoCuaTui) before produ
   live token keeps the name until `exp`.
 - **Untrusted text:** the name is user-chosen. Apps render it as text only, never use it for
   identity or authorization (key users on `sub`), and cannot rely on it being free of confusables.
-- **Scope:** no write path exists yet; every name is NULL until one ships (USR-33).
+- **Scope:** the write path shipped with USR-33 (D40): the account sets its own name (`POST /api/v1/auth/profile`), staff set it (`PATCH /api/v1/users/{id}`). A change reaches tokens on the next issue (at most one TTL); the USR-29 member read shows it at once.
