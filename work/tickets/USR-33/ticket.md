@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -53,3 +53,6 @@ Give `users.display_name` a real write path so the USR-32 `name` claim and the U
 - Agent calls: 8, tokens ~523k total (database-optimizer×1 23k, api-platform-engineer×1 30k, identity-access-engineer×1 37k, security-architect×1 30k, planner×1 opus 138k, implementer×1 sonnet 130k, reviewer×1 opus 68k, appsec-engineer×1 67k)
 - Done: self-service + staff display-name write paths, shared validation, CHECK migration d4a8e2c6f175, D40, docs. Review PASS attempt 1 (4161 passed); appsec PASS with 1 🟡 (invisible-combining-mark-only names). PR https://github.com/mmlabs-online/org-admin-api/pull/99 (tier high).
 - Next: Ming decides the 🟡 and merges #99; then ADM-043.
+
+### 2026-11-25 — claude — MERGED
+- PR #99 merged by the agent at Ming's explicit request ("merge cho tôi #99"), merge commit 52f88ab. Owner exception to the "High is never agent-merged" rule, logged. Ming chose merge over fixing the appsec 🟡 first: the invisible-combining-mark-only name rule stays a follow-up. CI `check` failed only on the known kit lint (`risk_tier.py`, 13 errors, stops before tests); full suite run locally by the reviewer (4161 passed).
