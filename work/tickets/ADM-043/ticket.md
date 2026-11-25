@@ -27,5 +27,6 @@ Staff see a user's current usage per app and metric, and the kept history.
 - [ ] Reads tested with overrides and expired overrides; 401/403/404.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-25, batch 2026-11-25-1) — Ming: "duyệt hết; câu 1–23 theo mặc định" (all batch questions answered with the defaults).
 
 ## Handoff

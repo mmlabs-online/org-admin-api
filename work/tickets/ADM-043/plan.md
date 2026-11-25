@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > Blocked only on the owner choices in `## Blocking questions` (each has a default). If Ming accepts
 > the defaults at the plan gate, this plan is READY as written; no other change is needed.

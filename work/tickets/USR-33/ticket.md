@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | M |
 | Areas | api, auth, security, db |
@@ -44,6 +44,7 @@ Give `users.display_name` a real write path so the USR-32 `name` claim and the U
 - API tests per criterion; token claim test after a change.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-25, batch 2026-11-25-1) — Ming: "duyệt hết; câu 1–23 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-24: created from batch 2026-11-24-1 Q8 (default a), approved by Ming ("duyệt hết; câu 1–13 theo mặc định").
 
 ## Handoff
