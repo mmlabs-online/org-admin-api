@@ -101,14 +101,14 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-30 | Org owners remove a member's org roles from the app (requested by simap) | MERGED | P1 | api, auth, security, db | 2 | 2026-11-21 |
 | USR-31 | Pending org invitations in the app-facing member read (requested by simap) | MERGED | P2 | api, auth, security, db | 1 | 2026-11-24 |
 | USR-32 | Display name claim in app access tokens | MERGED | P2 | auth, security | 1 | 2026-11-24 |
-| USR-33 | Let users and staff set a display name | BACKLOG | P2 | api, auth, security, db | 0 | 2026-11-24 |
+| USR-33 | Let users and staff set a display name | PLANNING | P2 | api, auth, security, db | 0 | 2026-11-24 |
 | ADM-039 | Usage metrics, defaults and periods (staff config) | MERGED | P2 | db, api, auth | 0 | 2026-11-20 |
 | ADM-040 | Per-user usage limit overrides (staff) | MERGED | P2 | db, api | 1 | 2026-11-21 |
 | ADM-041 | Usage key scopes (ADR-0022, amends ADR-0021) | MERGED | P2 | architecture, auth, security | 0 | 2026-11-20 |
 | ADM-042 | Usage consume, refund and current-usage read for app backends | MERGED | P2 | db, api, auth, security | 1 | 2026-11-22 |
-| ADM-043 | Staff usage reads | BACKLOG | P3 | api | 0 | 2026-11-20 |
+| ADM-043 | Staff usage reads | PLANNING | P3 | api | 0 | 2026-11-20 |
 | ADM-044 | App-admin usage actions through limits:write with on_behalf_of | BACKLOG | P3 | auth, api, security | 0 | 2026-11-20 |
-| ADM-045 | Usage event retention purge | BACKLOG | P3 | db | 0 | 2026-11-20 |
+| ADM-045 | Usage event retention purge | PLANNING | P3 | db | 0 | 2026-11-20 |
 | ADM-046 | Usage fail-open grace and late reconciliation | BACKLOG | P3 | api, db | 0 | 2026-11-20 |
 
 Order of work (dependencies; reprioritised 2026-11-12 by the owner for the ricotdin integration path): USR-01 → USR-01b → USR-02 → USR-02b → USR-02d → USR-02e → ADM-011 → USR-02c → USR-02f → USR-03 → USR-03f → USR-03c → USR-03e → USR-04 → USR-04c → USR-07 → USR-04b → USR-03b → ADM-002 → ADM-002c → ADM-002b → ADM-004 → ADM-004b → ADM-004c → ADM-002e → ADM-012 → USR-08 → ADM-013 → ADM-014 → USR-11 → USR-12 → USR-06 → USR-06b → USR-06c → USR-05 → USR-05b. admin-pan requests (2026-11-17): USR-16 → USR-17 → ADM-020 → USR-18 → ADM-021 → ADM-023 → ADM-025 → ADM-022 → ADM-024 → USR-19 → USR-20 → USR-21 → USR-22. admin-pan requests (2026-11-19): USR-23 → USR-24 → USR-25 → USR-26 → USR-27 → USR-28 → ADM-026.
