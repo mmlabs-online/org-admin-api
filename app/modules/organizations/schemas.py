@@ -60,12 +60,21 @@ class AuthOrgRead(BaseModel):
     roles: list[str]  # the caller's role keys in this org
 
 
+OrgAccess = Literal["member", "super_admin"]
+
+
 class MyOrgRead(BaseModel):
     id: uuid.UUID
     slug: str
     name: str
     status: OrganizationStatus
     roles: list[str]  # the caller's role keys in this org
+    access: OrgAccess = Field(
+        description=(
+            "member: the caller holds roles in the org; super_admin: listed through the app's "
+            "super-admin role (ADR-0030), roles is empty; tolerate unknown values"
+        )
+    )
 
 
 class AppOrgMemberRead(BaseModel):
