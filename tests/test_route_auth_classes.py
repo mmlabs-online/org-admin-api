@@ -174,6 +174,9 @@ BEARER = {
         "DELETE",
         f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}",
     ): "admin:usage:write",
+    ("GET", f"{V1}/apps/{{key}}/user-usage/{{user_id}}"): "admin:usage:read",
+    ("GET", f"{V1}/apps/{{key}}/user-usage/{{user_id}}/periods"): "admin:usage:read",
+    ("GET", f"{V1}/apps/{{key}}/user-usage/{{user_id}}/events"): "admin:usage:read",
 }
 # Bearer, self-scoped, no permission (ADR-0008 USR-11 amendment). GET only, no path/query/body
 # input, caller's own data only. Adding an entry needs an ADR-0008 amendment (owner approval).
