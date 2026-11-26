@@ -12,7 +12,7 @@
 | Attempts | 1 |
 | Created | 2026-11-26 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/105 |
 
 ## Goal
 In the app's org picker (AUT-06 flow), a staff holder of the app's super-admin role sees every org of the app, each marked "member" or "super-admin access".
@@ -55,4 +55,4 @@ In the app's org picker (AUT-06 flow), a staff holder of the app's super-admin r
 - Agent calls: 6, tokens ~347k total (api-platform-engineer 31k, identity-access-engineer 43k, planner opus 88k, implementer sonnet 73k, reviewer opus 67k, appsec-engineer 46k).
 - Done: `access: "member" | "super_admin"` on `GET /api/v1/auth/orgs`; holders see member orgs plus every active org of the app (`org_of_app_clause`, `roles: []`); one paged query + count with the same WHERE; live re-check via `AuthzService.app_super_admin_access`; one log line, no audit; docs/consumers.md, ADR-0030 §8, spec OQ84. No High path touched. Review PASS (4393 passed; ruff/mypy/alembic clean; tier medium); appsec PASS.
 - Follow-ups: EXPLAIN / index review of the holder query beyond ~10k orgs; suspended member orgs listed but not mintable (pre-existing, documented); regression test for a device with a holder and a non-holder account; optional router docstring line.
-
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/105 (tier medium, merge approved by Ming).
