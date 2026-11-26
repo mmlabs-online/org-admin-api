@@ -17,24 +17,55 @@ from app.modules.audit.deps import AuditContextDep
 from app.modules.sessions.schemas import UserSessionRead
 from app.modules.sessions.staff_service import StaffSessionService
 from app.modules.users.models import UserStatus
-from app.modules.users.schemas import UserRead, UserUpdate
+from app.modules.users.schemas import UserInclude, UserRead, UserUpdate, UserWithAccessRead
 from app.modules.users.service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(current_admin)])
 
 
-@router.get("", response_model=Page[UserRead], **require_permission("admin:users:read"))
+@router.get(
+    "",
+    response_model=Page[UserWithAccessRead] | Page[UserRead],
+    **require_permission("admin:users:read"),
+)
 async def list_users(
     session: SessionDep,
     page: PageDep,
     email: Annotated[str | None, Query(min_length=1, max_length=254)] = None,
     status: Annotated[UserStatus | None, Query()] = None,
-) -> Page[UserRead]:
-    items, total = await UserService(session).list(
+    include: Annotated[
+        list[UserInclude] | None,
+        Query(
+            description=(
+                "Opt-in extras; only `access` today. `access` adds each user's active role "
+                "assignments grouped by app (at most 20 per user, ordered by app key, role key, "
+                "app scope before org scope; `access_truncated` when there are more; the full "
+                "list is `GET /users/{id}/role-assignments`). Not narrowed by other filters."
+            )
+        ),
+    ] = None,
+) -> Page[UserWithAccessRead] | Page[UserRead]:
+    service = UserService(session)
+    items, total = await service.list(
         email=email, status=status, limit=page.limit, offset=page.offset
     )
+    if include is None or UserInclude.ACCESS not in include:
+        return Page(
+            items=[UserRead.model_validate(u) for u in items],
+            total=total,
+            limit=page.limit,
+            offset=page.offset,
+        )
+    summaries = await service.access_summaries([u.id for u in items])
     return Page(
-        items=[UserRead.model_validate(u) for u in items],
+        items=[
+            UserWithAccessRead(
+                **UserRead.model_validate(u).model_dump(),
+                access=summaries[u.id][0],
+                access_truncated=summaries[u.id][1],
+            )
+            for u in items
+        ],
         total=total,
         limit=page.limit,
         offset=page.offset,

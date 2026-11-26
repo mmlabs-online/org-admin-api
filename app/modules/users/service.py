@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,15 +17,17 @@ from app.modules.audit.service import AuditLogger
 from app.modules.auth.repository import EmailTokenRepository
 from app.modules.join_requests.repository import JoinRequestRepository
 from app.modules.rbac.actor import Actor, actor_user_id, require_super
-from app.modules.rbac.models import ADMIN_APP_KEY
+from app.modules.rbac.models import ADMIN_APP_KEY, AppStatus
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import SUPER_ADMIN_ROLE
 from app.modules.sessions.repository import SessionRepository
 from app.modules.users.models import User, UserStatus
-from app.modules.users.repository import UserRepository
-from app.modules.users.schemas import UserUpdate
+from app.modules.users.repository import AccessRow, UserRepository
+from app.modules.users.schemas import AccessRole, AppAccess, UserUpdate
 
 logger = logging.getLogger(__name__)
+
+ACCESS_CAP = 20
 
 
 class UserService:
@@ -37,6 +40,36 @@ class UserService:
         if user is None:
             raise NotFoundError("User not found")
         return user
+
+    async def access_summaries(
+        self, user_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[list[AppAccess], bool]]:
+        """Active access per user: first `ACCESS_CAP` rows grouped by app, plus `truncated`.
+
+        Every requested id gets an entry (`([], False)` when the user has none). Read-only.
+        """
+        per_user: dict[uuid.UUID, list[AccessRow]] = {uid: [] for uid in user_ids}
+        for row in await self.repo.list_access(user_ids, per_user=ACCESS_CAP + 1):
+            per_user[row.user_id].append(row)
+        result: dict[uuid.UUID, tuple[list[AppAccess], bool]] = {}
+        for uid, rows in per_user.items():
+            groups: list[AppAccess] = []
+            for row in rows[:ACCESS_CAP]:
+                if not groups or groups[-1].app != row.app_key:
+                    groups.append(
+                        AppAccess(app=row.app_key, app_status=AppStatus(row.app_status), roles=[])
+                    )
+                groups[-1].roles.append(
+                    AccessRole(
+                        assignment_id=row.assignment_id,
+                        role_id=row.role_id,
+                        role_key=row.role_key,
+                        org_id=row.org_id,
+                        expires_at=row.expires_at,
+                    )
+                )
+            result[uid] = (groups, len(rows) > ACCESS_CAP)
+        return result
 
     async def list(
         self, *, email: str | None, status: UserStatus | None, limit: int, offset: int

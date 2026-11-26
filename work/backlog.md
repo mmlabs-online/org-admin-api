@@ -70,9 +70,9 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-18 | Filters and sort for the staff apps list | MERGED | P1 | api | 0 | 2026-11-18 |
 | ADM-021 | Audit log: org filter and single-entry read | MERGED | P2 | api, db | 1 | 2026-11-18 |
 | ADM-023 | Declare 404/409 responses and admin:* requirements in OpenAPI | MERGED | P2 | api | 0 | 2026-11-18 |
-| USR-34 | Users list: opt-in active-access summary (`include=access`) | BACKLOG | P2 | api, db | 0 | 2026-11-26 |
-| USR-35 | Users list filters `app` and `role_id` | BACKLOG | P2 | api, db | 0 | 2026-11-26 |
-| USR-37 | Single role-assignment POST: correct OpenAPI errors, stable 409 reasons | BACKLOG | P2 | api | 0 | 2026-11-26 |
+| USR-34 | Users list: opt-in active-access summary (`include=access`) | DONE | P2 | api, db | 1 | 2026-11-26 |
+| USR-35 | Users list filters `app` and `role_id` | PLANNING | P2 | api, db | 0 | 2026-11-26 |
+| USR-37 | Single role-assignment POST: correct OpenAPI errors, stable 409 reasons | PLANNING | P2 | api | 0 | 2026-11-26 |
 | ADM-025 | Grant admin:entitlements:* to a staff role (needs owner) | BACKLOG | P2 | db, auth, security | 0 | 2026-11-17 |
 | ADM-022 | Server-side CSV export of the audit log | MERGED | P3 | api, security | 0 | 2026-11-18 |
 | ADM-024 | Optimistic concurrency (ETag / If-Match) on PATCH for organizations and entitlements | MERGED | P3 | api, architecture | 0 | 2026-11-19 |
@@ -83,10 +83,10 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-23 | Staff read of an organization's members and invitations | MERGED | P1 | api, auth, security, db | 1 | 2026-11-19 |
 | USR-24 | Optimistic concurrency on PUT role permissions | MERGED | P2 | api, db | 0 | 2026-11-19 |
 | USR-25 | Scope of `self_assignment_forbidden` beyond the admin app | BACKLOG | P2 | auth, security | 0 | 2026-11-19 |
-| USR-36 | Bulk-assign one role to up to 100 users (`assignment-batches`) | BACKLOG | P2 | architecture, api, auth, security, db | 0 | 2026-11-26 |
+| USR-36 | Bulk-assign one role to up to 100 users (`assignment-batches`) | PLANNING | P2 | architecture, api, auth, security, db | 0 | 2026-11-26 |
 | USR-38 | Designated per-app super-admin role for org apps (simap SIM-043) | MERGED | P2 | architecture, db, api, auth, security | 1 | 2026-11-26 |
 | USR-39 | Org token for a non-member org via the app's super-admin role (simap SIM-043) | MERGED | P2 | auth, security, api | 1 | 2026-11-26 |
-| USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | DONE | P2 | api, auth | 1 | 2026-11-26 |
+| USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | MERGED | P2 | api, auth | 1 | 2026-11-26 |
 | USR-26 | Role definitions: assignment count, org-owner flag, stable reasons on 409 conflicts | BACKLOG | P3 | api, db | 0 | 2026-11-19 |
 | USR-27 | Role assignments: return role and org names | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | USR-28 | Exact email lookup for staff user search | BACKLOG | P3 | api, security | 0 | 2026-11-19 |
