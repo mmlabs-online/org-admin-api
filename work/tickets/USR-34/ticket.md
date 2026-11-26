@@ -59,3 +59,5 @@ Staff see each user's current access (active roles per app, with scope) directly
 - Done: `include=access` on `GET /api/v1/users` (repeatable `include`, separate `UserWithAccessRead`, one windowed access query per page, cap 20 + `access_truncated`, `COLLATE "C"` order), shared `users.repository.active_assignment_clause()` for USR-35; no High path. Review PASS (4416 passed; ruff/mypy/alembic clean; tier medium); no appsec trigger.
 - Follow-ups: move rbac's inline active-assignment copies onto one shared definition (High, separate ticket); tell admin-pan (PAN-032) the 200 response is now `anyOf` two page types; nits in review.md.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/106 (tier medium, merge approved by Ming).
+- Merge rule not met: CI `check` failed only on the 13 known kit-lint errors in `.github/scripts/risk_tier.py` (job log checked); tier medium, `risk:medium` label agrees, merge approved. Stopped for Ming: merge #106 or say "merge cho tôi #106", then `/run-batch --resume`.
+
