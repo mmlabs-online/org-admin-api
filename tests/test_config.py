@@ -421,6 +421,15 @@ def test_join_request_retention_must_cover_cooldown() -> None:
     assert settings.join_request_retention_days == 7
 
 
+def test_usage_event_retention_floor_and_window() -> None:
+    assert Settings().usage_event_retention_days == 90
+    with pytest.raises(ValidationError):
+        Settings(usage_event_retention_days=89)  # type: ignore[call-arg]
+    assert Settings(usage_event_retention_days=90).usage_event_retention_days == 90  # type: ignore[call-arg]
+    with pytest.raises(ValidationError):
+        Settings(usage_adjust_window_seconds=91 * 86400)  # type: ignore[call-arg]
+
+
 # --- Google Drive keys: all four or none (ADM-027, ADR-0018) ------------------------------
 
 _DRIVE_ENV = {

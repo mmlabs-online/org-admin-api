@@ -985,6 +985,41 @@ A scheduled run (a separate `schedule:` workflow that can run only `cleanup`, in
 environment without a required reviewer, since the ops approval gate would block a cron run) is
 an open owner decision.
 
+## Usage event purge (ADM-045)
+
+Per-use usage events (`usage_events`) are kept 90 days (spec §5.14, OQ69); per-period totals
+(`usage_counters`) are kept indefinitely and are never touched. The CLI is a **dry run by
+default**:
+
+```bash
+python -m app.cli usage-events-purge          # counts only, nothing is written
+python -m app.cli usage-events-purge --apply  # deletes, in batches of 1000
+```
+
+- Retention is `USAGE_EVENT_RETENTION_DAYS` (default 90, minimum 90, and at least
+  `USAGE_ADJUST_WINDOW_SECONDS`). There is no command-line override.
+- Output is one line: `usage_events: deleted|would delete <n> (older than <N> d, cutoff <iso>)`,
+  plus `dry-run: nothing was deleted` on a dry run. Counts only: no keys, user ids or emails.
+- Each deleting batch commits with a `usage_events.purged` audit row (cutoff, retention days,
+  count). Rows locked by a live transaction are skipped; run again to catch them.
+- Exit codes: 0 done; 1 a fixed error line (batches already committed stay deleted; running again
+  is safe); 64 usage error.
+- A consume replayed with a purged idempotency key counts as a new consume (ADR-0022), and settle
+  or refund on a purged key returns 404 `usage_event_not_found`.
+- After a large first purge run `VACUUM (ANALYZE) usage_events` (never `VACUUM FULL`).
+
+The `usage-events-purge` choice must be added to the `ops-org-admin-api` workflow in
+`mmlabs-online/deployment` (owner). Run it in production with a dry run first, then `--apply`.
+**Fallback** with a shell on the Mac:
+
+```bash
+docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+  run --rm --no-deps migrate /app/.venv/bin/python -m app.cli usage-events-purge
+```
+
+Locally: `make usage-events-purge ARGS=--apply`. Scheduling it (cron or a scheduled workflow) is
+an open owner decision.
+
 ## Attachments — Google Drive (ADM-027)
 
 Bug-report screenshots are stored in Google Drive (spec §5.12, ADR-0018): Drive v3 over plain
