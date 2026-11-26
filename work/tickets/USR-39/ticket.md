@@ -48,5 +48,7 @@ A staff holder of an app's designated super-admin role can mint an access token 
 - API tests per criterion; config validation test; claim snapshot test.
 
 ## Notes / answers from Ming
+- 2026-11-26 (Ming, chat): "duyệt hết; câu 1–32 theo mặc định; cho merge USR-40".
+- Plan approved (2026-11-26, batch 2026-11-26-1); all blocking questions answered with the plan defaults.
 
 ## Handoff

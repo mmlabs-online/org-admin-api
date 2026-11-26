@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, db, api, auth, security |
@@ -11,7 +11,7 @@
 | Needs Ming | OQ80, OQ81, OQ82, OQ83, OQ90 (spec §8; answer at the plan gate) |
 | Attempts | 0 |
 | Created | 2026-11-26 |
-| Claimed by | claude@2026-11-26T03:59Z |
+| Claimed by | claude@2026-11-26T04:25Z |
 | PR | — |
 
 ## Goal
@@ -50,5 +50,7 @@ Staff can designate one app-scope role of an `org_mode = required` app (first: `
 - API tests per criterion against the Postgres test DB; migration up/down.
 
 ## Notes / answers from Ming
+- 2026-11-26 (Ming, chat): "duyệt hết; câu 1–32 theo mặc định; cho merge USR-40".
+- Plan approved (2026-11-26, batch 2026-11-26-1); all blocking questions answered with the plan defaults.
 
 ## Handoff
