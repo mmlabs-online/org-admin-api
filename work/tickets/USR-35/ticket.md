@@ -56,3 +56,5 @@ Staff find the users who hold any role of an app, or one specific role, from the
 - Done: `app` (key) and `role_id` filters on `GET /api/v1/users` (correlated EXISTS on `active_assignment_clause()`, distinct total), 422 `unknown_app` / `unknown_role` / `role_not_in_app`, OpenAPI; no High path. Review PASS (4442 passed; ruff/mypy/alembic clean; tier medium); no appsec trigger. Review 🟡 (spec §5.15 :365 / OQ76 answer annotation) fixed by the orchestrator in a docs-only commit ("USR-35: record owner answers in spec §5.15").
 - Follow-ups: EXPLAIN (ANALYZE, BUFFERS) of the filter count query on a seeded DB; admin-pan PAN-034 shows `details[].reason` as field errors; test pinning `app=admin`.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/107 (tier medium, merge approved by Ming).
+- Merge rule not met: CI `check` failed only on the 13 known kit-lint errors (job log checked); tier medium, label agrees, merge approved. Stopped for Ming: merge #107 or "merge cho tôi #107", then `/run-batch --resume` builds USR-37.
+
