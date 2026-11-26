@@ -617,7 +617,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
 as a string), `org_roles` (only with `org`: the sorted role keys held in that org only), `ent`
-(only with `org`, see Entitlements below), `name` (optional display name; app tokens only; absent when the user has none; never require it), `iat`, `exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
+(only with `org`, see Entitlements below), `org_access` (only `"super_admin"`, only on a staff super-admin org token, see below; absent otherwise), `name` (optional display name; app tokens only; absent when the user has none; never require it), `iat`, `exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
 
 For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles plus the roles
 held in the `org` org). Authorize org-scoped data and actions **only** from `org_roles`, mapped
@@ -625,6 +625,20 @@ through the role catalog, and scope all data by the `org` claim. Use `roles` of 
 `org_id` for app-level actions (create or pick an org). Never authorize org data from the `roles`
 of an org token. If `org` is present and `org_roles` is absent, reject the token. When staff change
 `org_mode` from `none` to `required`, they mark org-level permissions `scope = org` first (ADR-0015). A flip back to `none` is refused (409 `org_mode_in_use`) while the app has org entitlements or org-scoped role assignments.
+
+**The single exception: staff super-admin org tokens (ADR-0030 §7).** A staff holder of your app's
+designated super-admin role can get an org token for an org they are not a member of. Grant
+super-admin powers in an org only if **all** hold: the token is fully verified (signature, `iss`,
+`aud` = your app, `exp`, `typ`); `org` is present; `org_access == "super_admin"` (exact string; a
+missing key, any other value or type means no super-admin access); and `roles` contains your
+app's designated super-admin role key (configured in your app, e.g. `simap:super-admin`). Then
+treat the caller as holding every `scope = org` permission of your app (from the role catalog) in
+the `org` org only, plus the app-scope permissions of its `roles` as usual. Never infer access from
+an empty `org_roles` (`[]` grants nothing). This is the only exception to "authorize org data only
+from `org_roles`". Log `sub` and `jti` for staff actions and show staff as staff in your UI. These
+tokens last up to `SUPER_ADMIN_ORG_TOKEN_TTL_SECONDS` (1 h in production), carry no `sid` and
+survive logout until `exp`; read `expires_in`, do not assume 12 h. A holder who is also a member of
+the org gets a normal member token (no `org_access`).
 
 ### Entitlements (`ent`)
 
@@ -653,7 +667,8 @@ of an org token. If `org` is present and `org_roles` is absent, reject the token
 
 Follow-up (not in this API): `mmlabs-auth` needs an `ent` accessor (None unless `org`), an `org_roles` accessor, a
 `require_org_permission(k)` that maps only `org_roles` through the catalog, rejection of a token
-with `org` and no `org_roles`, and a release before calechip relies on it.
+with `org` and no `org_roles`, an `org_access` accessor with the super-admin exception in
+`require_org_permission`, and a release before calechip relies on it.
 
 Python backends: prefer `mmlabs-auth`, which implements this checklist; the sketch stays for
 other stacks.

@@ -7,13 +7,19 @@ import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from pydantic import TypeAdapter, ValidationError
 from pydantic_core import PydanticCustomError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import RateLimitedError
 from app.core.jwt_keys import KeySet
+from app.core.rate_limit import RateLimit, RateLimiter
 from app.core.text import reject_disallowed_categories
+from app.modules.audit.actions import AuditAction, AuditTarget
+from app.modules.audit.context import AuditContext, EndUser
+from app.modules.audit.service import AuditLogger
 from app.modules.entitlements.repository import EntitlementRepository, EntitlementView
 from app.modules.entitlements.schemas import PLAN_PATTERN, Limits
 from app.modules.membership.service import join_available
@@ -68,6 +74,11 @@ def _name_claim(display_name: str | None, *, user_id: uuid.UUID, aud: str) -> st
     return value
 
 
+def _denied() -> OrgAccessDeniedError:
+    """The one org refusal: unknown, suspended, foreign org and non-holder look the same."""
+    return OrgAccessDeniedError("No access to this organization", details={})
+
+
 @dataclass(frozen=True)
 class IssuedToken:
     access_token: str
@@ -82,6 +93,9 @@ class TokenService:
         key_set: KeySet,
         issuer: str,
         ttl_seconds: int,
+        super_admin_ttl_seconds: int,
+        limiter: RateLimiter,
+        super_admin_limit: RateLimit,
         join_reject_cooldown_seconds: int,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -92,11 +106,17 @@ class TokenService:
         self.key_set = key_set
         self.issuer = issuer
         self.ttl = ttl_seconds
+        self.super_admin_ttl = super_admin_ttl_seconds
+        self.limiter = limiter
+        self.super_admin_limit = super_admin_limit
+        self.audit = AuditLogger(session)
         self.join_reject_cooldown_seconds = join_reject_cooldown_seconds
         self.session = session
         self.clock = clock
 
-    async def issue(self, app: App, device: ResolvedDevice, data: TokenRequest) -> IssuedToken:
+    async def issue(
+        self, app: App, device: ResolvedDevice, data: TokenRequest, *, ctx: AuditContext
+    ) -> IssuedToken:
         if data.audience != app.key:
             raise AudienceMismatchError("Audience does not match the calling app")
         if data.org_id is not None and app.org_mode == OrgMode.NONE.value:
@@ -126,15 +146,30 @@ class TokenService:
             raise NotMemberError("Not a member of this app", details={"join_available": available})
 
         claims: dict[str, object] = {}
+        super_admin_org = False
         if data.org_id is not None:
             # Org-exact: the app-scope role above must not make an unknown, suspended or
             # foreign org look usable. One answer for all three (no existence oracle).
             org_roles = await self.authz.org_role_keys(user.id, app.key, data.org_id)
             if not org_roles:
-                raise OrgAccessDeniedError("No access to this organization", details={})
-            roles = await self.authz.effective_roles(user.id, app.key, data.org_id)
+                # USR-39, ADR-0030 §7: the app's super-admin holder may enter any org of the
+                # app. Every refusal is the same error, and the org is looked up last.
+                if not await self.authz.app_super_admin_access(user.id, app):
+                    raise _denied()
+                if not await self.authz.is_org_of_app(data.org_id, app.id):
+                    raise _denied()
+                retry_after = self.limiter.hit(
+                    "super_admin_org_token", str(user.id), self.super_admin_limit
+                )
+                if retry_after is not None:
+                    raise RateLimitedError(retry_after)
+                super_admin_org = True  # `roles` stays the app-scope roles from above
+            else:
+                roles = await self.authz.effective_roles(user.id, app.key, data.org_id)
             claims["org"] = str(data.org_id)
             claims["org_roles"] = org_roles  # org-exact only (ADR-0015); `roles` stays the union
+            if super_admin_org:
+                claims["org_access"] = "super_admin"
             if app.key != ADMIN_APP_KEY:  # invariant: `ent` never sits next to `sid`
                 view = await self.entitlements.get_active_for(data.org_id, app.id)
                 claims["ent"] = None if view is None else _ent_claim(view, app.key)
@@ -144,6 +179,7 @@ class TokenService:
         elif (name := _name_claim(user.display_name, user_id=user.id, aud=app.key)) is not None:
             claims["name"] = name  # app tokens only; absent when unset (USR-32)
 
+        ttl = self.super_admin_ttl if super_admin_org else self.ttl
         now = int(self.clock())
         jti = str(uuid.uuid4())
         token = self.key_set.sign(
@@ -156,17 +192,35 @@ class TokenService:
                 "roles": roles,
                 **claims,
                 "iat": now,
-                "exp": now + self.ttl,
+                "exp": now + ttl,
                 "jti": jti,
             }
         )
+        if super_admin_org and data.org_id is not None and app.super_admin_role_id is not None:
+            # In the request transaction: a failed audit row fails the request (R4).
+            await self.audit.record(
+                AuditAction.TOKEN_SUPER_ADMIN_ORG_ISSUED,
+                actor=EndUser(user.id),
+                ctx=ctx,
+                target=(AuditTarget.ORGANIZATION, data.org_id),
+                app_key=app.key,
+                org_id=data.org_id,
+                changes={
+                    "jti": jti,
+                    "account_session_id": str(account.id),
+                    "role_id": str(app.super_admin_role_id),
+                    "expires_at": datetime.fromtimestamp(now + ttl, UTC).isoformat(),
+                },
+            )
         logger.info(
-            "token_issued user_id=%s account_session_id=%s aud=%s org_id=%s kid=%s jti=%s",
+            "token_issued user_id=%s account_session_id=%s aud=%s org_id=%s kid=%s jti=%s"
+            " super_admin_org=%s",
             user.id,
             account.id,
             app.key,
             data.org_id,
             self.key_set.signing_kid,
             jti,
+            super_admin_org,
         )
-        return IssuedToken(access_token=token, expires_in=self.ttl)
+        return IssuedToken(access_token=token, expires_in=ttl)

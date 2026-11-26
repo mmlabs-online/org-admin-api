@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_keys import build_key_set
+from app.core.rate_limit import InMemoryRateLimiter, RateLimit
+from app.modules.audit.context import AuditContext
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.rbac.models import App
 from app.modules.sessions.service import ResolvedDevice
@@ -24,6 +26,9 @@ def _service(db: AsyncSession) -> TokenService:
         key_set=build_key_set(TEST_JWT_SIGNING_KEY, []),
         issuer=TEST_JWT_ISSUER,
         ttl_seconds=900,
+        super_admin_ttl_seconds=900,
+        limiter=InMemoryRateLimiter(),
+        super_admin_limit=RateLimit(30, 3600),
         join_reject_cooldown_seconds=0,
     )
 
@@ -45,6 +50,7 @@ async def test_issue_admin_never_has_ent(db_session: AsyncSession) -> None:
         admin,
         resolved,
         TokenRequest(audience="admin", account_id=account.id, org_id=org.id),
+        ctx=AuditContext(),
     )
     claims = jwt.decode(issued.access_token, options={"verify_signature": False})
     assert "org" in claims and "sid" in claims
@@ -71,7 +77,10 @@ async def test_ent_out_of_contract_falls_back_to_null(
 
     with caplog.at_level(logging.WARNING):
         issued = await _service(db_session).issue(
-            app, resolved, TokenRequest(audience="calechip", account_id=account.id, org_id=org.id)
+            app,
+            resolved,
+            TokenRequest(audience="calechip", account_id=account.id, org_id=org.id),
+            ctx=AuditContext(),
         )
     claims = jwt.decode(issued.access_token, options={"verify_signature": False})
     assert "ent" in claims and claims["ent"] is None

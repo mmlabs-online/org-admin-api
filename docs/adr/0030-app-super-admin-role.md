@@ -1,7 +1,7 @@
 # ADR-0030: Per-app super-admin role for org apps
 
-Status: Accepted for §1-§6 (owner, 2026-11-26: all plan defaults of USR-38); §7-§8 accepted in
-principle, details fixed by the USR-39 / USR-40 plans
+Status: Accepted for §1-§6 (owner, 2026-11-26: all plan defaults of USR-38); §7 accepted (owner, 2026-11-26: all plan defaults of USR-39); §8 accepted in
+principle, details fixed by the USR-40 plan
 Date: 2026-11-26
 
 Decision-log row D42 (`docs/identity-architecture.md`). Spec §5.16, OQ80-OQ83, OQ90.
@@ -56,9 +56,34 @@ build on them.
    `admin:super-admin` assignment with a plain read; it never calls `lock_app("admin")`: two
    `apps` row locks in one transaction could deadlock with an `admin:super-admin` revoke. The race
    with a concurrent revoke is closed by the mint-time re-check (§5).
-7. **Org-token exception (amends ADR-0013 / ADR-0015; details at USR-39's gate).** An opt-in
-   claim, `org_roles: []`, the member path wins, shorter TTL, mint audit. Never
-   `admin:super-admin` in an app token.
+7. **Org-token exception (amends ADR-0013 / ADR-0015; accepted at the USR-39 gate,
+   2026-11-26).** `POST /api/v1/auth/token` with `org_id` when the account has no role in that
+   org: the member path wins (normal token, normal TTL, no audit). Otherwise the mint succeeds
+   only if `AuthzService.app_super_admin_access` holds (§5) and the org is an org of the app
+   (OQ89 (b), `org_of_app_clause` in `rbac/repository.py`, shared with USR-40: `active` org with
+   an unexpired org-scope assignment of any role of the app OR an entitlement of the app with
+   `enabled = true`). Every other case, a suspended or unknown org included, is the same
+   `org_access_denied` (byte-identical, no existence oracle; the org is looked up last).
+   - Claims: the usual ones, `roles` = the holder's app-scope roles, `org`, `org_roles: []`,
+     `ent` as for any org token, and `org_access: "super_admin"` (absent on every other token).
+     Never `admin:super-admin` or any `admin:` key, never `sid`.
+   - TTL: `SUPER_ADMIN_ORG_TOKEN_TTL_SECONDS` (60..43200; unset = `min(3600,
+     ACCESS_TOKEN_TTL_SECONDS)`; startup fails above `ACCESS_TOKEN_TTL_SECONDS`).
+   - Audit: one `token.super_admin_org_issued` row per mint in the request transaction (actor =
+     the account's user, target = org, `app_key`, `org_id`, `changes` `{jti, account_session_id,
+     role_id, expires_at}`; no email). A failed audit write fails the request, so no token leaves
+     without its row. Refused and normal mints write no row.
+   - Rate limit: per account, `SUPER_ADMIN_ORG_TOKEN_USER_RATE_LIMIT` per
+     `..._WINDOW_SECONDS` (30 per 3600 s), counted only for mints that passed both checks; 429
+     `rate_limited`. In-process (ADR-0002).
+   - No recent re-authentication or MFA in v1 (`account_sessions` has no latest-sign-in time):
+     follow-up together with staff MFA (OQ3). Residual risk: XSS on the app origin or a stolen
+     `mm_device` cookie of a holder (up to 365 days); recommend a separate staff account per
+     person. These tokens survive logout until `exp` (no `sid`, no deny-list).
+   - Consumer rule (`docs/consumers.md`): grant super-admin powers in `org` only when the token
+     is verified, `org` is present, `org_access == "super_admin"` and `roles` contains the app's
+     designated role key. This is the single exception to "authorize org data from `org_roles`
+     only". The holder creates orgs and accepts invitations under the normal rules.
 8. **Picker (details at USR-40's gate).** The org list for a holder carries an `access` field.
 
 ## Rejected options

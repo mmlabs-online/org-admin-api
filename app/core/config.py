@@ -23,6 +23,7 @@ _DRIVE_KEY_NAMES = (
 _DRIVE_CLIENT_ID_RE = re.compile(r"[A-Za-z0-9.-]+\.apps\.googleusercontent\.com")
 _DRIVE_SECRET_RE = re.compile(r"[\x21-\x7e]{1,2048}")
 _DRIVE_FOLDER_ID_RE = re.compile(r"[A-Za-z0-9_-]{10,128}")
+_SUPER_ADMIN_ORG_TOKEN_TTL_DEFAULT = 3600  # USR-39
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
 
@@ -126,6 +127,11 @@ class Settings(BaseSettings):
     profile_user_rate_limit: int = Field(default=10, ge=1)
     profile_user_rate_window_seconds: int = Field(default=3600, ge=1)
 
+    # Super-admin org token mint (USR-39, ADR-0030 §7): per signed-in account, only for mints
+    # that passed the holder and org checks.
+    super_admin_org_token_user_rate_limit: int = Field(default=30, ge=1)
+    super_admin_org_token_user_rate_window_seconds: int = Field(default=3600, ge=1)
+
     # Org members read (USR-29, ADR-0025): per IP before auth, per credential after auth.
     app_org_members_rate_limit: int = Field(default=120, ge=1)
     app_org_members_rate_window_seconds: int = Field(default=60, ge=1)
@@ -156,6 +162,8 @@ class Settings(BaseSettings):
     jwt_issuer: str = "http://localhost:8000"
     # ADR-0005 §6 (USR-13): production 43200; above needs a new decision
     access_token_ttl_seconds: int = Field(default=900, ge=60, le=43200)
+    # USR-39: lifetime of a super-admin org token; unset = min(3600, ACCESS_TOKEN_TTL_SECONDS).
+    super_admin_org_token_ttl_seconds: int | None = Field(default=None, ge=60, le=43200)
 
     # Device sessions (ADR-0004): idle timeout (= cookie Max-Age) and absolute lifetime.
     device_session_idle_days: int = Field(default=30, ge=1)
@@ -199,6 +207,12 @@ class Settings(BaseSettings):
 
     # Swagger UI and `/openapi.json`: unset = on everywhere except production (ADM-002b).
     api_docs_enabled: bool | None = None
+
+    @property
+    def super_admin_org_token_ttl(self) -> int:
+        if self.super_admin_org_token_ttl_seconds is not None:
+            return self.super_admin_org_token_ttl_seconds
+        return min(_SUPER_ADMIN_ORG_TOKEN_TTL_DEFAULT, self.access_token_ttl_seconds)
 
     @property
     def docs_enabled(self) -> bool:
@@ -268,6 +282,15 @@ class Settings(BaseSettings):
             or self.argon2_time_cost < _ARGON2_MIN_TIME_COST
         ):
             raise ValueError("Argon2 parameters are below the minimum for staging/production")
+        return self
+
+    @model_validator(mode="after")
+    def _super_admin_org_ttl_within_access_ttl(self) -> Self:
+        ttl = self.super_admin_org_token_ttl_seconds
+        if ttl is not None and ttl > self.access_token_ttl_seconds:
+            raise ValueError(
+                "SUPER_ADMIN_ORG_TOKEN_TTL_SECONDS must not exceed ACCESS_TOKEN_TTL_SECONDS"
+            )
         return self
 
     @model_validator(mode="after")

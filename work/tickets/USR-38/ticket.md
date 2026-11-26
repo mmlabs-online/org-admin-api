@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, db, api, auth, security |
@@ -61,4 +61,9 @@ Staff can designate one app-scope role of an `org_mode = required` app (first: `
 - Follow-ups: 🟡 tighten `tests/test_rbac_super_admin_role.py:560` to `_assert(resp, 422, "token_invalid")`; USR-36 must add the 422 `super_admin_role` refusal; audit 422 recipient refusals as denied (later audit ticket); test deleting an app with a designated role; parallel review agents need separate test DBs.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/103 (tier high).
 - Next: Ming merges #103 (High); M-8; then `/run-batch --resume` builds USR-39.
+
+### 2026-11-26 — merged (batch 2026-11-26-1)
+- PR [#103](https://github.com/mmlabs-online/org-admin-api/pull/103) merged by the agent at ecd41d4 on Ming's explicit instruction ("merge cho tôi #103") — owner exception to the High-tier no-agent-merge rule, logged.
+- CI `check` red only on the 13 known kit-lint errors in `.github/scripts/risk_tier.py`; tier check green. Local suite green at review (4320 passed).
+- Ming next: migration `e7b2c4f9a316` at deploy; M-8 (usable once USR-39 ships).
 

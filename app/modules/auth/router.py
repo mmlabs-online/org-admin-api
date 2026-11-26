@@ -5,7 +5,7 @@ from fastapi.security import APIKeyCookie
 
 from app.api.deps import SessionDep
 from app.core.config import Settings
-from app.core.rate_limit import rate_limit
+from app.core.rate_limit import RateLimit, rate_limit
 from app.modules.audit.deps import AuditContextDep
 from app.modules.auth.cookies import (
     DEVICE_COOKIE,
@@ -187,16 +187,27 @@ async def token(
     body: TokenRequest,
     device: DeviceDep,
     key_set: KeySetDep,
+    ctx: AuditContextDep,
 ) -> TokenResponse:
-    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`; per-app JWT (D7)."""
+    """Cookie class (R3 class 2): `__Host-mm_device` + Origin + `X-MM-App`; per-app JWT (D7).
+
+    A staff holder of the app's super-admin role may get an org token for a non-member org of
+    the app (USR-39, ADR-0030 §7): short lifetime, `org_access`, one audit row.
+    """
     settings: Settings = request.app.state.settings
     issued = await TokenService(
         session,
         key_set=key_set,
         issuer=settings.jwt_issuer,
         ttl_seconds=settings.access_token_ttl_seconds,
+        super_admin_ttl_seconds=settings.super_admin_org_token_ttl,
+        limiter=request.app.state.rate_limiter,
+        super_admin_limit=RateLimit(
+            settings.super_admin_org_token_user_rate_limit,
+            settings.super_admin_org_token_user_rate_window_seconds,
+        ),
         join_reject_cooldown_seconds=settings.join_reject_cooldown_seconds,
-    ).issue(app, device, body)
+    ).issue(app, device, body, ctx=ctx)
     if device.new_cookie is not None:
         set_device_cookie(response, device.new_cookie, settings)
     response.headers["Cache-Control"] = "no-store"
