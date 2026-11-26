@@ -170,6 +170,11 @@ caller's orgs for the calling app, with their roles) -> `/auth/token` with `org_
 - Create errors: 403 `org_create_forbidden` (no `<app>:org:create`), `org_limit_reached`, 409
   `conflict` (slug taken; slugs are global), 422 `org_not_supported` (app has no orgs).
 - A role change in an org reaches tokens within the token TTL (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).
+- Org picker: every item of `GET /api/v1/auth/orgs` carries `access`, always present: `member` (the
+  account holds roles in the org; `roles` lists them) or `super_admin` (a staff holder of the app's
+  designated super-admin role, ADR-0030; `roles` is `[]`). Treat unknown values as not openable. A
+  `super_admin` item is opened with `/auth/token` + `org_id`; the token then carries
+  `org_access: "super_admin"`. Suspended orgs appear only as `member` items, with `status`.
 
 ### Invitations (USR-06b, ADR-0014)
 

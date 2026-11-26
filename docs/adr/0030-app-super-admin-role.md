@@ -84,7 +84,13 @@ build on them.
      is verified, `org` is present, `org_access == "super_admin"` and `roles` contains the app's
      designated role key. This is the single exception to "authorize org data from `org_roles`
      only". The holder creates orgs and accepts invitations under the normal rules.
-8. **Picker (details at USR-40's gate).** The org list for a holder carries an `access` field.
+8. **Picker (accepted 2026-11-26, USR-40; plan defaults).** `GET /api/v1/auth/orgs` decides the holder
+   branch with `AuthzService.app_super_admin_access`, live on every call (including
+   `admin:super-admin`), never cached. A holder lists every org of the app (`org_of_app_clause`,
+   the same clause as the mint, §7) next to the orgs where the account is a member. Every item
+   carries `access: "member" | "super_admin"` (always present, also for non-holders); member wins;
+   `super_admin` items have `roles: []`. Suspended orgs appear only as `member` items. No query
+   parameter. Not audited (read only); one info log line per holder list (no email, no org names).
 
 ## Rejected options
 - `admin:super-admin` in app tokens: breaks the audience separation (ADR-0001).

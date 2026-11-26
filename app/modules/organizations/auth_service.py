@@ -176,7 +176,14 @@ class OrgSelfService:
         if app.org_mode != OrgMode.REQUIRED.value:
             raise _org_not_supported()
         user = await self._user(device, account_id)
-        rows, total = await self.repo.list_for_user_app(user.id, app.id, limit=limit, offset=offset)
+        holder = await self.authz.app_super_admin_access(user.id, app)
+        rows, total = await self.repo.list_for_user_app(
+            user.id, app.id, include_app_orgs=holder, limit=limit, offset=offset
+        )
+        if holder:
+            logger.info(
+                "orgs_listed access=super_admin user_id=%s app=%s total=%s", user.id, app.key, total
+            )
         return [
             MyOrgRead(
                 id=o.id,
@@ -184,6 +191,7 @@ class OrgSelfService:
                 name=o.name,
                 status=OrganizationStatus(o.status),
                 roles=list(roles),
+                access="member" if is_member else "super_admin",
             )
-            for o, roles in rows
+            for o, is_member, roles in rows
         ], total

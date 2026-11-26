@@ -322,6 +322,7 @@ async def test_list_my_orgs_only_calling_app(client: AsyncClient, db_session: As
             "name": "Mine",
             "status": "active",
             "roles": ["calechip:editor", "calechip:org-owner"],
+            "access": "member",
         }
     ]
     assert str(other.id) not in resp.text
