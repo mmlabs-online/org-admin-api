@@ -5,7 +5,6 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +15,8 @@ from app.cli import (
     amain,
 )
 from app.core.config import Settings
-from app.modules.audit.models import AuditLog
 from app.modules.usage.retention import UsageEventRetentionRepository
-from tests.test_usage_events_retention import _event, _ids
+from tests.test_usage_events_retention import _event, _ids, _summaries
 from tests.usage_factories import world
 
 Scope = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -88,10 +86,7 @@ async def test_default_is_dry_run(
     assert match is not None and match.group(1, 2, 3) == ("would delete", "1", "90")
     assert second == "dry-run: nothing was deleted"
     assert await _ids(db_session, ids) == set(ids)
-    rows = await db_session.scalars(
-        select(AuditLog).where(AuditLog.action == "usage_events.purged")
-    )
-    assert list(rows) == []
+    assert await _summaries(db_session) == []
 
 
 async def test_apply_deletes(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]) -> None:

@@ -32,3 +32,11 @@ None. Deviation: head is d4a8e2c6f175 (plan said c91e4b7a3d58); `.env.example` k
 ### Scope self-check
 - Could the diff be smaller? No.
 - Diff size: ~+260 source/docs, ~+380 tests.
+
+## Attempt 2 (REWORK)
+
+- Files touched: `tests/test_cli_usage_events_purge.py` (required because: review blocker; `test_default_is_dry_run` now asserts via `_summaries` from `tests/test_usage_events_retention.py`, which only sees this transaction's audit rows; removed the now-unused `select`/`AuditLog` imports).
+- Committed summary row from `test_skips_locked_rows` not cleaned up: the audit log is append-only; the filtered query makes it harmless.
+- Checks: ruff format/check clean; both file orders: 23 passed; full suite: 4244 passed.
+- Out-of-plan files: none. Follow-up: pre-existing `test_audit_logs_api` order sensitivity (separate).
+- Scope self-check: only the listed issue fixed.
