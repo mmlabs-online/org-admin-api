@@ -12,7 +12,7 @@
 | Attempts | 1 |
 | Created | 2026-11-26 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/104 |
 
 ## Goal
 A staff holder of an app's designated super-admin role can mint an access token for any org of that app without being a member, with an explicit opt-in claim, a short lifetime and an audit row per mint.
@@ -57,4 +57,4 @@ A staff holder of an app's designated super-admin role can mint an access token 
 - Agent calls: 7, tokens ~508k total (identity-access-engineer 41k, security-architect 49k, api-platform-engineer 34k, planner opus 132k, implementer sonnet 111k, reviewer opus 89k, appsec-engineer 52k).
 - Done: super-admin org mint branch in `POST /api/v1/auth/token` (holder check → org-of-app check → per-account limit → per-mint TTL → audit), `org_access: "super_admin"` claim, `SUPER_ADMIN_ORG_TOKEN_TTL_SECONDS` + mint limit keys, `org_of_app_clause` / `is_org_of_app` for USR-40, audit action `token.super_admin_org_issued`, docs/consumers.md rule, ADR-0030 §7. Review PASS (4367 passed + 2 DB-interference errors that pass on re-run; ruff/mypy/alembic clean; tier high); appsec PASS.
 - Follow-ups: 🟡 move `TOKEN_SUPER_ADMIN_ORG_ISSUED` out of the "Denied-only" usage block (`audit/actions.py:111`); fail closed instead of skipping the audit at `tokens/service.py:199`; test that an org-check refusal does not use the limit; `mmlabs-auth` `org_access` accessor + simap SIM-043 before simap relies on the claim; check every consumer backend does not treat "`org` present" as membership before designating; recent re-auth with staff MFA (OQ3).
-
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/104 (tier high). Next: Ming merges #104; then `/run-batch --resume` builds USR-40.
