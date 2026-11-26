@@ -84,9 +84,9 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-24 | Optimistic concurrency on PUT role permissions | MERGED | P2 | api, db | 0 | 2026-11-19 |
 | USR-25 | Scope of `self_assignment_forbidden` beyond the admin app | BACKLOG | P2 | auth, security | 0 | 2026-11-19 |
 | USR-36 | Bulk-assign one role to up to 100 users (`assignment-batches`) | BACKLOG | P2 | architecture, api, auth, security, db | 0 | 2026-11-26 |
-| USR-38 | Designated per-app super-admin role for org apps (simap SIM-043) | BACKLOG | P2 | architecture, db, api, auth, security | 0 | 2026-11-26 |
-| USR-39 | Org token for a non-member org via the app's super-admin role (simap SIM-043) | BACKLOG | P2 | auth, security, api | 0 | 2026-11-26 |
-| USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | BACKLOG | P2 | api, auth | 0 | 2026-11-26 |
+| USR-38 | Designated per-app super-admin role for org apps (simap SIM-043) | DONE | P2 | architecture, db, api, auth, security | 1 | 2026-11-26 |
+| USR-39 | Org token for a non-member org via the app's super-admin role (simap SIM-043) | PLANNING | P2 | auth, security, api | 0 | 2026-11-26 |
+| USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | PLANNING | P2 | api, auth | 0 | 2026-11-26 |
 | USR-26 | Role definitions: assignment count, org-owner flag, stable reasons on 409 conflicts | BACKLOG | P3 | api, db | 0 | 2026-11-19 |
 | USR-27 | Role assignments: return role and org names | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | USR-28 | Exact email lookup for staff user search | BACKLOG | P3 | api, security | 0 | 2026-11-19 |
@@ -115,7 +115,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-042 | Usage consume, refund and current-usage read for app backends | MERGED | P2 | db, api, auth, security | 1 | 2026-11-22 |
 | ADM-043 | Staff usage reads | MERGED | P3 | api | 1 | 2026-11-25 |
 | ADM-044 | App-admin usage actions through limits:write with on_behalf_of | BACKLOG | P3 | auth, api, security | 0 | 2026-11-20 |
-| ADM-045 | Usage event retention purge | DONE | P3 | db | 2 | 2026-11-26 |
+| ADM-045 | Usage event retention purge | MERGED | P3 | db | 2 | 2026-11-26 |
 | ADM-046 | Usage fail-open grace and late reconciliation | BACKLOG | P3 | api, db | 0 | 2026-11-20 |
 
 Order of work (dependencies; reprioritised 2026-11-12 by the owner for the ricotdin integration path): USR-01 → USR-01b → USR-02 → USR-02b → USR-02d → USR-02e → ADM-011 → USR-02c → USR-02f → USR-03 → USR-03f → USR-03c → USR-03e → USR-04 → USR-04c → USR-07 → USR-04b → USR-03b → ADM-002 → ADM-002c → ADM-002b → ADM-004 → ADM-004b → ADM-004c → ADM-002e → ADM-012 → USR-08 → ADM-013 → ADM-014 → USR-11 → USR-12 → USR-06 → USR-06b → USR-06c → USR-05 → USR-05b. admin-pan requests (2026-11-17): USR-16 → USR-17 → ADM-020 → USR-18 → ADM-021 → ADM-023 → ADM-025 → ADM-022 → ADM-024 → USR-19 → USR-20 → USR-21 → USR-22. admin-pan requests (2026-11-19): USR-23 → USR-24 → USR-25 → USR-26 → USR-27 → USR-28 → ADM-026.

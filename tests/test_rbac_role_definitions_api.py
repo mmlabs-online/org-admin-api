@@ -26,6 +26,7 @@ KEYS = {
     "name",
     "is_system",
     "is_default",
+    "is_super_admin",
     "privileged",
     "permissions",
     "created_at",

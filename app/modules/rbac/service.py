@@ -27,6 +27,7 @@ from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
 from app.modules.audit.service import AuditLogger
 from app.modules.rbac.actor import SYSTEM_CLI, Actor, actor_user_id, require_super
+from app.modules.rbac.authz import is_designated_super_admin_role
 from app.modules.rbac.models import (
     ADMIN_APP_KEY,
     APP_KEY_RE,
@@ -468,6 +469,11 @@ class AppService:
                     details=[{"field": "default_role_id", "reason": "role_has_admin_permissions"}],
                 )
 
+        if "super_admin_role_id" in changes:  # set or clear needs admin:* (ADR-0030)
+            require_super(actor)
+            if data.super_admin_role_id is not None:
+                await self._check_super_admin_role(app, data.super_admin_role_id, changes)
+
         owner_role_id = (
             data.org_owner_role_id if "org_owner_role_id" in fields else app.org_owner_role_id
         )
@@ -510,6 +516,28 @@ class AppService:
                 details=[{"field": "default_role_id", "reason": "role_has_org_permissions"}],
             )
 
+        super_admin_role_id = (
+            data.super_admin_role_id if "super_admin_role_id" in fields else app.super_admin_role_id
+        )
+        if super_admin_role_id is not None and super_admin_role_id in (
+            changes.get("default_role_id"),
+            changes.get("org_owner_role_id"),
+        ):
+            field = (
+                "default_role_id"
+                if changes.get("default_role_id") == super_admin_role_id
+                else "org_owner_role_id"
+            )
+            raise UnprocessableError(
+                "The default and org owner roles must differ from the super-admin role",
+                details=[{"field": field, "reason": "same_as_super_admin_role"}],
+            )
+        if changes.get("org_mode") == OrgMode.NONE.value and super_admin_role_id is not None:
+            raise ConflictError(
+                "App has a super-admin role; clear the designation before switching org_mode "
+                "to none",
+                details=[{"field": "org_mode", "reason": "super_admin_role_designated"}],
+            )
         if (
             changes.get("org_mode") == OrgMode.NONE.value
             and app.org_mode == OrgMode.REQUIRED.value
@@ -544,6 +572,52 @@ class AppService:
         self.repo.mark_apps_changed()
         await self.repo.session.refresh(app)
         return app, before
+
+    async def _check_super_admin_role(
+        self, app: App, role_id: uuid.UUID, changes: dict[str, object]
+    ) -> None:
+        """Designation preconditions (ADR-0030 §1); 422 for bad input, 409 for held roles."""
+
+        def refuse(message: str, reason: str) -> UnprocessableError:
+            return UnprocessableError(
+                message, details=[{"field": "super_admin_role_id", "reason": reason}]
+            )
+
+        if app.key == ADMIN_APP_KEY:
+            raise refuse("The admin app has no super-admin role", "admin_app_not_allowed")
+        role = await self.repo.get_role(app.id, role_id)
+        if role is None:
+            raise refuse("Unknown role for this app", "unknown_role")
+        if changes.get("org_mode", app.org_mode) != OrgMode.REQUIRED.value:
+            raise refuse("A super-admin role needs org_mode required", "org_mode_required")
+        if role.is_system:
+            raise refuse("A system role cannot be the super-admin role", "system_role")
+        default_role_id = changes.get("default_role_id", app.default_role_id)
+        if role_id == default_role_id:
+            raise refuse(
+                "The super-admin role must differ from the default role", "same_as_default_role"
+            )
+        owner_role_id = changes.get("org_owner_role_id", app.org_owner_role_id)
+        if role_id == owner_role_id:
+            raise refuse(
+                "The super-admin role must differ from the org owner role",
+                "same_as_org_owner_role",
+            )
+        if await self.repo.role_has_org_permission(role_id):
+            raise refuse(
+                "The super-admin role must not hold org-level permissions",
+                "role_has_org_permissions",
+            )
+        wildcard = await self.repo.permissions_by_keys(app.id, [f"{app.key}:*"])
+        if any([await self.repo.role_holds_permission(role_id, p.id) for p in wildcard]):
+            raise refuse(
+                "The super-admin role must not hold the app wildcard", "wildcard_not_allowed"
+            )
+        if await self.repo.role_has_assignments(role_id):
+            raise ConflictError(
+                "The role has assignments; revoke them before designating it",
+                details=[{"field": "super_admin_role_id", "reason": "role_has_assignments"}],
+            )
 
     async def delete(self, key: str, *, actor: Actor, ctx: AuditContext) -> None:
         app = await _locked_app(self.repo, key)
@@ -1000,6 +1074,15 @@ class PermissionService:
             and await self.repo.role_holds_permission(app.default_role_id, perm.id)
         ):
             raise ConflictError("The app's default role holds this permission")
+        if (
+            changes.get("scope") == PermissionScope.ORG.value
+            and app.super_admin_role_id is not None
+            and await self.repo.role_holds_permission(app.super_admin_role_id, perm.id)
+        ):
+            raise ConflictError(
+                "The app's super-admin role holds this permission",
+                details=[{"field": "scope", "reason": "super_admin_role_holds_permission"}],
+            )
         if changes.get("is_admin") is True and await self.repo.permission_held_by_assigned_role(
             perm.id
         ):  # G3 (USR-02d): members would silently gain an admin permission
@@ -1062,9 +1145,14 @@ class PermissionService:
         )
 
 
-def role_is_privileged(app_key: str, holds_admin_permission: bool) -> bool:
-    """Mirrors `AssignmentService._guard_privileged` (ADR-0008 G4); change both together."""
-    return app_key == ADMIN_APP_KEY or holds_admin_permission
+def role_is_privileged(app: App, role_id: uuid.UUID, holds_admin_permission: bool) -> bool:
+    """Mirrors `AssignmentService._guard_privileged` (ADR-0008 G4) and the repository's
+    `user_has_privileged_assignment` (G5); change all three together (ADR-0030)."""
+    return (
+        app.key == ADMIN_APP_KEY
+        or holds_admin_permission
+        or is_designated_super_admin_role(app, role_id)
+    )
 
 
 class RoleService:
@@ -1108,7 +1196,8 @@ class RoleService:
                 name=r.name,
                 is_system=r.is_system,
                 is_default=r.id == app.default_role_id,
-                privileged=role_is_privileged(app.key, r.id in admin),
+                is_super_admin=is_designated_super_admin_role(app, r.id),
+                privileged=role_is_privileged(app, r.id, r.id in admin),
                 permissions=sorted(keys.get(r.id, [])),
                 created_at=r.created_at,
                 updated_at=r.updated_at,
@@ -1252,6 +1341,11 @@ class RoleService:
             raise ConflictError("The app's default role cannot be deleted")
         if role.id == app.org_owner_role_id:
             raise ConflictError("The app's org owner role cannot be deleted")
+        if is_designated_super_admin_role(app, role.id):
+            raise ConflictError(
+                "The app's super-admin role cannot be deleted; clear the designation first",
+                details=[{"field": "role_id", "reason": "super_admin_role_designated"}],
+            )
         if await self.repo.role_has_assignments(role.id):
             raise ConflictError("Role has assignments")
         before = diff.snapshot(role, diff.ROLE)
@@ -1310,8 +1404,10 @@ class RoleService:
             app.id, [k for pid, k in current.items() if pid not in target_ids]
         )
         try:
-            if (app.key == ADMIN_APP_KEY and (added or removed)) or any(
-                p.is_admin for p in [*added, *removed]
+            if (
+                (app.key == ADMIN_APP_KEY and (added or removed))
+                or (is_designated_super_admin_role(app, role.id) and (added or removed))
+                or any(p.is_admin for p in [*added, *removed])
             ):
                 require_super(actor)
         except DENIED_ERRORS as exc:
@@ -1339,6 +1435,17 @@ class RoleService:
             and any(p.scope == PermissionScope.ORG.value for p in found.values())
         ):
             raise ConflictError("A default role of an org app must not hold org-level permissions")
+        if is_designated_super_admin_role(app, role.id):
+            if any(p.scope == PermissionScope.ORG.value for p in found.values()):
+                raise ConflictError(
+                    "The super-admin role must not hold org-level permissions",
+                    details=[{"field": "permission_keys", "reason": "role_has_org_permissions"}],
+                )
+            if f"{app.key}:*" in found:
+                raise ConflictError(
+                    "The super-admin role must not hold the app wildcard",
+                    details=[{"field": "permission_keys", "reason": "wildcard_not_allowed"}],
+                )
         if (
             app.key == ADMIN_APP_KEY
             and role.key == SUPER_ADMIN_ROLE
@@ -1565,6 +1672,11 @@ class AssignmentService:
         actor: Actor,
     ) -> tuple[RoleAssignment, bool]:
         """The caller holds `lock_app(app.key)`. Returns (assignment, created). Never audits."""
+        designated = is_designated_super_admin_role(app, role.id)
+        if designated and org_id is not None:  # before the org lookup: app scope only
+            raise _assignment_unprocessable(
+                "The super-admin role is app-scope only", "org_id", "org_id_not_allowed"
+            )
         if org_id is not None:
             if app.org_mode == OrgMode.NONE:
                 raise _assignment_unprocessable(
@@ -1582,6 +1694,13 @@ class AssignmentService:
                     "expires_at must be in the future", "expires_at", "expires_in_past"
                 )
         await self._guard_privileged(app, role.id, user_id, actor)
+        # Plain read under the target app's lock; never lock `admin` here (ADR-0030 §6).
+        if designated and not await self.repo.is_active_staff_super_admin(user_id):
+            raise _assignment_unprocessable(
+                "Only an active staff super-admin can hold the super-admin role",
+                "user_id",
+                "recipient_not_staff_super_admin",
+            )
         granted_by = actor_user_id(actor)
 
         existing = await self.repo.find_assignment(user_id, role.id, org_id)
@@ -1614,13 +1733,21 @@ class AssignmentService:
     async def _guard_privileged(
         self, app: App, role_id: uuid.UUID, user_id: uuid.UUID, actor: Actor
     ) -> None:
-        """A privileged role (admin app, or holding an `is_admin` permission) needs `admin:*`;
-        nobody grants or revokes their own admin-app role, super-admins included."""
-        if app.key != ADMIN_APP_KEY and not await self.repo.role_has_admin_permission(role_id):
+        """A privileged role (admin app, holding an `is_admin` permission, or the app's designated
+        super-admin role) needs `admin:*`; nobody grants or revokes their own admin-app or
+        designated role, super-admins included. Mirrors `role_is_privileged` (ADR-0030)."""
+        designated = is_designated_super_admin_role(app, role_id)
+        if (
+            app.key != ADMIN_APP_KEY
+            and not designated
+            and not await self.repo.role_has_admin_permission(role_id)
+        ):
             return
         require_super(actor)
         if app.key == ADMIN_APP_KEY and user_id == actor_user_id(actor):
             raise SelfAssignmentForbiddenError("Cannot change your own admin roles")
+        if designated and user_id == actor_user_id(actor):
+            raise SelfAssignmentForbiddenError("Cannot change your own super-admin roles")
 
     async def revoke(
         self, user_id: uuid.UUID, assignment_id: uuid.UUID, *, actor: Actor, ctx: AuditContext

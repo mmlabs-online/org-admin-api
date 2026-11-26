@@ -100,7 +100,7 @@ def test_role_definitions_operations() -> None:
             assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
     component = schema["components"]["schemas"]["RoleDefinitionRead"]
     assert set(component["required"]) == {
-        "id", "app", "key", "name", "is_system", "is_default", "privileged",
+        "id", "app", "key", "name", "is_system", "is_default", "is_super_admin", "privileged",
         "permissions", "created_at", "updated_at",
     }  # fmt: skip
 

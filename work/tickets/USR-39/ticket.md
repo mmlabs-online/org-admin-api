@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P2 |
 | Size | M |
 | Areas | auth, security, api |
@@ -11,7 +11,7 @@
 | Needs Ming | OQ84, OQ85, OQ86, OQ87, OQ88, OQ89 (spec §8; answer at the plan gate) |
 | Attempts | 0 |
 | Created | 2026-11-26 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-26T03:59Z |
 | PR | — |
 
 ## Goal
@@ -48,5 +48,7 @@ A staff holder of an app's designated super-admin role can mint an access token 
 - API tests per criterion; config validation test; claim snapshot test.
 
 ## Notes / answers from Ming
+- 2026-11-26 (Ming, chat): "duyệt hết; câu 1–32 theo mặc định; cho merge USR-40".
+- Plan approved (2026-11-26, batch 2026-11-26-1); all blocking questions answered with the plan defaults.
 
 ## Handoff

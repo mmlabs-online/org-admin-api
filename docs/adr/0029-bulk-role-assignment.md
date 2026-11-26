@@ -23,7 +23,8 @@ one server-side endpoint that reuses the single-assignment logic, at most 100 us
 3. **Request-level vs per-user errors.** Request-level, nothing written: 401; 403
    `permission_denied`; 403 `admin_wildcard_required` (role holds an `is_admin` permission, caller
    lacks `admin:*`); 404 unknown app, unknown role or a role of another app; 422 bad body,
-   `admin_app_role` (any `admin`-app role), and the shared-input rules `org_id_not_allowed`,
+   `admin_app_role` (any `admin`-app role), `super_admin_role` (the app's designated super-admin
+   role, ADR-0030; USR-36 implements it), and the shared-input rules `org_id_not_allowed`,
    `unknown_org`, `expires_in_past`. Per user: `created` (new, or an expired duplicate re-activated
    with its old id), `unchanged` (active holder, even with a different `expires_at`; nothing
    changed, existing id and expiry returned), `failed` (`not_found`, `self_assignment_forbidden`

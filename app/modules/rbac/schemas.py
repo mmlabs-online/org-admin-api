@@ -67,6 +67,13 @@ class AppUpdate(BaseModel):
     origins: list[str] | None = Field(default=None, max_length=MAX_ORIGINS)
     default_role_id: uuid.UUID | None = None
     org_owner_role_id: uuid.UUID | None = None
+    super_admin_role_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Designate (or, with null, clear) the app's super-admin role (ADR-0030). Needs "
+            "admin:* when the value changes."
+        ),
+    )
 
     @field_validator("origins")
     @classmethod
@@ -75,7 +82,11 @@ class AppUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _null_only_for_default_role(self) -> Self:
-        for field in self.model_fields_set - {"default_role_id", "org_owner_role_id"}:
+        for field in self.model_fields_set - {
+            "default_role_id",
+            "org_owner_role_id",
+            "super_admin_role_id",
+        }:
             if getattr(self, field) is None:
                 raise ValueError(f"{field} must not be null")
         return self
@@ -93,6 +104,7 @@ class AppFields(BaseModel):
     origins: list[str]
     default_role_id: uuid.UUID | None
     org_owner_role_id: uuid.UUID | None = None
+    super_admin_role_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -240,10 +252,14 @@ class RoleDefinitionRead(BaseModel):
     is_default: bool = Field(
         description="This role is the app's default role (apps.default_role_id)."
     )
+    is_super_admin: bool = Field(
+        description="This role is the app's designated super-admin role (apps.super_admin_role_id)."
+    )
     privileged: bool = Field(
         description=(
-            "App is `admin`, or the role holds a permission with is_admin. Granting or revoking "
-            "it needs admin:* (ADR-0008 G4). UI hint; the server enforces on every write."
+            "App is `admin`, the role holds a permission with is_admin, or it is the app's "
+            "designated super-admin role. Granting or revoking it needs admin:* (ADR-0008 G4, "
+            "ADR-0030). UI hint; the server enforces on every write."
         )
     )
     permissions: list[str]  # sorted permission keys

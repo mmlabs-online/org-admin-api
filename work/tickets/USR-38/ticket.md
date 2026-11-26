@@ -2,17 +2,17 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | DONE |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, db, api, auth, security |
 | Gate | plan-approval |
 | Depends on | — |
 | Needs Ming | OQ80, OQ81, OQ82, OQ83, OQ90 (spec §8; answer at the plan gate) |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-26 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/103 |
 
 ## Goal
 Staff can designate one app-scope role of an `org_mode = required` app (first: `simap:super-admin`) as that app's super-admin role and grant it only to mmlabs staff super-admins, audited — the foundation for staff access to every org of the app (USR-39, USR-40).
@@ -50,5 +50,15 @@ Staff can designate one app-scope role of an `org_mode = required` app (first: `
 - API tests per criterion against the Postgres test DB; migration up/down.
 
 ## Notes / answers from Ming
+- 2026-11-26 (Ming, chat): "duyệt hết; câu 1–32 theo mặc định; cho merge USR-40".
+- Plan approved (2026-11-26, batch 2026-11-26-1); all blocking questions answered with the plan defaults.
 
 ## Handoff
+
+### 2026-11-26 — claude — DONE (batch 2026-11-26-1, attempt 1)
+- Agent calls: 9, tokens ~723k total (software-architect 50k, database-optimizer 38k, api-platform-engineer 38k, identity-access-engineer 52k, security-architect 48k, planner opus 144k, implementer sonnet 157k, reviewer opus 116k, appsec-engineer 81k).
+- Done: `apps.super_admin_role_id` (migration `e7b2c4f9a316`), designation rules on PATCH /apps/{key}, one privilege predicate in three places, grant rules in `_grant_locked`, manifest / role PUT / scope flip / delete / invitation guards, shared `AuthzService.app_super_admin_access` for USR-39/40, ADR-0030 + D42 + ADR amendments. Review PASS (4320 passed, ruff/mypy/alembic clean, tier high); appsec PASS (no 🔴/🟡).
+- Follow-ups: 🟡 tighten `tests/test_rbac_super_admin_role.py:560` to `_assert(resp, 422, "token_invalid")`; USR-36 must add the 422 `super_admin_role` refusal; audit 422 recipient refusals as denied (later audit ticket); test deleting an app with a designated role; parallel review agents need separate test DBs.
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/103 (tier high).
+- Next: Ming merges #103 (High); M-8; then `/run-batch --resume` builds USR-39.
+

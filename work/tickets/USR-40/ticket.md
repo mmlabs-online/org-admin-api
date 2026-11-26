@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P2 |
 | Size | S |
 | Areas | api, auth |
@@ -11,7 +11,7 @@
 | Needs Ming | OQ84, OQ89 (spec §8; answer at the plan gate) |
 | Attempts | 0 |
 | Created | 2026-11-26 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-26T03:59Z |
 | PR | — |
 
 ## Goal
@@ -45,5 +45,8 @@ In the app's org picker (AUT-06 flow), a staff holder of the app's super-admin r
 - API tests per criterion against the Postgres test DB, including a query-count assertion.
 
 ## Notes / answers from Ming
+- 2026-11-26 (Ming, chat): "duyệt hết; câu 1–32 theo mặc định; cho merge USR-40".
+- Plan approved (2026-11-26, batch 2026-11-26-1); all blocking questions answered with the plan defaults.
+- Merge approved (2026-11-26, batch 2026-11-26-1).
 
 ## Handoff
