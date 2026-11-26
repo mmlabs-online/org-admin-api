@@ -952,7 +952,8 @@ IDENTITY_AUDITED: dict[tuple[str, str], tuple[str, IdScenario, int]] = {
     ("POST", f"{AUTH}/verify-email"): ("auth.email_verified", _id_verify, 204),
     ("POST", f"{AUTH}/password/reset"): ("auth.password_reset_completed", _id_reset, 204),
 }
-# Not audited (ADR-0009 amendment): sign-up and token issuance (follow-up), resend, forgot.
+# Not audited (ADR-0009 amendment): sign-up and token issuance (follow-up; except the super-admin
+# org path, USR-39, tests/test_auth_token_super_admin.py), resend, forgot.
 IDENTITY_NOT_AUDITED = {
     ("POST", f"{AUTH}/signup"),
     ("POST", f"{AUTH}/token"),

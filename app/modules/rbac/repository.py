@@ -40,6 +40,40 @@ from app.modules.rbac.models import (
 from app.modules.rbac.schemas import AppSort
 from app.modules.users.models import User, UserStatus
 
+
+def org_of_app_clause(app_id: uuid.UUID) -> ColumnElement[bool]:
+    """OQ89 (b), ADR-0030 §7: `Organization` (correlated on `Organization.id`) is an org of the app.
+
+    Active org AND (an unexpired org-scope assignment of a role of `app_id` (database clock)
+    OR an `org_entitlements` row for the app with `enabled` true). USR-39 (mint) and USR-40.
+    """
+    by_assignment = (
+        select(1)
+        .select_from(RoleAssignment)
+        .join(Role, Role.id == RoleAssignment.role_id)
+        .where(
+            RoleAssignment.org_id == Organization.id,
+            Role.app_id == app_id,
+            or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
+        )
+        .exists()
+    )
+    by_entitlement = (
+        select(1)
+        .select_from(OrgEntitlement)
+        .where(
+            OrgEntitlement.org_id == Organization.id,
+            OrgEntitlement.app_id == app_id,
+            OrgEntitlement.enabled.is_(True),
+        )
+        .exists()
+    )
+    return and_(
+        Organization.status == OrganizationStatus.ACTIVE.value,
+        or_(by_assignment, by_entitlement),
+    )
+
+
 _APP_SORT_COLUMNS = {"key": App.key, "name": App.name, "created_at": App.created_at}
 
 # (assignment, app key, role key, active) — `active` is computed with the database clock.
@@ -846,6 +880,11 @@ class RbacRepository:
         return bool(await self.session.scalar(select(holds))) and (
             await self.is_active_staff_super_admin(user_id)
         )
+
+    async def is_org_of_app(self, org_id: uuid.UUID, app_id: uuid.UUID) -> bool:
+        """OQ89 predicate for one org (plain read)."""
+        stmt = select(exists().where(Organization.id == org_id, org_of_app_clause(app_id)))
+        return bool(await self.session.scalar(stmt))
 
     async def count_other_active_super_admins(
         self, role_id: uuid.UUID, exclude_id: uuid.UUID

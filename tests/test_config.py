@@ -190,6 +190,38 @@ def test_access_token_ttl_accepted(ttl: int) -> None:
     assert Settings(access_token_ttl_seconds=ttl).access_token_ttl_seconds == ttl
 
 
+@pytest.mark.parametrize(("access", "expected"), [(900, 900), (43200, 3600)])
+def test_super_admin_org_ttl_default_follows_access_ttl(access: int, expected: int) -> None:
+    settings = Settings(access_token_ttl_seconds=access)
+    assert settings.super_admin_org_token_ttl_seconds is None
+    assert settings.super_admin_org_token_ttl == expected
+
+
+def test_super_admin_org_ttl_explicit() -> None:
+    settings = Settings(access_token_ttl_seconds=43200, super_admin_org_token_ttl_seconds=1800)
+    assert settings.super_admin_org_token_ttl == 1800
+
+
+def test_super_admin_org_ttl_above_access_ttl_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        Settings(access_token_ttl_seconds=900, super_admin_org_token_ttl_seconds=901)
+    text = str(exc.value)
+    assert "SUPER_ADMIN_ORG_TOKEN_TTL_SECONDS" in text
+    assert "ACCESS_TOKEN_TTL_SECONDS" in text
+    assert "901" not in text
+
+
+@pytest.mark.parametrize("ttl", [59, 43201])
+def test_super_admin_org_ttl_bounds(ttl: int) -> None:
+    with pytest.raises(ValidationError, match="super_admin_org_token_ttl_seconds"):
+        Settings(access_token_ttl_seconds=43200, super_admin_org_token_ttl_seconds=ttl)
+
+
+def test_super_admin_org_mint_rate_limit_bounds() -> None:
+    with pytest.raises(ValidationError, match="super_admin_org_token_user_rate_limit"):
+        Settings(super_admin_org_token_user_rate_limit=0)
+
+
 def test_access_token_ttl_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ACCESS_TOKEN_TTL_SECONDS", "43200")
     assert Settings(_env_file=None).access_token_ttl_seconds == 43200  # type: ignore[call-arg]

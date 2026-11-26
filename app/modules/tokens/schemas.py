@@ -17,7 +17,9 @@ class TokenRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"  # noqa: S105 - OAuth token type name
-    expires_in: int
+    expires_in: int = Field(
+        description="Seconds until this token's `exp`; shorter for super-admin org tokens."
+    )
     audience: str
 
 

@@ -108,5 +108,6 @@ class AuditAction(StrEnum):
     # Denied-only: uses themselves are not audit entries (ADR-0022 §9).
     USAGE_READ = "usage.read"
     USAGE_CONSUMED = "usage.consumed"
+    TOKEN_SUPER_ADMIN_ORG_ISSUED = "token.super_admin_org_issued"  # noqa: S105 (a name; USR-39)
     USAGE_SETTLED = "usage.settled"
     USAGE_REFUNDED = "usage.refunded"

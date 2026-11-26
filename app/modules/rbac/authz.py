@@ -88,3 +88,7 @@ class AuthzService:
         ):
             return False
         return await self.repo.app_super_admin_access(user_id, app.super_admin_role_id)
+
+    async def is_org_of_app(self, org_id: uuid.UUID, app_id: uuid.UUID) -> bool:
+        """OQ89 (b): active org with an assignment or an enabled entitlement of the app."""
+        return await self.repo.is_org_of_app(org_id, app_id)
