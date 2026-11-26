@@ -50,7 +50,7 @@ from app.modules.membership.service import join_default_role
 from app.modules.organizations.auth_service import _org_not_supported
 from app.modules.organizations.repository import OrganizationRepository
 from app.modules.rbac.actor import SYSTEM_JOIN, SYSTEM_ORG_INVITE
-from app.modules.rbac.authz import AuthzService, permits
+from app.modules.rbac.authz import AuthzService, is_designated_super_admin_role, permits
 from app.modules.rbac.models import App, AppStatus, JoinPolicy, OrgMode, Role
 from app.modules.rbac.repository import RbacRepository
 from app.modules.rbac.service import AssignmentService
@@ -176,8 +176,10 @@ class InvitationService:
                 "Unknown role", details=[{"field": "role", "reason": "unknown_role"}]
             )
         role_keys = (await self.rbac.role_permission_keys(role.id)).values()
-        if await self.rbac.role_has_admin_permission(role.id) or not is_subset(
-            role_keys, inviter_permissions
+        if (
+            await self.rbac.role_has_admin_permission(role.id)
+            or is_designated_super_admin_role(app, role.id)
+            or not is_subset(role_keys, inviter_permissions)
         ):
             raise InviteRoleForbiddenError("This role cannot be granted by invitation")
 
@@ -370,7 +372,11 @@ class InvitationService:
         the role in that org (this also fails for a suspended org). Else the token is invalid
         and stays pending."""
         role = await self.rbac.get_role(app.id, row.role_id)
-        if role is None or await self.rbac.role_has_admin_permission(role.id):
+        if (
+            role is None
+            or await self.rbac.role_has_admin_permission(role.id)
+            or is_designated_super_admin_role(app, role.id)
+        ):
             raise _token_invalid()
         inviter = None if row.invited_by is None else await self.users.get(row.invited_by)
         if inviter is None or inviter.status != UserStatus.ACTIVE.value:

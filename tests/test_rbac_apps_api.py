@@ -40,6 +40,7 @@ APP_READ_KEYS = {
     "origins",
     "default_role_id",
     "org_owner_role_id",
+    "super_admin_role_id",
     "created_at",
     "updated_at",
     "member_count",

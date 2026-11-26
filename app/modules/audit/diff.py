@@ -19,6 +19,7 @@ APP = (
     "origins",
     "default_role_id",
     "org_owner_role_id",
+    "super_admin_role_id",
 )
 PERMISSION = ("key", "description", "is_admin", "scope")
 ROLE = ("key", "name", "is_system")

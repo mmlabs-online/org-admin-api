@@ -2,6 +2,7 @@
 
 Status: Accepted (owner, 2026-11-17: `org_roles` claim and `permissions.scope` marker approved)
 Date: 2026-11-17
+Amended by ADR-0030 (USR-38..40): the designated super-admin role takes `app` permissions only.
 
 ## Context
 - S1 (USR-06 security review): an org token's `roles` is the union of app-scope roles and the
@@ -50,7 +51,7 @@ Date: 2026-11-17
 
 ## Consequences
 - The next member-role build narrows org apps' member roles; calechip has to be told.
-- Residual risk: consumers still authorizing from `roles`; a staff-granted app-scope role that
+- Residual risk (the designated super-admin role: ADR-0030): consumers still authorizing from `roles`; a staff-granted app-scope role that
   holds `org` permissions; an `org_mode` none to required flip does not reclassify permissions
   (staff mark them `org`); the reverse flip required to none is refused with 409 `org_mode_in_use`
   while org data exists (ADM-019).

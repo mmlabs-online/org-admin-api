@@ -88,7 +88,8 @@ longer decides privileged writes:
   `is_admin` permission or touches an admin-app role (G2; an unchanged re-PUT needs nothing);
   granting (including renewing an expired row) or revoking a privileged role — an admin-app role
   or one holding an `is_admin` permission (G4); disabling or re-enabling a user holding any such
-  assignment, expired rows included (G5).
+  assignment, expired rows included (G5). A role is also privileged by designation as an app's
+  super-admin role (ADR-0030).
 - **Self-actions (403, also for super-admins):** `self_assignment_forbidden` for granting or
   revoking one's own admin-app roles; `self_status_change_forbidden` for changing one's own status.
   To step down, another super-admin revokes the role.

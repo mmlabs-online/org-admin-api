@@ -144,10 +144,15 @@ async def get_app(session: SessionDep, key: str) -> AppRead:
         "admin:apps:write",
         errors={
             404: _APP_404,
-            409: "Admin app invariant, origin already taken, or org_mode in use",
+            409: "Admin app invariant, origin already taken, org_mode in use or while a "
+            "super-admin role is designated (reason=super_admin_role_designated), or the role "
+            "to designate has assignments (reason=role_has_assignments)",
+            422: "Invalid designation (super_admin_role_id reasons: admin_app_not_allowed, "
+            "unknown_role, org_mode_required, system_role, same_as_default_role, "
+            "same_as_org_owner_role, role_has_org_permissions, wildcard_not_allowed)",
         },
         requires_super="conditional",
-        super_when="Changing the admin app",
+        super_when="Changing the admin app or the app's super-admin role designation",
     ),
 )
 async def update_app(

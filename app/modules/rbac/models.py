@@ -87,6 +87,26 @@ class App(UUIDPkMixin, TimestampMixin, Base):
             "OR default_role_id <> org_owner_role_id",
             name="default_role_not_org_owner",
         ),
+        ForeignKeyConstraint(
+            ["super_admin_role_id", "id"],
+            ["roles.id", "roles.app_id"],
+            name="fk_apps_super_admin_role_same_app",
+            use_alter=True,
+        ),
+        CheckConstraint(
+            "super_admin_role_id IS NULL OR org_mode = 'required'",
+            name="super_admin_requires_org_mode",
+        ),
+        CheckConstraint(
+            "super_admin_role_id IS NULL OR key <> 'admin'",
+            name="super_admin_not_admin_app",
+        ),
+        CheckConstraint(
+            "super_admin_role_id IS NULL OR ((default_role_id IS NULL "
+            "OR super_admin_role_id <> default_role_id) "
+            "AND (org_owner_role_id IS NULL OR super_admin_role_id <> org_owner_role_id))",
+            name="super_admin_role_distinct",
+        ),
     )
 
     key: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -115,6 +135,8 @@ class App(UUIDPkMixin, TimestampMixin, Base):
     default_role_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     # Role the creator of an org gets in it (USR-06a); only for `org_mode = required` apps.
     org_owner_role_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    # Designated super-admin role of an org app (USR-38, ADR-0030): privileged by designation.
+    super_admin_role_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
 
 
 class Permission(UUIDPkMixin, TimestampMixin, Base):

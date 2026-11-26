@@ -766,8 +766,8 @@ class RbacRepository:
         )
 
     async def user_has_privileged_assignment(self, user_id: uuid.UUID) -> bool:
-        """Any assignment (expired included: it can be renewed) of an admin-app role or of a role
-        holding an `is_admin` permission."""
+        """Any assignment (expired included: it can be renewed) of an admin-app role, of a role
+        holding an `is_admin` permission or of an app's designated super-admin role (ADR-0030)."""
         holds_admin_permission = (
             exists()
             .where(RolePermission.role_id == Role.id)
@@ -777,7 +777,13 @@ class RbacRepository:
             exists()
             .where(RoleAssignment.user_id == user_id)
             .where(Role.id == RoleAssignment.role_id, App.id == Role.app_id)
-            .where(or_(App.key == ADMIN_APP_KEY, holds_admin_permission))
+            .where(
+                or_(
+                    App.key == ADMIN_APP_KEY,
+                    holds_admin_permission,
+                    App.super_admin_role_id == Role.id,
+                )
+            )
         )
         return bool(await self.session.scalar(stmt))
 
@@ -794,7 +800,7 @@ class RbacRepository:
             await self.session.flush()
 
     @staticmethod
-    def _counting_super_admin(role_id: uuid.UUID) -> ColumnElement[bool]:
+    def _counting_super_admin(role_id: uuid.UUID | ColumnElement[uuid.UUID]) -> ColumnElement[bool]:
         """App scope, not expired (database clock), held by an `active`, verified user (only
         such a user can get an admin token, D16)."""
         return and_(
@@ -804,6 +810,41 @@ class RbacRepository:
             User.id == RoleAssignment.user_id,
             User.status == UserStatus.ACTIVE.value,
             User.email_verified_at.is_not(None),
+        )
+
+    @staticmethod
+    def _staff_super_admin_role_id() -> ColumnElement[uuid.UUID]:
+        """Scalar subquery: id of the `admin:super-admin` role."""
+        return (
+            select(Role.id)
+            .join(App, App.id == Role.app_id)
+            .where(App.key == ADMIN_APP_KEY, Role.key == f"{ADMIN_APP_KEY}:super-admin")
+            .scalar_subquery()
+        )
+
+    async def is_active_staff_super_admin(self, user_id: uuid.UUID) -> bool:
+        """Active, unexpired app-scope `admin:super-admin` held by an active, verified account.
+
+        Plain read: never locks the `admin` app (ADR-0030 lock rule).
+        """
+        stmt = select(
+            exists().where(
+                self._counting_super_admin(self._staff_super_admin_role_id()),
+                RoleAssignment.user_id == user_id,
+            )
+        )
+        return bool(await self.session.scalar(stmt))
+
+    async def app_super_admin_access(self, user_id: uuid.UUID, role_id: uuid.UUID) -> bool:
+        """An app-scope, unexpired assignment of `role_id` and a live staff super-admin."""
+        holds = exists().where(
+            RoleAssignment.user_id == user_id,
+            RoleAssignment.role_id == role_id,
+            RoleAssignment.org_id.is_(None),
+            self._is_active(),
+        )
+        return bool(await self.session.scalar(select(holds))) and (
+            await self.is_active_staff_super_admin(user_id)
         )
 
     async def count_other_active_super_admins(

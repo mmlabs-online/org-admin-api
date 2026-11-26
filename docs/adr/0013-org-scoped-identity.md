@@ -2,6 +2,7 @@
 
 Status: Accepted (owner, 2026-11-17: "defaults OK" on the USR-06 plan questions)
 Date: 2026-11-17
+Amended by ADR-0030 (USR-38..40): staff super-admin access to every org of an org app.
 
 ## Context
 Apps with `org_mode = required` (calechip first) need users to create organizations and get

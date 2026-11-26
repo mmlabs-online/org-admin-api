@@ -347,3 +347,49 @@ async def test_check_texts(db_session: AsyncSession) -> None:
     assert "'app'" in defs["ck_permissions_scope_valid"]
     owner = defs["ck_apps_default_role_not_org_owner"]
     assert "default_role_id <> org_owner_role_id" in owner and "IS NULL" in owner
+
+
+# --- USR-38: apps.super_admin_role_id --------------------------------------------------------
+
+
+async def test_super_admin_requires_org_mode_check(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "plainapp")  # org_mode none
+    role = await make_role(db_session, app, "plainapp:root")
+    with pytest.raises(IntegrityError, match="ck_apps_super_admin_requires_org_mode"):
+        async with db_session.begin_nested():
+            app.super_admin_role_id = role.id
+            await db_session.flush()
+
+
+async def test_super_admin_not_admin_app_check(db_session: AsyncSession) -> None:
+    admin = (await db_session.scalars(select(App).where(App.key == "admin"))).one()
+    role = await make_role(db_session, admin, "admin:zz-root")
+    with pytest.raises(IntegrityError, match="ck_apps_super_admin_not_admin_app"):
+        async with db_session.begin_nested():
+            await db_session.execute(
+                text(
+                    "UPDATE apps SET org_mode = 'required', super_admin_role_id = :r WHERE id = :a"
+                ),
+                {"r": role.id, "a": admin.id},
+            )
+
+
+@pytest.mark.parametrize("column", ["default_role_id", "org_owner_role_id"])
+async def test_super_admin_role_distinct_check(db_session: AsyncSession, column: str) -> None:
+    app = await make_app(db_session, "orgapp", org_mode="required")
+    role = await make_role(db_session, app, "orgapp:root")
+    with pytest.raises(IntegrityError, match="ck_apps_super_admin_role_distinct"):
+        async with db_session.begin_nested():
+            setattr(app, column, role.id)
+            app.super_admin_role_id = role.id
+            await db_session.flush()
+
+
+async def test_super_admin_role_same_app_fk(db_session: AsyncSession) -> None:
+    app = await make_app(db_session, "orgapp", org_mode="required")
+    other = await make_app(db_session, "otherapp")
+    foreign = await make_role(db_session, other, "otherapp:root")
+    with pytest.raises(IntegrityError, match="fk_apps_super_admin_role_same_app"):
+        async with db_session.begin_nested():
+            app.super_admin_role_id = foreign.id
+            await db_session.flush()

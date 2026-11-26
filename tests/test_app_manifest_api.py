@@ -610,3 +610,55 @@ async def test_noop_writes_no_row(client: AsyncClient, db_session: AsyncSession)
     before = len(await _audit(db_session, env))
     await _put(client, env, body)
     assert len(await _audit(db_session, env)) == before == 1
+
+
+async def _designated(db: AsyncSession, env: Env) -> Role:
+    role = await make_role(db, env.app, f"{env.key}:super-admin")
+    env.app.super_admin_role_id = role.id
+    await db.flush()
+    return role
+
+
+async def test_manifest_designated_role_409(client: AsyncClient, db_session: AsyncSession) -> None:
+    env = await _env(db_session, org=True)
+    role = await _designated(db_session, env)
+    body = {
+        "permissions": _perms(env, "a", scope="app"),
+        "roles": [{"key": role.key, "name": "X", "permissions": [env.perm("a")]}],
+    }
+    resp = await _put(client, env, body)
+    assert resp.status_code == 409
+    assert "role_not_manifest_managed" in _reasons(resp)
+    assert await _holds(db_session, env, role.key) == set()
+
+
+async def test_manifest_super_admin_role_id_field_422(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    env = await _env(db_session, org=True)
+    role = await _designated(db_session, env)
+    body = {"permissions": _perms(env, "a", scope="app"), "super_admin_role_id": str(role.id)}
+    assert (await _put(client, env, body)).status_code == 422
+
+
+async def test_manifest_new_permission_does_not_touch_designated_role(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    env = await _env(db_session, org=True)
+    role = await _designated(db_session, env)
+    resp = await _put(client, env, {"permissions": _perms(env, "x", scope="org")})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["member"]["rebuilt"] is True
+    assert await _holds(db_session, env, role.key) == set()
+
+
+async def test_manifest_never_changes_designation(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    env = await _env(db_session, org=True)
+    role = await _designated(db_session, env)
+    assert (
+        await _put(client, env, {"permissions": _perms(env, "x", "y", scope="org")})
+    ).status_code == 200
+    await db_session.refresh(env.app)
+    assert env.app.super_admin_role_id == role.id

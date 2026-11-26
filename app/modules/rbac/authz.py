@@ -6,6 +6,7 @@ from collections.abc import Set as AbstractSet
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.rbac.models import ADMIN_APP_KEY, App, AppStatus, OrgMode
 from app.modules.rbac.repository import RbacRepository
 
 
@@ -21,6 +22,14 @@ def permits(granted: AbstractSet[str] | Sequence[str], required: str) -> bool:
     if not sep or not app or not rest:
         return False
     return required in granted or f"{app}:*" in granted
+
+
+def is_designated_super_admin_role(app: App, role_id: uuid.UUID) -> bool:
+    """True if `role_id` is the app's designated super-admin role (USR-38, ADR-0030).
+
+    The one Python predicate for "privileged by designation"; USR-39 and USR-40 import it.
+    """
+    return app.super_admin_role_id is not None and app.super_admin_role_id == role_id
 
 
 class AuthzService:
@@ -64,3 +73,18 @@ class AuthzService:
         # Second check: drop keys registered under another app's prefix.
         prefix = f"{app_key}:"
         return [k for k in keys if k.startswith(prefix)]
+
+    async def app_super_admin_access(self, user_id: uuid.UUID, app: App) -> bool:
+        """True if the user holds the app's designated super-admin role right now (ADR-0030).
+
+        Plain reads, no lock. A live staff `admin:super-admin` is required as well. The holder
+        predicate for USR-39 (mint) and USR-40 (picker).
+        """
+        if (
+            app.key == ADMIN_APP_KEY
+            or app.status != AppStatus.ACTIVE.value
+            or app.org_mode != OrgMode.REQUIRED.value
+            or app.super_admin_role_id is None
+        ):
+            return False
+        return await self.repo.app_super_admin_access(user_id, app.super_admin_role_id)

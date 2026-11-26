@@ -159,7 +159,8 @@ class ManifestService:
         for r in data.roles:
             role = await self.repo.get_role_by_key(app.id, r.key)
             if role is not None and (
-                role.is_system or role.id in (app.default_role_id, app.org_owner_role_id)
+                role.is_system
+                or role.id in (app.default_role_id, app.org_owner_role_id, app.super_admin_role_id)
             ):
                 conflicts.append(_detail("roles", "role_not_manifest_managed", r.key))
         new_keys = [p.key for p in data.permissions if p.key not in stored]
