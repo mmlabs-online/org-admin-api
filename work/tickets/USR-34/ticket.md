@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Size | M |
 | Areas | api, db |
@@ -11,7 +11,7 @@
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-26 |
-| Claimed by | claude@2026-11-26T08:06Z |
+| Claimed by | claude@2026-11-26T08:24Z |
 | PR | — |
 
 ## Goal
@@ -48,5 +48,8 @@ Staff see each user's current access (active roles per app, with scope) directly
 - API tests per criterion against the Postgres test DB, including a query-count assertion.
 
 ## Notes / answers from Ming
+- 2026-11-26 (Ming, chat): "duyệt hết; câu 1–34 theo mặc định; cho merge USR-34, USR-35".
+- Plan approved (2026-11-26, batch 2026-11-26-2); all blocking questions answered with the plan defaults.
+- Merge approved (2026-11-26, batch 2026-11-26-2).
 
 ## Handoff

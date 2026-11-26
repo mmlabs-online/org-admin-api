@@ -42,5 +42,7 @@ The documented errors of `POST /api/v1/users/{user_id}/role-assignments` match w
 - API tests for both 409 reasons; OpenAPI snapshot / schema assertion for the route.
 
 ## Notes / answers from Ming
+- 2026-11-26 (Ming, chat): "duyệt hết; câu 1–34 theo mặc định; cho merge USR-34, USR-35".
+- Plan approved (2026-11-26, batch 2026-11-26-2); all blocking questions answered with the plan defaults.
 
 ## Handoff
