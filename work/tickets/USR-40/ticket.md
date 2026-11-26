@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
 | Areas | api, auth |
@@ -57,4 +57,8 @@ In the app's org picker (AUT-06 flow), a staff holder of the app's super-admin r
 - Follow-ups: EXPLAIN / index review of the holder query beyond ~10k orgs; suspended member orgs listed but not mintable (pre-existing, documented); regression test for a device with a holder and a non-holder account; optional router docstring line.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/105 (tier medium, merge approved by Ming).
 - Merge rule not met: CI `check` failed (only the 13 known kit-lint errors in `.github/scripts/risk_tier.py`; tests never run in CI); tier medium, `risk:medium` label agrees, merge approved. Stopped for Ming: merge #105 or say "merge cho tôi #105", then `/run-batch --resume` closes the batch.
+
+### 2026-11-26 — merged (batch 2026-11-26-1)
+- PR [#105](https://github.com/mmlabs-online/org-admin-api/pull/105) merged by the agent at f8503f6 on Ming's explicit instruction ("merge cho tôi #105"), overriding merge-rule condition 2 (CI `check` red only on the 13 known kit-lint errors in `.github/scripts/risk_tier.py`, verified in the job log). Tier medium, merge approved in the batch round.
+- Tree of `main` after the merge equals the reviewed head c977f29 (4393 passed at review).
 

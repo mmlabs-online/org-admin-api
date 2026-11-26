@@ -86,7 +86,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-36 | Bulk-assign one role to up to 100 users (`assignment-batches`) | BACKLOG | P2 | architecture, api, auth, security, db | 0 | 2026-11-26 |
 | USR-38 | Designated per-app super-admin role for org apps (simap SIM-043) | MERGED | P2 | architecture, db, api, auth, security | 1 | 2026-11-26 |
 | USR-39 | Org token for a non-member org via the app's super-admin role (simap SIM-043) | MERGED | P2 | auth, security, api | 1 | 2026-11-26 |
-| USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | DONE | P2 | api, auth | 1 | 2026-11-26 |
+| USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | MERGED | P2 | api, auth | 1 | 2026-11-26 |
 | USR-26 | Role definitions: assignment count, org-owner flag, stable reasons on 409 conflicts | BACKLOG | P3 | api, db | 0 | 2026-11-19 |
 | USR-27 | Role assignments: return role and org names | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | USR-28 | Exact email lookup for staff user search | BACKLOG | P3 | api, security | 0 | 2026-11-19 |
