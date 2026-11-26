@@ -2,16 +2,16 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P2 |
 | Size | M |
 | Areas | api, db |
 | Gate | plan-approval |
 | Depends on | ADM-013, ADM-023 |
 | Needs Ming | — |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-26 |
-| Claimed by | claude@2026-11-26T08:24Z |
+| Claimed by | — |
 | PR | — |
 
 ## Goal
@@ -53,3 +53,9 @@ Staff see each user's current access (active roles per app, with scope) directly
 - Merge approved (2026-11-26, batch 2026-11-26-2).
 
 ## Handoff
+
+### 2026-11-26 — claude — DONE (batch 2026-11-26-2, attempt 1)
+- Agent calls: 5, tokens ~300k total (api-platform-engineer 31k, database-optimizer 29k, planner opus 101k, implementer sonnet 69k, reviewer opus ~70k).
+- Done: `include=access` on `GET /api/v1/users` (repeatable `include`, separate `UserWithAccessRead`, one windowed access query per page, cap 20 + `access_truncated`, `COLLATE "C"` order), shared `users.repository.active_assignment_clause()` for USR-35; no High path. Review PASS (4416 passed; ruff/mypy/alembic clean; tier medium); no appsec trigger.
+- Follow-ups: move rbac's inline active-assignment copies onto one shared definition (High, separate ticket); tell admin-pan (PAN-032) the 200 response is now `anyOf` two page types; nits in review.md.
+
