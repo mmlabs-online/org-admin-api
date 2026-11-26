@@ -22,3 +22,6 @@ I found no blockers or should-fix items. Each focus point:
 
 Follow-ups (out of scope):
 - Owner: add the `usage-events-purge` choice to `ops-org-admin-api` in `mmlabs-online/deployment`. Scheduling is an open owner decision.
+
+## Attempt 2
+Not re-run: the rework commit 8bfc001 changes only `tests/test_cli_usage_events_purge.py` (audit query scoped to its own transaction) and `impl-log.md`; the attempt-1 PASS applies (orchestrator note).

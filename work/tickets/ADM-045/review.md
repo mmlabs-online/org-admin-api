@@ -42,3 +42,39 @@ None.
 
 ### Follow-ups (out of scope)
 - `tests/test_audit_logs_api.py` asserts exact unfiltered `total` counts, so it fails whenever a test that commits audit rows runs first. This was already true before this ticket: running all existing `tests/test_*concurrency*.py` first gives "5 failed". `test_skips_locked_rows` adds one more such row (6 failures when it runs first). Make those assertions immune to committed rows (filter by test-owned ids or by the transaction's `now()`).
+
+## Attempt 2 — 2026-11-26
+Verdict: PASS
+
+### Checks (run by reviewer)
+- `uv run pytest tests/test_usage_events_retention.py tests/test_cli_usage_events_purge.py -p no:randomly` (retention first, the attempt-1 failing order) — 23 passed.
+- `uv run pytest tests/test_cli_usage_events_purge.py tests/test_usage_events_retention.py -p no:randomly` (reverse order) — 23 passed.
+- `uv run pytest` (full suite) — 4244 passed, 2 warnings in 740 s.
+- `uv run ruff check app tests migrations` — All checks passed. `uv run ruff format --check app tests migrations` — 438 files already formatted. (Known kit lint issue in `.github/scripts/risk_tier.py` is out of scope.)
+- `uv run mypy app` (Makefile `typecheck`) — Success: no issues found in 216 source files.
+- `uv run alembic check` — No new upgrade operations detected.
+
+### Acceptance criteria
+- Attempt-1 criteria evidence unchanged (no source change since eb2b111); see Attempt 1.
+- [x] Attempt-1 Issue 1 fixed — evidence: `tests/test_cli_usage_events_purge.py:89` now asserts `await _summaries(db_session) == []`, and `_summaries` (`tests/test_usage_events_retention.py:62-67`) filters `AuditLog.occurred_at >= func.now()`, so only this transaction's rows count; both file orders pass (above).
+
+### Scope
+`git diff eb2b111..8bfc001`: only `tests/test_cli_usage_events_purge.py` (fix + removed unused `select`/`AuditLog` imports) and `work/tickets/ADM-045/impl-log.md`. Commit 3c398f4 touches only `work/tickets/ADM-045/ticket.md` (state). No app, migration or config change. impl-log claims (23 passed both orders, 4244 full suite) match the reviewer's run.
+
+### Issues
+None.
+
+### Rules (CLAUDE.md)
+No violations found.
+
+### Blockers from review agents
+None.
+
+### Nits (do not block)
+- Attempt-1 nit on `tests/test_usage_events_retention.py:203` still applies.
+
+### Follow-ups (out of scope)
+- Same as Attempt 1 (`tests/test_audit_logs_api.py` order sensitivity to committed audit rows).
+
+### Review agents (attempt 2)
+- appsec-engineer: attempt 1 `Verdict: PASS` (no 🔴/🟡, 3 💭) stands; the attempt-2 rework (8bfc001) changed only `tests/test_cli_usage_events_purge.py` and `impl-log.md`. No blockers from review agents.
