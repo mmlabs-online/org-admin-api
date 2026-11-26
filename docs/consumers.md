@@ -212,6 +212,35 @@ can supersede another member's pending invitation to the same address by re-invi
 the org). Residual risk: a staff-granted app-scope role that carries org-level permissions still
 reaches every org token through `roles`; authorize org data from `org_roles` only (below).
 
+### Org apps without self-service org creation (simap)
+
+Same shape as calechip, except only staff create orgs and appoint each org's owner. Setup (staff;
+CLI or admin API, no app code here):
+
+1. `register-app --key simap --name simap --origin https://simap.mmlabs.online --join-policy open
+   --org-mode required` (deploy.md "Register an app"). Loopback origins are refused in
+   production: register `http://localhost:3000` only on a local API.
+2. Org permissions (`POST /api/v1/apps/simap/permissions` with `"scope": "org"`, or
+   `--org-permission`): `simap:org:invite` plus one admin-only key (e.g. `simap:org:manage`).
+   **Never create `simap:org:create`**: it is always app scope, so the next member-role rebuild
+   puts it into `simap:member` and turns on self-service org creation. Without it,
+   `POST /api/v1/auth/orgs` answers 403 `org_create_forbidden`.
+3. Roles (`POST /api/v1/apps/simap/roles`, then `PUT …/roles/{id}/permissions`):
+   `simap:admin` = invite + admin-only key, `simap:manager` = invite, `simap:user` = none.
+   `simap:member` stays empty (app scope, no org access).
+4. `PATCH /api/v1/apps/simap` `{"org_owner_role_id": <simap:admin id>}` (invitations need it).
+5. Per org: `POST /api/v1/organizations` `{slug, name}`; the owner signs up, verifies and joins
+   simap first (a user with only org roles gets 403 `not_member` from `/auth/token`), then
+   `POST /api/v1/users/{user_id}/role-assignments` `{"role_id": <simap:admin id>, "org_id"}`.
+
+Invitations check permissions, not a role order: a role is invitable when its permissions are a
+subset of the inviter's in that org. Keep each higher role a **strict** superset (admin ⊋ manager
+⊋ user). If admin and manager hold the same set, a manager can invite an admin. Equal roles can
+always invite each other (admin → admin, manager → manager). The default role `simap:member` can
+be invited into an org (it has no permissions); simap must not treat
+`org_roles == ["simap:member"]` as org access. After step 4, simap's manifest must not list
+`simap:admin` in `roles` (409 `role_not_manifest_managed`); staff change its permissions.
+
 ### Reading an org's members from your backend (USR-29, ADR-0025)
 
 `GET /api/v1/apps/{key}/orgs/{org_id}/members` with `Authorization: Bearer mmak_...` (a key with
