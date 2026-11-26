@@ -12,7 +12,7 @@
 | Attempts | 1 |
 | Created | 2026-11-26 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/106 |
 
 ## Goal
 Staff see each user's current access (active roles per app, with scope) directly in the users list, without one request per row. Requested by admin-pan for PAN-032 (access column).
@@ -58,4 +58,4 @@ Staff see each user's current access (active roles per app, with scope) directly
 - Agent calls: 5, tokens ~286k total (api-platform-engineer 31k, database-optimizer 29k, planner opus 101k, implementer sonnet 69k, reviewer opus 56k).
 - Done: `include=access` on `GET /api/v1/users` (repeatable `include`, separate `UserWithAccessRead`, one windowed access query per page, cap 20 + `access_truncated`, `COLLATE "C"` order), shared `users.repository.active_assignment_clause()` for USR-35; no High path. Review PASS (4416 passed; ruff/mypy/alembic clean; tier medium); no appsec trigger.
 - Follow-ups: move rbac's inline active-assignment copies onto one shared definition (High, separate ticket); tell admin-pan (PAN-032) the 200 response is now `anyOf` two page types; nits in review.md.
-
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/106 (tier medium, merge approved by Ming).
