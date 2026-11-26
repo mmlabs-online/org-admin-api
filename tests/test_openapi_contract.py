@@ -14,6 +14,7 @@ from app.core.errors import (
 )
 from app.main import create_app
 from app.modules.admin_auth.deps import _ERROR_RESPONSES, require_permission
+from app.modules.rbac.models import APP_KEY_RE
 
 REF = "#/components/schemas/ErrorEnvelope"
 
@@ -534,3 +535,26 @@ def test_bug_report_untrusted_text_documented() -> None:
     assert (
         "re-check the scheme" in schemas["BugReportRead"]["properties"]["page_url"]["description"]
     )
+
+
+def test_users_list_filter_params() -> None:
+    schema = _schema()
+    op = schema["paths"]["/api/v1/users"]["get"]
+    app = _param(op, "app")
+    assert app["in"] == "query"
+    assert not app.get("required")
+    assert _flat(app["schema"])["pattern"] == APP_KEY_RE
+    for word in ("key", "Disabled", "unknown_app"):
+        assert word in app["description"]
+    role = _param(op, "role_id")
+    assert role["in"] == "query"
+    assert not role.get("required")
+    assert _flat(role["schema"])["format"] == "uuid"
+    for word in ("unknown_role", "role_not_in_app"):
+        assert word in role["description"]
+    resp = op["responses"]["422"]
+    assert resp["content"]["application/json"]["schema"] == {"$ref": REF}
+    for word in (
+        "validation_error", "unprocessable", "unknown_app", "unknown_role", "role_not_in_app",
+    ):  # fmt: skip
+        assert word in resp["description"]

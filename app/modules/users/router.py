@@ -14,6 +14,7 @@ from app.api.deps import PageDep, SessionDep
 from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
 from app.modules.audit.deps import AuditContextDep
+from app.modules.rbac.models import APP_KEY_RE
 from app.modules.sessions.schemas import UserSessionRead
 from app.modules.sessions.staff_service import StaffSessionService
 from app.modules.users.models import UserStatus
@@ -26,13 +27,44 @@ router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(curren
 @router.get(
     "",
     response_model=Page[UserWithAccessRead] | Page[UserRead],
-    **require_permission("admin:users:read"),
+    **require_permission(
+        "admin:users:read",
+        errors={
+            422: (
+                "Validation failed (code=validation_error: malformed query value such as an "
+                "`app` key that fails the key grammar or a `role_id` that is not a UUID) or "
+                "refused filter value (code=unprocessable, details[].reason: unknown_app, "
+                "unknown_role, role_not_in_app)."
+            )
+        },
+    ),
 )
 async def list_users(
     session: SessionDep,
     page: PageDep,
     email: Annotated[str | None, Query(min_length=1, max_length=254)] = None,
     status: Annotated[UserStatus | None, Query()] = None,
+    app: Annotated[
+        str | None,
+        Query(
+            pattern=APP_KEY_RE,
+            description=(
+                "App key. Only users with at least one active (not expired) assignment of any "
+                "role of this app, at app scope or in any organization. Disabled apps are "
+                "accepted. Unknown key -> 422 `unprocessable`, reason `unknown_app`."
+            ),
+        ),
+    ] = None,
+    role_id: Annotated[
+        uuid.UUID | None,
+        Query(
+            description=(
+                "Role id. Only users holding this role actively, at app scope or in any "
+                "organization. Unknown -> 422 `unprocessable`, reason `unknown_role`; with "
+                "`app`, a role of another app -> reason `role_not_in_app`."
+            )
+        ),
+    ] = None,
     include: Annotated[
         list[UserInclude] | None,
         Query(
@@ -47,7 +79,12 @@ async def list_users(
 ) -> Page[UserWithAccessRead] | Page[UserRead]:
     service = UserService(session)
     items, total = await service.list(
-        email=email, status=status, limit=page.limit, offset=page.offset
+        email=email,
+        status=status,
+        app_key=app,
+        role_id=role_id,
+        limit=page.limit,
+        offset=page.offset,
     )
     if include is None or UserInclude.ACCESS not in include:
         return Page(

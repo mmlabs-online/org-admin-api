@@ -9,6 +9,7 @@ from app.core.errors import (
     LastSuperAdminError,
     NotFoundError,
     SelfStatusChangeForbiddenError,
+    UnprocessableError,
 )
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
@@ -28,6 +29,10 @@ from app.modules.users.schemas import AccessRole, AppAccess, UserUpdate
 logger = logging.getLogger(__name__)
 
 ACCESS_CAP = 20
+
+
+def _filter_unprocessable(message: str, field: str, reason: str) -> UnprocessableError:
+    return UnprocessableError(message, details=[{"field": field, "reason": reason}])
 
 
 class UserService:
@@ -72,9 +77,40 @@ class UserService:
         return result
 
     async def list(
-        self, *, email: str | None, status: UserStatus | None, limit: int, offset: int
+        self,
+        *,
+        email: str | None,
+        status: UserStatus | None,
+        app_key: str | None = None,
+        role_id: uuid.UUID | None = None,
+        limit: int,
+        offset: int,
     ) -> tuple[list[User], int]:
-        return await self.repo.list(email=email, status=status, limit=limit, offset=offset)
+        """Unknown `app_key` / `role_id` are 422, not an empty page (spec §5.15, OQ76)."""
+        app_id: uuid.UUID | None = None
+        rbac = RbacRepository(self.repo.session)
+        if app_key is not None:
+            app = await rbac.get_app_by_key(app_key)
+            if app is None:
+                raise _filter_unprocessable("Unknown app", "app", "unknown_app")
+            app_id = app.id
+        if role_id is not None:
+            found = await rbac.role_with_app(role_id)
+            if found is None:
+                raise _filter_unprocessable("Unknown role", "role_id", "unknown_role")
+            if app_id is not None and found[0].app_id != app_id:
+                raise _filter_unprocessable(
+                    "Role does not belong to this app", "role_id", "role_not_in_app"
+                )
+            app_id = None  # the role already pins the app
+        return await self.repo.list(
+            email=email,
+            status=status,
+            app_id=app_id,
+            role_id=role_id,
+            limit=limit,
+            offset=offset,
+        )
 
     async def update(
         self, user_id: uuid.UUID, body: UserUpdate, *, actor: Actor, ctx: AuditContext
