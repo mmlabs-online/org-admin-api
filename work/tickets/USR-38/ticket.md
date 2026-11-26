@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, db, api, auth, security |
@@ -11,7 +11,7 @@
 | Needs Ming | OQ80, OQ81, OQ82, OQ83, OQ90 (spec §8; answer at the plan gate) |
 | Attempts | 0 |
 | Created | 2026-11-26 |
-| Claimed by | — |
+| Claimed by | claude@2026-11-26T03:59Z |
 | PR | — |
 
 ## Goal
