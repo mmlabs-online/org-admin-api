@@ -53,8 +53,6 @@ A staff holder of an app's designated super-admin role can mint an access token 
 
 ## Handoff
 
-## Handoff
-
 ### 2026-11-26 — claude — DONE (batch 2026-11-26-1, attempt 1)
 - Agent calls: 7, tokens ~508k total (identity-access-engineer 41k, security-architect 49k, api-platform-engineer 34k, planner opus 132k, implementer sonnet 111k, reviewer opus 89k, appsec-engineer 52k).
 - Done: super-admin org mint branch in `POST /api/v1/auth/token` (holder check → org-of-app check → per-account limit → per-mint TTL → audit), `org_access: "super_admin"` claim, `SUPER_ADMIN_ORG_TOKEN_TTL_SECONDS` + mint limit keys, `org_of_app_clause` / `is_org_of_app` for USR-40, audit action `token.super_admin_org_issued`, docs/consumers.md rule, ADR-0030 §7. Review PASS (4367 passed + 2 DB-interference errors that pass on re-run; ruff/mypy/alembic clean; tier high); appsec PASS.
