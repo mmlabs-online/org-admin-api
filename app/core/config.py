@@ -145,6 +145,8 @@ class Settings(BaseSettings):
     usage_max_bytes: int = Field(default=2048, ge=512)
     usage_read_timeout_seconds: int = Field(default=5, ge=1)
     usage_adjust_window_seconds: int = Field(default=86400, ge=60)
+    # Per-use events are purged after this many days (OQ69, ADM-045); 90 is the floor (ADR-0022).
+    usage_event_retention_days: int = Field(default=90, ge=90)
 
     # Access-token signing (ADR-0005): base64 of a PEM P-256 private key on one line. Required
     # in staging/production; local/test fall back to an ephemeral per-process key.
@@ -274,6 +276,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "JOIN_REQUEST_RETENTION_DAYS must be at least JOIN_REJECT_COOLDOWN_SECONDS"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _usage_retention_covers_adjust_window(self) -> Self:
+        if self.usage_event_retention_days * 86400 < self.usage_adjust_window_seconds:
+            raise ValueError("USAGE_EVENT_RETENTION_DAYS must cover USAGE_ADJUST_WINDOW_SECONDS")
         return self
 
     @model_validator(mode="after")
