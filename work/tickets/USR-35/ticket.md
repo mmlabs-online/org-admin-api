@@ -2,16 +2,16 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P2 |
 | Size | S |
 | Areas | api, db |
 | Gate | plan-approval |
 | Depends on | USR-34 |
 | Needs Ming | — |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-26 |
-| Claimed by | claude@2026-11-26T09:28Z |
+| Claimed by | — |
 | PR | — |
 
 ## Goal
@@ -50,3 +50,9 @@ Staff find the users who hold any role of an app, or one specific role, from the
 - Merge approved (2026-11-26, batch 2026-11-26-2).
 
 ## Handoff
+
+### 2026-11-26 — claude — DONE (batch 2026-11-26-2, attempt 1)
+- Agent calls: 5, tokens ~270k total (api-platform-engineer 33k, database-optimizer 29k, planner opus 86k, implementer sonnet 62k, reviewer opus 60k).
+- Done: `app` (key) and `role_id` filters on `GET /api/v1/users` (correlated EXISTS on `active_assignment_clause()`, distinct total), 422 `unknown_app` / `unknown_role` / `role_not_in_app`, OpenAPI; no High path. Review PASS (4442 passed; ruff/mypy/alembic clean; tier medium); no appsec trigger. Review 🟡 (spec §5.15 :365 / OQ76 answer annotation) fixed by the orchestrator in a docs-only commit ("USR-35: record owner answers in spec §5.15").
+- Follow-ups: EXPLAIN (ANALYZE, BUFFERS) of the filter count query on a seeded DB; admin-pan PAN-034 shows `details[].reason` as field errors; test pinning `app=admin`.
+
