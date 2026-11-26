@@ -12,7 +12,7 @@
 | Attempts | 1 |
 | Created | 2026-11-26 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/107 |
 
 ## Goal
 Staff find the users who hold any role of an app, or one specific role, from the users list. Requested by admin-pan for PAN-034 (users filters).
@@ -55,4 +55,4 @@ Staff find the users who hold any role of an app, or one specific role, from the
 - Agent calls: 5, tokens ~270k total (api-platform-engineer 33k, database-optimizer 29k, planner opus 86k, implementer sonnet 62k, reviewer opus 60k).
 - Done: `app` (key) and `role_id` filters on `GET /api/v1/users` (correlated EXISTS on `active_assignment_clause()`, distinct total), 422 `unknown_app` / `unknown_role` / `role_not_in_app`, OpenAPI; no High path. Review PASS (4442 passed; ruff/mypy/alembic clean; tier medium); no appsec trigger. Review 🟡 (spec §5.15 :365 / OQ76 answer annotation) fixed by the orchestrator in a docs-only commit ("USR-35: record owner answers in spec §5.15").
 - Follow-ups: EXPLAIN (ANALYZE, BUFFERS) of the filter count query on a seeded DB; admin-pan PAN-034 shows `details[].reason` as field errors; test pinning `app=admin`.
-
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/107 (tier medium, merge approved by Ming).
