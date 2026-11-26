@@ -1,11 +1,36 @@
 import uuid
+from collections.abc import Sequence
+from datetime import datetime
+from typing import NamedTuple
 
-from sqlalchemy import ColumnElement, func, select, update
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.listing import escape_like
 from app.db.base import bumped_updated_at
+from app.modules.rbac.models import App, Role, RoleAssignment
 from app.modules.users.models import User, UserStatus
+
+
+def active_assignment_clause() -> ColumnElement[bool]:
+    """`role_assignments` row is active: not expired by the database clock (spec §5.15).
+
+    Shared by the users list access summary (USR-34) and its filters (USR-35). Same rule as
+    `RbacRepository._is_active` (rbac/repository.py:597-599). Uncorrelated: callers add their own
+    `RoleAssignment.user_id == ...` condition.
+    """
+    return or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now())
+
+
+class AccessRow(NamedTuple):
+    user_id: uuid.UUID
+    assignment_id: uuid.UUID
+    role_id: uuid.UUID
+    role_key: str
+    org_id: uuid.UUID | None
+    expires_at: datetime | None
+    app_key: str
+    app_status: str
 
 
 class UserRepository:
@@ -73,6 +98,58 @@ class UserRepository:
             .with_for_update(read=True)
             .execution_options(populate_existing=True)
         )
+
+    async def list_access(self, user_ids: Sequence[uuid.UUID], *, per_user: int) -> list[AccessRow]:
+        """Active assignments of the given users in one query, first `per_user` rows per user.
+
+        Order per user: app key, role key (byte order), app scope before org scope, org id,
+        assignment id. Apps in any status are included (OQ75).
+        """
+        if not user_ids:
+            return []
+        ranked = (
+            select(
+                RoleAssignment.user_id,
+                RoleAssignment.id.label("assignment_id"),
+                RoleAssignment.role_id,
+                Role.key.label("role_key"),
+                RoleAssignment.org_id,
+                RoleAssignment.expires_at,
+                App.key.label("app_key"),
+                App.status.label("app_status"),
+                func.row_number()
+                .over(
+                    partition_by=RoleAssignment.user_id,
+                    order_by=(
+                        App.key.collate("C"),
+                        Role.key.collate("C"),
+                        RoleAssignment.org_id.is_not(None),
+                        RoleAssignment.org_id,
+                        RoleAssignment.id,
+                    ),
+                )
+                .label("rn"),
+            )
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(App, App.id == Role.app_id)
+            .where(RoleAssignment.user_id.in_(user_ids), active_assignment_clause())
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(
+                ranked.c.user_id,
+                ranked.c.assignment_id,
+                ranked.c.role_id,
+                ranked.c.role_key,
+                ranked.c.org_id,
+                ranked.c.expires_at,
+                ranked.c.app_key,
+                ranked.c.app_status,
+            )
+            .where(ranked.c.rn <= per_user)
+            .order_by(ranked.c.user_id, ranked.c.rn)
+        )
+        return [AccessRow(*row) for row in result.all()]
 
     async def list(
         self, *, email: str | None, status: UserStatus | None, limit: int, offset: int

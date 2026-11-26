@@ -1,10 +1,12 @@
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.text import UserDisplayName
+from app.modules.rbac.models import AppStatus
 from app.modules.users.models import UserStatus
 
 
@@ -20,6 +22,33 @@ class UserRead(BaseModel):
     display_name: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class UserInclude(StrEnum):
+    ACCESS = "access"
+
+
+class AccessRole(BaseModel):
+    assignment_id: uuid.UUID
+    role_id: uuid.UUID
+    role_key: str
+    org_id: uuid.UUID | None = Field(description="Null for an app-scope assignment.")
+    expires_at: datetime | None = Field(description="Null when the assignment does not expire.")
+
+
+class AppAccess(BaseModel):
+    app: str = Field(description="App key.")
+    app_status: AppStatus
+    roles: list[AccessRole]
+
+
+class UserWithAccessRead(UserRead):
+    """`UserRead` plus the active-access summary (`include=access`, USR-34)."""
+
+    access: list[AppAccess] = Field(
+        description="Active role assignments grouped by app key; at most 20 in total."
+    )
+    access_truncated: bool = Field(description="True when the user has more than 20 active ones.")
 
 
 class UserUpdate(BaseModel):

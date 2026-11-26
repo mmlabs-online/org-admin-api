@@ -234,6 +234,31 @@ def _flat(schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
+def test_users_list_operation() -> None:
+    schema = _schema()
+    comps = schema["components"]["schemas"]
+    op = schema["paths"]["/api/v1/users"]["get"]
+    include = _param(op, "include")
+    assert include["in"] == "query"
+    assert not include.get("required")
+    items = _flat(include["schema"])["items"]
+    if "$ref" in items:
+        items = comps[items["$ref"].rsplit("/", 1)[-1]]
+    assert items["enum"] == ["access"]
+    ok = op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert {s["$ref"] for s in ok["anyOf"]} == {
+        "#/components/schemas/Page_UserWithAccessRead_",
+        "#/components/schemas/Page_UserRead_",
+    }
+    assert op["x-permission"] == "admin:users:read"
+    assert len(comps["UserRead"]["required"]) == 7
+    assert {"access", "access_truncated"} <= set(comps["UserWithAccessRead"]["required"])
+    assert set(comps["AccessRole"]["required"]) == {
+        "assignment_id", "role_id", "role_key", "org_id", "expires_at",
+    }  # fmt: skip
+    assert set(comps["AppAccess"]["required"]) == {"app", "app_status", "roles"}
+
+
 def test_organizations_list_query_params() -> None:
     schema = _schema()
     op = schema["paths"]["/api/v1/organizations"]["get"]
