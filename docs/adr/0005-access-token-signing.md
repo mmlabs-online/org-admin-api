@@ -119,3 +119,18 @@ libraries and apps (`mmlabs-auth`, admin-pan, ricotdin, TuDoCuaTui) before produ
   not require it (`REQUIRED_CLAIMS` is unchanged). See ADR-0017.
 - **Risk 2 (consumer apps):** `ent` joins the claims frozen until `exp`; a change of an
   entitlement reaches a token only at its `exp`.
+
+## Amendment: `name` claim (USR-32, 2026-11-24)
+- **§5 claims:** `name` is an optional claim: the account's `display_name`, in app tokens only and
+  never on `aud=admin` (the admin UI reloads the user per request, ADR-0008). The key is absent
+  (never `null`) when the name is unset, blank or fails the issuance guard. Adding a claim is not
+  breaking; verifiers must not require it (`REQUIRED_CLAIMS` is unchanged).
+- **Issuance guard (defence in depth):** the stored value is normalised to NFC and must be 1-100
+  code points with no disallowed character (`app.core.text`). On failure the claim is left out, the
+  token is still issued, and only `user_id` and `aud` are logged. The value is never logged.
+- **Risk 2 (consumer apps):** `name` joins the claims frozen until `exp`; a display-name change
+  reaches a token only at its next issue (up to the TTL). A disabled user gets no new token, but a
+  live token keeps the name until `exp`.
+- **Untrusted text:** the name is user-chosen. Apps render it as text only, never use it for
+  identity or authorization (key users on `sub`), and cannot rely on it being free of confusables.
+- **Scope:** the write path shipped with USR-33 (D40): the account sets its own name (`POST /api/v1/auth/profile`), staff set it (`PATCH /api/v1/users/{id}`). A change reaches tokens on the next issue (at most one TTL); the USR-29 member read shows it at once.

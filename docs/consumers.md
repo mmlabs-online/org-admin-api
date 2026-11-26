@@ -177,7 +177,7 @@ A member holding `<app>:org:invite` **in that org** invites an email address:
 `POST /api/v1/auth/orgs/{org_id}/invitations` `{account_id, email, role}` (cookie class,
 `credentials: "include"`, `X-MM-App`). `role` is a role key of the calling app: no `is_admin`
 permission, and nothing beyond the inviter's own permissions in that org (the owner role is
-invitable by an owner; there is no member removal in v1, staff only). The answer is always
+invitable by an owner; members are removed as described under "Removing a member" below). The answer is always
 `201 {id, org_id, role, expires_at}`, whether or not the address has an account, is a member, or
 hit the per-address send limit: do not promise delivery. The global daily send cap answers
 429 `rate_limited` with `Retry-After` instead. The mail links to
@@ -240,6 +240,147 @@ always invite each other (admin → admin, manager → manager). The default rol
 be invited into an org (it has no permissions); simap must not treat
 `org_roles == ["simap:member"]` as org access. After step 4, simap's manifest must not list
 `simap:admin` in `roles` (409 `role_not_manifest_managed`); staff change its permissions.
+
+### Reading an org's members from your backend (USR-29, ADR-0025)
+
+`GET /api/v1/apps/{key}/orgs/{org_id}/members` with `Authorization: Bearer mmak_...` (a key with
+the scope `org-members:read`, issued by staff). Server-to-server only: keep the key in your
+backend deploy environment, never in a browser or mobile app, and rotate it when a staff member
+who knew it leaves. There is no CORS. The key works only for its own app (`{key}`).
+
+Query: `limit` (max 100), `offset`, `status` (`active` or `disabled`), `updated_since` (RFC 3339
+with a time zone offset). The response is `Page[T]` ordered by `user_id`, with `Cache-Control:
+no-store`.
+
+| Field | Meaning |
+|---|---|
+| `user_id` | the account id, equal to the access-token `sub` |
+| `email` | account email; `null` when `status` is `disabled` |
+| `email_verified` | whether the address was verified |
+| `display_name` | may be `null`; always `null` when `status` is `disabled` |
+| `status` | `active` or `disabled` |
+| `org_roles` | full role keys of your app held in this org, not expired, sorted |
+| `joined_at` | earliest creation time of those assignments (not "joined the org"; it can move when the earliest role expires or is removed) |
+
+Only users holding at least one org-scoped role of your app in that org are listed. Disabled users
+are listed. `updated_since` is additive: it returns users changed after the time, or granted a
+role after it. Removals and expiry are invisible to it, so run a full read at least daily.
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `unauthorized` | missing, malformed, unknown or revoked key; a deployer key or an admin token |
+| 403 | `app_credential_mismatch`, `app_credential_scope`, `app_disabled` | key of another app, wrong scope, disabled app |
+| 404 | `org_access_denied` | unknown org, an org with no relation to your app, or a suspended org (one answer for all; the cookie routes answer 403 with this code) |
+| 422 | `org_not_supported` | your app has `org_mode = none` |
+| 422 | `validation_error` | bad query (the value is not echoed) |
+| 429 | `rate_limited` | per IP and per key limits; honour `Retry-After` |
+
+Member emails are personal data: keep them on your server, store only what you need, and refresh
+or delete them on the full read.
+
+#### Pending invitations (USR-31)
+
+`GET /api/v1/apps/{key}/orgs/{org_id}/invitations` with the same `org-members:read` key. Query:
+`limit` (at most 100) and `offset`. The response is `Page[T]`, oldest first (`created_at`, then
+`id`), with `Cache-Control: no-store`. No CORS; server-to-server only.
+
+| Field | Meaning |
+|---|---|
+| `id` | the invitation id |
+| `role` | the full role key of your app the invitation grants, e.g. `simap:member` |
+| `created_at` | when it was sent |
+| `expires_at` | when it stops being acceptable |
+
+Only pending invitations of your app in that org are listed: not accepted, not revoked, and
+`expires_at` after now on the server clock. There is never an email, token or inviter in the
+response. Errors are the same as the member read above (401, 403, 404 `org_access_denied`, 422
+`org_not_supported`, 422 `validation_error`, 429). The member and invitation reads share one per-IP
+and one per-key rate limit budget.
+
+Pending is not a seat guarantee: an invitation can still be revoked, expire, or be refused on
+accept (the inviter lost the right to invite). The list is a snapshot: an item can expire right
+after the read. An org whose last member of your app has left answers 404 even if invitations are
+still pending.
+
+### Removing a member (USR-30, ADR-0026)
+
+`POST /api/v1/auth/orgs/{org_id}/members/{user_id}/remove` with `{account_id}` (the **caller's**
+account; `{user_id}` is the person removed). Cookie class: `credentials: "include"`, `Origin`,
+`X-MM-App`. Success is `204` with no body. The caller needs `<app>:org:remove-member` **in that
+org**. Declare it in your manifest (`scope: "org"`, `is_admin: false`); staff then add it to your org
+owner role, because the manifest sync does not change that role. Effect: the person's org roles of
+your app in that org are deleted, and their pending invitations to it are revoked. Their account,
+app-level roles and other orgs are untouched.
+
+Who may remove whom: not yourself; not a person with an `is_admin` permission or a permission you do
+not hold in that org (owners may remove co-owners); never the last owner.
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `session_invalid` | the account is not signed in on this device |
+| 403 | `origin_not_allowed`, `email_unverified` | bad origin or app, unverified caller |
+| 403 | `org_access_denied` | unknown, suspended or not-a-member org (one answer) |
+| 403 | `org_remove_member_forbidden` | the caller lacks the permission in that org |
+| 403 | `self_removal_forbidden`, `member_outranks_caller` | target is the caller, or holds more than the caller |
+| 403 | `org_member_remove_unavailable` | your app has no org owner role set |
+| 404 | `member_not_found` | the person holds no org role of your app there; a retry after success gets this too, treat it as done |
+| 409 | `last_org_owner` | the removal would leave the org without an owner |
+| 422 | `org_not_supported`, `validation_error` | `org_mode = none`, bad body or id |
+| 429 | `rate_limited` | per IP and per user limits; honour `Retry-After` |
+
+Token lag: access tokens issued before the removal keep the removed `org_roles` until they expire
+(up to `ACCESS_TOKEN_TTL_SECONDS`, 12 h in production). `POST /auth/token` with that `org_id` is
+refused (403 `org_access_denied`) at once. Before a destructive org action, re-check the person
+through the member read above or force a token refresh. A removal leaves no row, so the
+`updated_since` read cannot see it: run a full read.
+
+## Metering AI usage from your backend (ADM-042, ADR-0022)
+
+Your backend meters each AI action against the user's limit before it runs. Staff define metrics
+and limits (ADM-039, ADM-040); this API keeps the counters. Server-to-server only: keys never go
+to a browser or mobile app, there is no CORS, and every call is rate limited.
+
+Keys: staff issue one per scope for your app. `MMLABS_USAGE_CREDENTIAL` is a `usage:write` key
+(consume, settle, refund, and the read); `MMLABS_USAGE_READ_CREDENTIAL` is an optional `usage:read`
+key (the read only). Send `Authorization: Bearer mmak_...`. A key works only for its own app.
+
+| Call | Body | Result |
+|---|---|---|
+| `POST /api/v1/apps/{key}/usage/consume` | `{user_id, metric, amount, idempotency_key}` | 200: charged. 409 `usage_limit_exceeded` if it does not fit (nothing consumed) |
+| `POST /api/v1/apps/{key}/usage/settle` | `{user_id, metric, amount, idempotency_key}` | 200: the actual `amount` replaces the estimate (once). Above the estimate is accepted even past the limit |
+| `POST /api/v1/apps/{key}/usage/refund` | `{user_id, metric, idempotency_key}` | 200: the whole current charge is credited (once), never below 0 |
+| `GET /api/v1/apps/{key}/usage/users/{user_id}?metric=` | none | 200: `{user_id, metrics: [{metric, display_name, unit, period, period_start, period_end, limit, used, remaining}]}`, active metrics only |
+
+`metric` is the metric key, `user_id` the user's UUID (the token `sub`); no email is ever sent or
+returned. Bodies are at most 2 KiB `application/json` with a `Content-Length`; unknown fields are
+a 422. Amounts are positive integers up to `USAGE_MAX_AMOUNT_PER_CALL` (default 1,000,000).
+
+Flow: consume before the action; for a duration metric consume an estimate first and settle the
+actual amount after; if the action fails, refund. Use one stable `idempotency_key` per user action
+(1-128 printable ASCII characters, no spaces) and reuse it on every retry and for the settle and
+refund of that action. A retried consume with the same user, metric and amount returns the first
+result with `replayed: true`; `limit`, `used` and `remaining` in a result are the current values
+of the period the consume was charged to, not a snapshot. The same key with another user, metric
+or amount is a 409 `idempotency_key_reused`. Settle and refund are accepted for 24 hours after the
+consume (409 `usage_adjust_window_closed` after), and a replay of one that already happened is
+still a 200. A refund after a settle credits the settled amount.
+
+| Status | `error.code` | Meaning |
+|---|---|---|
+| 200 | | done or replayed |
+| 401 | `unauthorized` | missing, malformed, unknown or revoked key; an admin token |
+| 403 | `app_credential_mismatch`, `app_credential_scope`, `app_disabled`, `usage_user_denied` | other app's key, wrong scope, disabled app; the user is unknown, not a member of your app, or disabled |
+| 404 | `usage_metric_not_found`, `usage_event_not_found` | unknown or archived metric; settle or refund of an unknown key |
+| 409 | `usage_limit_exceeded`, `idempotency_key_reused`, `usage_event_state_conflict`, `usage_adjust_window_closed` | over the limit; key reuse; settle after a refund; window closed |
+| 422 | `validation_error` | bad body, zero or negative amount, amount above the maximum |
+| 429 | `rate_limited` | honour `Retry-After` |
+
+Failure policy: fail closed by default. An app may apply a grace (allow the action unmetered) only
+on transport errors, timeouts and 5xx, never on 401, 403, 409, 422 or 429 (ADR-0022 §6; the grace
+setting itself is ADM-046). Latency target: p95 under 100 ms on the server side. Use a client
+timeout of 2 s and retry once with the same `idempotency_key`. Limits: per IP 1200 and per key 600
+calls a minute, and 20 failed authentications a minute per IP, each multiplied by the number of API
+workers (the counters are in process, ADR-0002).
 
 ## Email verification
 
@@ -366,6 +507,28 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/accounts", {
 - Same errors as `/token` for the cookie and app context (401 `session_invalid`, 403
   `app_header_required` / `origin_not_allowed`, 429 `rate_limited`).
 
+### Setting the display name
+
+```js
+const resp = await fetch("https://api.mmlabs.online/api/v1/auth/profile", {
+  method: "POST",
+  credentials: "include",
+  headers: { "X-MM-App": "ricotdin", "Content-Type": "application/json" },
+  body: JSON.stringify({ account_id, display_name: "Nguyễn Ánh" }), // null clears
+});
+// 200 {"account_id", "email", "email_verified", "display_name"}
+```
+
+- The account sets or clears (`null`) its own name. The email must be verified.
+- The name is trimmed, NFC-normalised, runs of spaces collapse to one; 1-100 characters; no
+  control, bidi, zero-width or blank-looking characters; at most 2 combining marks in a row.
+  `""` is a 422 (`validation_error`; the value is never echoed).
+- Errors: 401 `session_invalid`, 403 `app_header_required` / `origin_not_allowed` /
+  `email_unverified`, 422, 429 `rate_limited`.
+- The name is untrusted text: render it as text and key users on `sub`, never on the name.
+- Tokens pick the new name up on the next issue (at most one token TTL); `GET /auth/accounts`
+  and the USR-29 member read show it at once.
+
 ### Joining ("Continue as <account>")
 
 `join_approval_unavailable` is gone from the HTTP API (it was provisional until USR-03g).
@@ -434,7 +597,7 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
 9. Use `PyJWT[crypto]>=2.10.1` (2.10.0 has CVE-2024-53861, a partial `iss` match; also needed
    for `strict_aud`).
 10. Set a `User-Agent` on the JWKS fetch: Cloudflare may block the urllib default.
-11. Revocation lag: a logout, a disabled user, a removed role or org role, a suspended org, an entitlement disable, revoke, plan or limit change and an
+11. Revocation lag: a logout, a disabled user, a display-name change, a removed role or org role, a suspended org, an entitlement disable, revoke, plan or limit change and an
     expired assignment reach a token only at its `exp` (up to `ACCESS_TOKEN_TTL_SECONDS`: default 15 min, 12 h in production).
     Apps that need faster revocation check server-side, as the admin API does, or keep an
     app-local deny list by `sub`. Only `aud=admin` tokens are session-bound, and that check is
@@ -447,11 +610,14 @@ const resp = await fetch("https://api.mmlabs.online/api/v1/auth/apps/ricotdin/jo
     verification, membership and roles.
 14. Do not add your own maximum-age check below the TTL for ordinary requests; tokens up to the TTL
     are valid.
+15. `name` is untrusted user text: render it as text only (never as HTML), never use it for
+    identity or authorization (key users on `sub`), expect it to be absent and up to the token TTL
+    stale, and never log decoded claims.
 
 `sub` is the mmlabs user id (stable across devices). Claims: `iss`, `aud`, `sub`, `email`,
 `email_verified`, `roles`, `org` (only when the token was requested with `org_id`; the org UUID
 as a string), `org_roles` (only with `org`: the sorted role keys held in that org only), `ent`
-(only with `org`, see Entitlements below), `iat`, `exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
+(only with `org`, see Entitlements below), `name` (optional display name; app tokens only; absent when the user has none; never require it), `iat`, `exp`, `jti`, `sid` (only in `aud=admin` tokens; consumer tokens never carry it; never require it).
 
 For `org_mode = required` apps (calechip): `roles` mixes scopes (app-scope roles plus the roles
 held in the `org` org). Authorize org-scoped data and actions **only** from `org_roles`, mapped

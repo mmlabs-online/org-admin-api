@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +48,20 @@ AssignmentRow = tuple[RoleAssignment, str, str, bool]
 RoleHolderRow = tuple[RoleAssignment, str, str, bool, str, str | None, str]
 # (assignment, app key, role key, active, role name, email, display name, user status)
 OrgMemberRow = tuple[RoleAssignment, str, str, bool, str, str, str | None, str]
+
+
+@dataclass(frozen=True)
+class AppOrgMemberRow:
+    """One user of an org with their non-expired role keys of one app (USR-29)."""
+
+    user_id: uuid.UUID
+    email: str
+    email_verified: bool
+    display_name: str | None
+    status: str
+    org_roles: list[str]
+    joined_at: datetime
+
 
 # `session.info` flag: an app was written; the CORS origin cache is invalidated after commit.
 APPS_CHANGED_KEY = "rbac_apps_changed"
@@ -625,6 +641,82 @@ class RbacRepository:
         rows = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]) for r in result.all()]
         return rows, total or 0
 
+    async def org_related_to_app(self, org_id: uuid.UUID, app_id: uuid.UUID) -> bool:
+        """An active org where at least one non-expired role of the app is held. False for an
+        unknown, unrelated or suspended org alike (one code path, no existence oracle)."""
+        found = await self.session.scalar(
+            select(
+                exists()
+                .where(
+                    RoleAssignment.org_id == org_id,
+                    Role.id == RoleAssignment.role_id,
+                    Role.app_id == app_id,
+                    Organization.id == RoleAssignment.org_id,
+                    Organization.status == OrganizationStatus.ACTIVE.value,
+                    self._is_active(),
+                )
+                .correlate(None)
+            )
+        )
+        return bool(found)
+
+    async def page_app_org_members(
+        self,
+        org_id: uuid.UUID,
+        app_id: uuid.UUID,
+        *,
+        status: str | None,
+        updated_since: datetime | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[AppOrgMemberRow], int]:
+        """One row per user, ordered by user id; two statements (count + rows). Explicit `User`
+        columns: never the entity, so `password_hash` cannot reach the result."""
+        agg = (
+            select(
+                RoleAssignment.user_id.label("user_id"),
+                func.array_agg(aggregate_order_by(Role.key, Role.key)).label("org_roles"),
+                func.min(RoleAssignment.created_at).label("joined_at"),
+                func.max(RoleAssignment.created_at).label("last_granted"),
+            )
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .where(RoleAssignment.org_id == org_id, Role.app_id == app_id, self._is_active())
+            .group_by(RoleAssignment.user_id)
+            .subquery()
+        )
+        filters: list[ColumnElement[bool]] = []
+        if status is not None:
+            filters.append(User.status == status)
+        if updated_since is not None:
+            filters.append(or_(User.updated_at > updated_since, agg.c.last_granted > updated_since))
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(agg)
+            .join(User, User.id == agg.c.user_id)
+            .where(*filters)
+        )
+        result = await self.session.execute(
+            select(
+                User.id,
+                User.email,
+                User.email_verified_at.is_not(None),
+                User.display_name,
+                User.status,
+                agg.c.org_roles,
+                agg.c.joined_at,
+            )
+            .select_from(agg)
+            .join(User, User.id == agg.c.user_id)
+            .where(*filters)
+            .order_by(User.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = [
+            AppOrgMemberRow(r[0], r[1], r[2], r[3], r[4], list(r[5]), r[6]) for r in result.all()
+        ]
+        return rows, total or 0
+
     async def page_assignments(
         self, user_id: uuid.UUID, *, app_key: str | None, limit: int, offset: int
     ) -> tuple[list[AssignmentRow], int]:
@@ -731,12 +823,92 @@ class RbacRepository:
         )
         return bool(await self.session.scalar(stmt))
 
+    async def org_roles_held(
+        self, user_id: uuid.UUID, app_id: uuid.UUID, org_id: uuid.UUID
+    ) -> list[Role]:
+        """Roles of `app_id` the user holds in exactly this org, not expired (USR-30)."""
+        result = await self.session.scalars(
+            select(Role)
+            .join(RoleAssignment, RoleAssignment.role_id == Role.id)
+            .where(
+                RoleAssignment.user_id == user_id,
+                RoleAssignment.org_id == org_id,
+                Role.app_id == app_id,
+                self._is_active(),
+            )
+            .order_by(Role.key)
+            .execution_options(populate_existing=True)
+        )
+        return list(result)
+
+    async def count_other_org_owners(
+        self, owner_role_id: uuid.UUID, org_id: uuid.UUID, exclude_user_id: uuid.UUID
+    ) -> int:
+        """Other holders of the owner role in the org that count (USR-30): a permanent
+        assignment (`expires_at IS NULL`) of an active, verified user."""
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(RoleAssignment)
+            .join(User, User.id == RoleAssignment.user_id)
+            .where(
+                RoleAssignment.role_id == owner_role_id,
+                RoleAssignment.org_id == org_id,
+                RoleAssignment.user_id != exclude_user_id,
+                RoleAssignment.expires_at.is_(None),
+                User.status == UserStatus.ACTIVE.value,
+                User.email_verified_at.is_not(None),
+            )
+        )
+        return total or 0
+
+    async def delete_org_assignments(
+        self, user_id: uuid.UUID, app_id: uuid.UUID, org_id: uuid.UUID
+    ) -> list[str]:
+        """Delete the user's non-expired org-scoped assignments of the app in that org; the
+        sorted role keys. The caller holds `lock_app` (ADR-0003 §9/§10)."""
+        app_roles = select(Role.id).where(Role.app_id == app_id)
+        deleted = (
+            delete(RoleAssignment)
+            .where(
+                RoleAssignment.user_id == user_id,
+                RoleAssignment.org_id == org_id,
+                RoleAssignment.role_id.in_(app_roles),
+                self._is_active(),
+            )
+            .returning(RoleAssignment.role_id)
+            .execution_options(synchronize_session=False)
+        )
+        role_ids = list((await self.session.scalars(deleted)).all())
+        if not role_ids:
+            return []
+        keys = await self.session.scalars(select(Role.key).where(Role.id.in_(role_ids)))
+        return sorted(keys)
+
     async def list_app_summaries(self) -> list[tuple[uuid.UUID, str, str, str]]:
         """(id, key, name, status) of every app, ordered by key."""
         result = await self.session.execute(
             select(App.id, App.key, App.name, App.status).order_by(App.key)
         )
         return [(r[0], r[1], r[2], r[3]) for r in result]
+
+    async def is_active_app_member(self, user_id: uuid.UUID, app_id: uuid.UUID) -> bool:
+        """OQ5 predicate of `member_counts` for one user: `active`, with a non-expired role
+        assignment on the app (app scope or any org). Unverified email still counts."""
+        stmt = (
+            select(RoleAssignment.id)
+            .join(Role, Role.id == RoleAssignment.role_id)
+            .join(
+                User,
+                and_(User.id == RoleAssignment.user_id, User.status == UserStatus.ACTIVE.value),
+            )
+            .where(
+                RoleAssignment.user_id == user_id,
+                Role.app_id == app_id,
+                or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()),
+            )
+            .limit(1)
+        )
+        return await self.session.scalar(stmt) is not None
 
     async def member_counts(
         self, app_ids: Sequence[uuid.UUID] | None = None

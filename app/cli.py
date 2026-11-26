@@ -15,6 +15,9 @@
 - `python -m app.cli audit-purge --older-than-days <90-3650> [--dry-run]` (ADM-004c): deletes
   audit rows older than N days (the trigger refuses 90 days or newer), in batches, each with its
   `audit_log.purged` summary row; prints counts and the cutoff only. Never an HTTP route.
+- `python -m app.cli usage-events-purge [--apply]` (ADM-045, OQ69): counts (dry run, the default)
+  or deletes usage events older than `USAGE_EVENT_RETENTION_DAYS` (90) in batches, each with its
+  `usage_events.purged` summary row; per-period totals are kept; prints counts and the cutoff only.
 - `python -m app.cli attachments-sweep [--apply] [--grace-hours <24-8760>]
   [--max-deletes <1-10000>]` (ADM-027, ADR-0018): lists (dry run, the default) or permanently
   deletes Drive files this API created that no attachment references and that are older than
@@ -85,8 +88,8 @@ MSG_ADMIN_PERMISSION = (
     "error: a --permission is an is_admin permission; the CLI never grants those to the member role"
 )
 MSG_RESERVED_SCOPE = (
-    "error: <key>:org:create is always a --permission and <key>:org:invite always an"
-    " --org-permission"
+    "error: <key>:org:create is always a --permission; <key>:org:invite and"
+    " <key>:org:remove-member always an --org-permission"
 )
 MSG_SCOPE_CONFLICT = "error: a permission cannot be in both --permission and --org-permission"
 MSG_ORG_MODE_REQUIRED = "error: --org-permission needs an app with org_mode required"
@@ -130,6 +133,11 @@ AUDIT_PURGE_USAGE = "usage: python -m app.cli audit-purge --older-than-days <90-
 MSG_AUDIT_PURGE_FAILED = (
     "error: audit purge failed; batches already committed stay deleted with their summary rows,"
     " run again"
+)
+
+USAGE_EVENTS_PURGE_USAGE = "usage: python -m app.cli usage-events-purge [--apply]"
+MSG_USAGE_EVENTS_PURGE_FAILED = (
+    "error: usage event purge failed; batches already committed stay deleted, run again"
 )
 
 CREATE_USAGE = "usage: python -m app.cli create-account --email <email> [--join <app_key>]"
@@ -296,6 +304,8 @@ async def amain(
         return await _cleanup(argv[1:], settings=settings, session_scope=session_scope)
     if argv[:1] == ["audit-purge"]:
         return await _audit_purge(argv[1:], settings=settings, session_scope=session_scope)
+    if argv[:1] == ["usage-events-purge"]:
+        return await _usage_events_purge(argv[1:], settings=settings, session_scope=session_scope)
     try:
         email = _parse_email(argv)
 
@@ -802,6 +812,48 @@ async def _audit_purge(
     except Exception:
         # Never str(exc): DB errors carry the DSN and DETAIL lines.
         print(MSG_AUDIT_PURGE_FAILED, file=sys.stderr)
+        return EXIT_FAILURE
+
+
+async def _usage_events_purge(
+    argv: Sequence[str],
+    *,
+    settings: "Settings | None",
+    session_scope: "SessionScope | None",
+) -> int:
+    try:
+        from app.modules.usage.retention import UsageEventRetentionService
+
+        parser = _Parser(
+            prog="python -m app.cli usage-events-purge", allow_abbrev=False, add_help=False
+        )
+        parser.add_argument("--apply", action="store_true")
+        apply = bool(parser.parse_args(argv).apply)
+
+        settings = _load_settings(settings)
+        scope = session_scope or (lambda: _cli_cleanup_scope(settings))
+        async with scope() as session:
+            result = await UsageEventRetentionService(session).run(
+                settings.usage_event_retention_days, apply=apply
+            )
+
+        verb = "deleted" if apply else "would delete"
+        print(
+            f"usage_events: {verb} {result.deleted}"
+            f" (older than {result.retention_days} d, cutoff {result.cutoff.isoformat()})"
+        )
+        if not apply:
+            print(MSG_CLEANUP_DRY_RUN)
+        return EXIT_OK
+    except _UsageError:
+        print(USAGE_EVENTS_PURGE_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    except _Fail as fail:
+        print(fail.message, file=sys.stderr)
+        return EXIT_FAILURE
+    except Exception:
+        # Never str(exc): DB errors carry the DSN and DETAIL lines.
+        print(MSG_USAGE_EVENTS_PURGE_FAILED, file=sys.stderr)
         return EXIT_FAILURE
 
 

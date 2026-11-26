@@ -1,49 +1,61 @@
-# USR-32: Users list filters `app` and `role_id`
+# USR-32: Display name claim in app access tokens
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
-| Areas | api, db |
+| Areas | auth, security |
 | Gate | plan-approval |
-| Depends on | USR-31 |
+| Depends on | — |
 | Needs Ming | — |
 | Attempts | 0 |
-| Created | 2026-11-26 |
+| Created | 2026-11-24 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/98 |
 
 ## Goal
-Staff find the users who hold any role of an app, or one specific role, from the users list. Requested by admin-pan for PAN-034 (users filters).
+Apps can show the signed-in user's display name straight from the access token, without a server call (simap request; complements the USR-29 member read, which covers people who have not opened the app yet).
 
 ## Scope reference
-- `docs/spec-v1.md` §5.15 Part 2 (owner, 2026-11-25; OQ76 answered 2026-11-26: unknown values → 422).
+- Spec §5.8 "Verification by apps" lists the access-token claims (`sub`, `email`, `email_verified`, `aud`, `roles`, `org`, `org_roles`, `ent`, `iat`, `exp`); ADR-0005 (access-token signing); `docs/identity-architecture.md` token section.
+- ⚠️ No spec line adds a name claim yet; this is an additive claim change to spec §5.8. The plan adds a dated spec line and states whether an ADR or a D-log row is needed; Ming confirms at the plan gate.
+- Raised by simap with USR-29 (2026-11-20) as "a smaller first step for names only"; deferred to this ticket.
 
 ## Scope
-- `GET /api/v1/users?app=<key>`: users with at least one active assignment of any role in that app (app scope or any org).
-- `GET /api/v1/users?role_id=<uuid>`: users holding that role actively (app scope or any org).
-- Combinable with each other, `email`, `status`, `include=access` and pagination; `total` counts distinct users.
-- Unknown values → 422 `unprocessable` with `details[].reason` `unknown_app` (field `app`), `unknown_role` (field `role_id`), `role_not_in_app` (both given, mismatch). Malformed key / UUID → 422 as today. Disabled app and its roles are known values.
-- Proposed default (spec): with `include=access`, `access` still shows all of the user's active access, not only the filtered app/role.
+- Add an optional `name` claim (the account's `display_name`) to access tokens issued for apps (`aud=<app>`). PLAN decides: claim name (`name`, as OIDC), absent vs `null` when unset, whether staff (`aud=admin`) tokens get it too, and any length/normalisation rule.
+- Additive within v1: existing verifiers that ignore unknown claims keep working; `mmlabs-auth` / `@mmlabs/auth-client` (separate repo, USR-08) may expose it later — follow-up there.
+- Document the staleness: a display-name change shows up on the next token (up to the token TTL, 12 h).
+- Docs: spec §5.8 claim list, `docs/identity-architecture.md` token claims, `docs/consumers.md`.
 
 ## Out of scope
-- Other filters or sort orders; bulk actions (USR-33).
+- Changing display names from apps; adding other profile claims (avatar, locale).
+- Updating the client libraries (separate repo).
 
 ## Acceptance criteria
-- [ ] `app` alone, `role_id` alone, and both together return only users with a matching active assignment; expired-only users are excluded; org-scope holders are included.
-- [ ] Filters combine with `email`, `status` and pagination; `total` counts each user once even with several matching assignments.
-- [ ] 422 with reasons `unknown_app`, `unknown_role`, `role_not_in_app`; 422 for malformed values; a disabled app is accepted.
-- [ ] 401 without token, 403 without `admin:users:read`.
-- [ ] OpenAPI documents both parameters and the 422 reasons.
+- [ ] An app access token carries the user's display name in the agreed claim; when the user has no display name the claim follows the agreed absent/null rule (tested).
+- [ ] A display-name change is reflected in the next token issued; tokens already issued are unchanged (documented lag).
+- [ ] Existing claims and token verification are unchanged (regression tests on `/auth/token`, with and without `org_id`).
+- [ ] No email or name is written to logs by token issuance (existing log tests stay green).
+- [ ] Spec §5.8 claim list, `docs/identity-architecture.md` and `docs/consumers.md` updated.
 
 ## Technical notes
-- Use `EXISTS` subqueries (not JOIN) so users are never duplicated; existing indexes `ix_role_assignments_role_id` and `uq_roles_app_id_key` suffice, no migration expected (architect consult).
-- Can be bundled with USR-31 in one PR if the planner prefers (shared active-assignment predicate).
+- Files: `app/modules/tokens/` (claim building), possibly `app/modules/auth/`, tests for `/auth/token`, docs.
+- Risk: display name is user-controlled text; apps must treat it as untrusted text (document). Token size grows slightly.
 
 ## Test plan
-- API tests per criterion against the Postgres test DB.
+- Token issuance tests per criterion; JWT decode in tests asserting the claim.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-24, batch 2026-11-24-1) — Ming: "duyệt hết; câu 1–13 theo mặc định" (all batch questions answered with the defaults).
+- 2026-11-24: created at Ming's request ("tạo USR-31, USR-32") as the alternative/complement raised by simap with USR-29.
 
 ## Handoff
+
+### 2026-11-24 — claude — DONE (waiting for merge)
+- Agent calls: 6, tokens ~260k total (identity-access-engineer×1 33k, security-architect×1 32k, planner×1 opus 57k, implementer×1 sonnet 53k, reviewer×1 opus 39k, appsec-engineer×1 46k)
+- Done: `name` claim for app tokens with issuance guard, ADR-0005 amendment + D39, spec/docs. Review PASS attempt 1 (4091 passed); appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/98 (tier high).
+- Next: Ming merges #98; USR-33 (display-name write path) makes the claim useful.
+
+### 2026-11-25 — claude — MERGED
+- PR #98 merged by Ming on GitHub (merge commit 02e9b44).

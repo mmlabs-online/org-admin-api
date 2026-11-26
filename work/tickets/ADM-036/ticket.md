@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | api, auth, security |
@@ -51,3 +51,6 @@ After the health check, the deploy workflow records whether a release deployed o
 - Done: deployer report route, transitions, report-first thin record, registry/OpenAPI, docs. Review PASS attempt 1; appsec PASS (3 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/89 (tier high).
 - In progress / next: Ming merges #89; then ADM-040. M-3 ops todo added (first deployer key).
 - Gotchas: `insert_if_absent` now merges `{"status": pending, **fields}` (ADM-034 behaviour unchanged).
+
+### 2026-11-21 — claude — MERGED
+- PR #89 merged by the agent at Ming's explicit request ("merge cho tôi #89"), merge commit 4ffb577. Owner exception to the "High is never agent-merged" rule, logged. CI `check` failed only on the known kit lint (`.github/scripts/risk_tier.py`, 13 ruff errors, stops before tests); tests run locally by the reviewer (3688 passed).

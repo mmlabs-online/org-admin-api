@@ -1,57 +1,58 @@
-# USR-33: Bulk-assign one role to up to 100 users (`assignment-batches`)
+# USR-33: Let users and staff set a display name
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
-| Areas | architecture, api, auth, security, db |
+| Areas | api, auth, security, db |
 | Gate | plan-approval |
-| Depends on | — |
+| Depends on | USR-32 |
 | Needs Ming | — |
 | Attempts | 0 |
-| Created | 2026-11-26 |
+| Created | 2026-11-24 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/99 |
 
 ## Goal
-Staff grant one role to many users in a single server-side request with per-user results, applying exactly the single-assignment rules. Requested by admin-pan for PAN-033 (bulk assign).
+Give `users.display_name` a real write path so the USR-32 `name` claim and the USR-29 member read's `display_name` carry a value; today nothing can set it and every name is NULL in production.
 
 ## Scope reference
-- `docs/spec-v1.md` §5.15 Part 3 (owner, 2026-11-25; OQ70–OQ73, OQ78 answered 2026-11-26).
-- ADR-0025 (bulk role assignment), decision-log D34, `CLAUDE.md` R9 / R6 exception.
-- Owner: "The API owns all business rules; reuse the existing single-assignment logic, do not duplicate it."
+- Batch 2026-11-24-1, Q8 default (Ming, 2026-11-24): ship USR-32 as specified and open this follow-up for a display-name write path with validation.
+- Spec §5.8 (accounts; claims), `docs/identity-architecture.md` account fields; USR-29 (ADR-0025 §6, member read fields); USR-32 (`name` claim, ADR-0005 amendment).
+- ⚠️ No spec section defines who may set the display name; the plan adds a dated spec line for Ming's confirmation at the plan gate.
 
 ## Scope
-- `POST /api/v1/apps/{key}/roles/{role_id}/assignment-batches` (R3 class 1 Bearer, `admin:roles:assign`). Body `{user_ids: [uuid] (1..100, unique), org_id?, expires_at?}`.
-- Response always 200: `{batch_id, results: [{user_id, status: created | unchanged | failed, assignment_id?, expires_at?, error?: {code, message}}]}`, one result per user, request order. `created`/`unchanged` carry `assignment_id` and `expires_at`.
-- Request-level errors (nothing written): 401; 403 `permission_denied`; 403 `admin_wildcard_required`; 404 unknown app / role / role of another app; 422 bad body, `admin_app_role` (any `admin`-app role), and shared-input rules `org_id_not_allowed`, `unknown_org`, `expires_in_past`.
-- Per-user: `created` (new, or expired duplicate re-activated with its old id); `unchanged` (already active, even with a different `expires_at`; not touched); `failed` (`not_found`, and `self_assignment_forbidden` once USR-25 lands; any other per-user rule of the single POST).
-- Target state as the single POST: disabled users, unverified email, disabled apps accepted.
-- One transaction, one `lock_app` for the batch, one savepoint per user, user ids processed sorted; unexpected error rolls back all (5xx).
-- Audit identical to the single POST per user; `batch_id` = `request_id`.
+- PLAN decides: self-service (cookie class, the signed-in account sets its own name) and/or staff (Bearer, `admin:users:write`), and whether sign-up accepts an optional name.
+- Validation on write: NFC, trim, reject disallowed Unicode categories (`app/core/text.py`), length 1–100; clearing the name sets NULL. Optionally a DB CHECK on length (deferred from USR-32, Q9).
+- Audit the change (ids only, never the name value in logs; R11).
+- Documented lag: tokens pick the new name up on the next issue (≤ TTL); the USR-29 member read shows it at once.
 
 ## Out of scope
-- Bulk revoke (§5.7); tightening target-state rules (OQ78, separate ticket for both endpoints); audit filter by `batch_id` (OQ79); multi-role or multi-app batches.
+- Other profile fields (avatar, locale); name uniqueness.
 
 ## Acceptance criteria
-- [ ] Happy path and mixed created / unchanged / failed results, in request order, with `batch_id` equal to the audit rows' `request_id`; idempotent retry → all `unchanged` with ids and expiry; expired duplicate → `created` with its old id; all-failed → 200.
-- [ ] Request-level refusals as listed (404s, 422 body and `admin_app_role` incl. `admin:super-admin`, request-level 422 `org_id_not_allowed` / `unknown_org` / `expires_in_past`, 403 `permission_denied` and `admin_wildcard_required`, 401), each writing nothing.
-- [ ] The single POST keeps its current behaviour and the batch reuses its grant logic (no duplicated rule code); existing single-assign tests stay green.
-- [ ] One `role_assignment.granted` row per created assignment, none for `unchanged`; `denied` rows exactly when the single POST writes them, without rolling back the batch's other rows.
-- [ ] A concurrent single assign on the same app neither deadlocks nor is lost (concurrency test).
-- [ ] Route registered in `tests/test_route_auth_classes.py`; OpenAPI documents the transaction/lock behaviour and all codes.
+- [ ] The chosen actor(s) can set and clear a display name; invalid values (control/bidi/zero-width chars, > 100 chars, blank after trim) → 422 without echoing the value.
+- [ ] The next app token carries the new `name`; the USR-29 member read returns it.
+- [ ] Each change writes an audit row without the name value; no name appears in logs (non-vacuous log test).
+- [ ] 401/403 tests for the new route(s); route-class registry updated; docs updated.
 
 ## Technical notes
-- Files: `app/modules/rbac/service.py` (split `_grant_locked` into a per-request check and a per-user upsert returning created/renewed/unchanged, per architect consult), rbac router/schemas, `app/modules/audit/service.py` if needed, route registry test.
-- **Constraint:** `AuditLogger.record_denied` / `record_failure` roll back the whole transaction and commit alone; the plan must solve mid-batch `denied` rows without changing their content.
-- Load existing users and assignments with `= ANY(:ids)` up front to keep the lock short; consider `SET LOCAL lock_timeout`.
-- Soft order: let USR-25 land first so the batch inherits the wider self-assignment ban (not a hard dependency).
-- Size: M; if PLAN finds the audit change pushes it past M, propose a split (e.g. audit refactor first).
+- Files: `app/modules/users/` and/or `app/modules/auth/` (self-service), `app/core/text.py` reuse, tests, docs; migration only if the CHECK is added.
 
 ## Test plan
-- API tests per criterion against the Postgres test DB, including a concurrency test with a parallel single assign.
+- API tests per criterion; token claim test after a change.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-25, batch 2026-11-25-1) — Ming: "duyệt hết; câu 1–23 theo mặc định" (all batch questions answered with the defaults).
+- 2026-11-24: created from batch 2026-11-24-1 Q8 (default a), approved by Ming ("duyệt hết; câu 1–13 theo mặc định").
 
 ## Handoff
+
+### 2026-11-25 — claude — DONE (waiting for merge)
+- Agent calls: 8, tokens ~523k total (database-optimizer×1 23k, api-platform-engineer×1 30k, identity-access-engineer×1 37k, security-architect×1 30k, planner×1 opus 138k, implementer×1 sonnet 130k, reviewer×1 opus 68k, appsec-engineer×1 67k)
+- Done: self-service + staff display-name write paths, shared validation, CHECK migration d4a8e2c6f175, D40, docs. Review PASS attempt 1 (4161 passed); appsec PASS with 1 🟡 (invisible-combining-mark-only names). PR https://github.com/mmlabs-online/org-admin-api/pull/99 (tier high).
+- Next: Ming decides the 🟡 and merges #99; then ADM-043.
+
+### 2026-11-25 — claude — MERGED
+- PR #99 merged by the agent at Ming's explicit request ("merge cho tôi #99"), merge commit 52f88ab. Owner exception to the "High is never agent-merged" rule, logged. Ming chose merge over fixing the appsec 🟡 first: the invisible-combining-mark-only name rule stays a follow-up. CI `check` failed only on the known kit lint (`risk_tier.py`, 13 errors, stops before tests); full suite run locally by the reviewer (4161 passed).

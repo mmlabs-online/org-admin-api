@@ -20,7 +20,7 @@ from app.modules.app_credentials.errors import (
     AppCredentialMismatchError,
     AppCredentialScopeError,
 )
-from app.modules.app_credentials.models import AppCredential, AppCredentialScope
+from app.modules.app_credentials.models import RUNTIME_SCOPES, AppCredential, AppCredentialScope
 from app.modules.app_credentials.repository import AppCredentialRepository
 from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditOutcome, AuditTarget
@@ -33,6 +33,7 @@ from app.modules.rbac.repository import RbacRepository
 logger = logging.getLogger(__name__)
 
 MAX_ACTIVE = 2  # rotation overlap (ADR-0016 §3)
+RUNTIME_TOUCH_INTERVAL_SECONDS = 60  # ADR-0022 §3
 _CHALLENGE = {"WWW-Authenticate": 'Bearer realm="app"'}
 
 
@@ -123,6 +124,8 @@ class AppCredentialService:
             raise _refusal("The admin app has no credentials", "admin_app")
         if app.status == AppStatus.DISABLED.value:
             raise _refusal("The app is disabled", "app_disabled")
+        if scope == AppCredentialScope.LIMITS_WRITE:  # until ADM-044 (limits routes)
+            raise _refusal("This scope cannot be issued yet", "scope_not_available")
         if await self.repo.count_active(app.id, scope.value) >= MAX_ACTIVE:
             raise _refusal(
                 f"At most {MAX_ACTIVE} active credentials per app and scope; revoke one first",
@@ -154,7 +157,7 @@ class AppCredentialService:
         raw: str | None,
         path_key: str,
         *,
-        scope: AppCredentialScope,
+        scope: AppCredentialScope | frozenset[AppCredentialScope],
         denied_action: AuditAction,
         ctx: AuditContext,
         lock: bool = True,
@@ -185,10 +188,18 @@ class AppCredentialService:
             logger.info("app_credential_denied reason=mismatch key_id=%s", key_id)
             await self._denied(denied_action, caller, ctx, AppCredentialMismatchError.code)
             raise AppCredentialMismatchError("Credential belongs to another app")
-        if row.scope != scope.value:
+        scopes = frozenset({scope}) if isinstance(scope, AppCredentialScope) else scope
+        if row.scope not in {s.value for s in scopes}:
             logger.info("app_credential_denied reason=scope key_id=%s", key_id)
             await self._denied(denied_action, caller, ctx, AppCredentialScopeError.code)
             raise AppCredentialScopeError("Credential has the wrong scope for this route")
+        if (
+            AppCredentialScope(row.scope) in RUNTIME_SCOPES
+        ):  # no app lock; a revoke in flight may complete (ADR-0022 §3)
+            await self.repo.touch_last_used_throttled(
+                row.id, interval_seconds=RUNTIME_TOUCH_INTERVAL_SECONDS
+            )
+            return caller
         if lock:
             await self.confirm(caller)
         return caller

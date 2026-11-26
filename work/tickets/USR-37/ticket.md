@@ -1,48 +1,45 @@
-# USR-37: Org picker lists every org of the app for super-admin holders (requested by simap SIM-043)
+# USR-37: Single role-assignment POST — correct OpenAPI errors and add stable 409 reasons
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
 | Priority | P2 |
 | Size | S |
-| Areas | api, auth |
+| Areas | api |
 | Gate | plan-approval |
-| Depends on | USR-35 |
-| Needs Ming | OQ84, OQ89 (spec §8; answer at the plan gate) |
+| Depends on | ADM-023 |
+| Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-26 |
 | Claimed by | — |
 | PR | — |
 
 ## Goal
-In the app's org picker (AUT-06 flow), a staff holder of the app's super-admin role sees every org of the app, each marked "member" or "super-admin access".
+The documented errors of `POST /api/v1/users/{user_id}/role-assignments` match what the API really returns, and its 409s carry a stable reason clients can map. Helps admin-pan's single-assign dialog and PAN-033.
 
 ## Scope reference
-- `docs/spec-v1.md` §5.16 Org list (proposal; OQ84, OQ89). ADR-0026 / D35 (written in USR-35).
-- Cross-repo requester: simap SIM-043.
+- `docs/spec-v1.md` §5.15 Part 4 (owner, 2026-11-26, OQ77). Reason naming aligned with USR-26 (`changed_concurrently`).
 
 ## Scope
-- `GET /api/v1/auth/orgs` (cookie class, `X-MM-App`): every item gains `access: "member" | "super_admin"` (additive, always present). For a holder, list every active org of the app (definition per OQ89; proposed: orgs with an active role assignment of the app or an entitlement for it); orgs where the holder is a member stay `member` with their roles; others are `super_admin` with `roles: []`.
-- Non-holders: same list as today, every item `access: "member"`.
-- Pagination and ordering unchanged; no N+1 (one paged query + count + the existing batch roles query).
-- `docs/consumers.md` picker section.
+- Correct the OpenAPI responses: 404 `not_found`; 409 `conflict` (remove the wrong "app disabled, user unverified or disabled" text); 422 reasons `unknown_role`, `org_id_not_allowed`, `unknown_org`, `expiry_not_allowed`, `expires_in_past`; 403 `admin_wildcard_required` and `self_assignment_forbidden`.
+- Add `details: [{reason}]` to the 409s, keeping `code: conflict`: `assignment_exists` (active duplicate or racing insert) and a concurrent-change reason (owner's example `concurrent_change`; PLAN aligns with USR-26's `changed_concurrently`).
+- The next release publishes the corrected OpenAPI (admin-pan regenerates types).
 
 ## Out of scope
-- Token minting (USR-36); suspended orgs listed read-only (proposed hidden, OQ89).
+- Any other behaviour change on this endpoint; target-state checks (OQ78).
 
 ## Acceptance criteria
-- [ ] A holder sees every org of the app per the OQ89 definition, `member` items with roles, `super_admin` items with `roles: []`; orgs of other apps and suspended orgs are not listed.
-- [ ] A non-holder's list is unchanged apart from `access: "member"` on each item.
-- [ ] Losing the role (or `admin:super-admin`, per OQ82) removes the extra orgs on the next call.
-- [ ] Pagination `total` is correct; query count does not grow with page size.
-- [ ] 401 / 403 / 422 behaviour of the route unchanged; `docs/consumers.md` updated.
+- [ ] OpenAPI for the POST lists exactly the real 401/403/404/409/422 outcomes with the reasons above; no mention of checks the code does not make.
+- [ ] Active duplicate → 409 `conflict` with `details[0].reason = assignment_exists`; concurrent change → 409 with the chosen concurrent-change reason.
+- [ ] All other responses unchanged (additive, R9); existing tests stay green.
+- [ ] Tests assert each 409 reason and the OpenAPI responses of the route.
 
 ## Technical notes
-- Files: `app/modules/organizations/auth_service.py` (`list_mine`), repository, schemas (`MyOrgRead`), `docs/consumers.md`.
-- Architect consult: `EXISTS` on role assignments of the app's roles with `org_id = Organization.id`; `ix_role_assignments_org_id` suffices for now. Shares the "org of the app" and holder check with USR-36.
+- Files: `app/modules/rbac/assignments_router.py` (responses), `app/modules/rbac/service.py` (409 details); both High paths.
+- If USR-36 lands first, the batch may reuse the same reason names in `failed` errors.
 
 ## Test plan
-- API tests per criterion against the Postgres test DB, including a query-count assertion.
+- API tests for both 409 reasons; OpenAPI snapshot / schema assertion for the route.
 
 ## Notes / answers from Ming
 

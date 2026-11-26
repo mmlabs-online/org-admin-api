@@ -1,9 +1,10 @@
 import uuid
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.listing import escape_like
+from app.db.base import bumped_updated_at
 from app.modules.users.models import User, UserStatus
 
 
@@ -33,6 +34,15 @@ class UserRepository:
         user.email_verified_at = func.now()
         await self.session.flush()
         await self.session.refresh(user, ["email_verified_at"])
+
+    async def set_display_name(self, user: User, value: str | None) -> None:
+        """Write the name and bump `updated_at` strictly (USR-29 `updated_since` sees it)."""
+        await self.session.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(display_name=value, updated_at=bumped_updated_at(User.updated_at))
+        )
+        await self.session.refresh(user, ["display_name", "updated_at"])
 
     async def set_password_hash(self, user: User, password_hash: str) -> None:
         user.password_hash = password_hash

@@ -23,7 +23,7 @@ from app.modules.bug_reports.models import BugReport
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Permission, Role
-from app.modules.usage.models import UsageMetric
+from app.modules.usage.models import UsageLimitOverride, UsageMetric
 from app.modules.users.models import User
 from tests.app_credential_factories import make_credential
 from tests.auth_factories import (
@@ -40,6 +40,7 @@ from tests.conftest import MakeClient
 from tests.deployer_credential_factories import make_deployer_credential
 from tests.invitation_factories import make_invitation
 from tests.join_request_factories import make_approval_app, make_join_request
+from tests.org_member_factories import member, remove_body, remove_url, setup_removal
 from tests.rbac_factories import (
     assign,
     grant,
@@ -315,6 +316,35 @@ async def _usage_unknown(s: AsyncSession) -> Call:
     return f"{V1}/apps/{app.key}/usage-metrics/{uuid.uuid4()}", {"default_limit": 9, "reason": "x"}
 
 
+_OVR = "usage-metrics/{}/overrides/{}"
+
+
+async def _override_put(s: AsyncSession) -> Call:
+    app_key, metric_id = await _usage_row(s)
+    user = await make_user(s)
+    return f"{V1}/apps/{app_key}/{_OVR.format(metric_id, user.id)}", {"limit": 3, "reason": "grant"}
+
+
+async def _override_put_unknown(s: AsyncSession) -> Call:
+    app = await make_app(s, _key())
+    user = await make_user(s)
+    return f"{V1}/apps/{app.key}/{_OVR.format(uuid.uuid4(), user.id)}", {"limit": 3, "reason": "x"}
+
+
+async def _override_delete(s: AsyncSession) -> Call:
+    app_key, metric_id = await _usage_row(s)
+    user = await make_user(s)
+    s.add(UsageLimitOverride(user_id=user.id, metric_id=metric_id, limit_value=3))
+    await s.flush()
+    return f"{V1}/apps/{app_key}/{_OVR.format(metric_id, user.id)}", {"reason": "cleanup"}
+
+
+async def _override_delete_missing(s: AsyncSession) -> Call:
+    app_key, metric_id = await _usage_row(s)
+    user = await make_user(s)
+    return f"{V1}/apps/{app_key}/{_OVR.format(metric_id, user.id)}", {"reason": "cleanup"}
+
+
 async def _release_delete(s: AsyncSession) -> Call:
     release = await make_release(s, await make_app(s, _key()))
     return f"{V1}/releases/{release.id}", None
@@ -467,7 +497,12 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _inv_revoke_unknown,
         404,
     ),
-    ("PATCH", USER): ({"user.disabled", "user.enabled"}, _user_status, _user_unknown, 404),
+    ("PATCH", USER): (
+        {"user.disabled", "user.enabled", "user.display_name_changed"},
+        _user_status,
+        _user_unknown,
+        404,
+    ),
     ("DELETE", f"{USER}/sessions/{{session_id}}"): (
         {"user.session_revoked"},
         _session_revoke,
@@ -585,11 +620,24 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         _usage_unknown,
         404,
     ),
+    ("PUT", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}"): (
+        {"usage_limit_override.set", "usage_limit_override.updated"},
+        _override_put,
+        _override_put_unknown,
+        404,
+    ),
+    ("DELETE", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}"): (
+        {"usage_limit_override.removed"},
+        _override_delete,
+        _override_delete_missing,
+        404,
+    ),
 }
 _SUCCESS_STATUS = {"POST": 201, "PATCH": 200, "PUT": 200, "DELETE": 204}
 _SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated resource
     ("POST", f"{JREQ}/{{request_id}}/approve"): 200,
     ("POST", f"{JREQ}/{{request_id}}/reject"): 200,
+    ("PUT", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}"): 201,
 }
 
 
@@ -617,7 +665,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 32
+    assert len(AUDITED) == 34
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")
@@ -849,6 +897,18 @@ async def _id_report(s: AsyncSession) -> IdCall:
     return f"{AUTH}/bug-reports", body, auth_headers(cookie=raw)
 
 
+async def _id_profile(s: AsyncSession) -> IdCall:
+    app = await make_login_app(s)
+    await make_member_role(s, app)
+    user = await make_login_user(s)
+    raw, _, (account,) = await make_device(s, user)
+    return (
+        f"{AUTH}/profile",
+        {"account_id": str(account.id), "display_name": "Ming"},
+        auth_headers(cookie=raw),
+    )
+
+
 async def _id_token(s: AsyncSession, purpose: str) -> tuple[uuid.UUID, str]:
     user = await make_login_user(s, verified=False)
     raw = uuid.uuid4().hex + uuid.uuid4().hex
@@ -867,12 +927,28 @@ async def _id_reset(s: AsyncSession) -> IdCall:
     return f"{AUTH}/password/reset", {"token": raw, "new_password": "a brand new phrase 42"}, {}
 
 
+async def _id_member_remove(s: AsyncSession) -> IdCall:
+    renv = await setup_removal(s)
+    target = await member(s, renv, renv.env.viewer)
+    return (
+        remove_url(renv.org.id, target.user.id),
+        remove_body(renv.owner),
+        renv.owner.headers(),
+    )
+
+
 # route -> (action, success scenario, success status)
 IDENTITY_AUDITED: dict[tuple[str, str], tuple[str, IdScenario, int]] = {
     ("POST", f"{AUTH}/login"): ("auth.login_succeeded", _id_login, 200),
     ("POST", f"{AUTH}/logout"): ("auth.logged_out", _id_logout, 204),
     ("POST", f"{AUTH}/apps/{{key}}/join"): ("app.joined", _id_join, 200),
     ("POST", f"{AUTH}/bug-reports"): ("bug_report.created", _id_report, 201),
+    ("POST", f"{AUTH}/profile"): ("user.display_name_changed", _id_profile, 200),
+    ("POST", f"{AUTH}/orgs/{{org_id}}/members/{{user_id}}/remove"): (
+        "organization.member_removed",
+        _id_member_remove,
+        204,
+    ),
     ("POST", f"{AUTH}/verify-email"): ("auth.email_verified", _id_verify, 204),
     ("POST", f"{AUTH}/password/reset"): ("auth.password_reset_completed", _id_reset, 204),
 }
@@ -929,6 +1005,13 @@ APP_CREDENTIAL_AUDITED = {
         "release.created",
         "release.updated",
     },
+    ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/members"): {"organization.members_read"},
+    ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/invitations"): {"organization.invitations_read"},
+    # Uses are not audit entries (ADR-0022 §9): only the denied rows of the credential check.
+    ("GET", f"{V1}/apps/{{key}}/usage/users/{{user_id}}"): {"usage.read"},
+    ("POST", f"{V1}/apps/{{key}}/usage/consume"): {"usage.consumed"},
+    ("POST", f"{V1}/apps/{{key}}/usage/settle"): {"usage.settled"},
+    ("POST", f"{V1}/apps/{{key}}/usage/refund"): {"usage.refunded"},
 }
 
 
@@ -980,6 +1063,42 @@ async def test_release_write_route_is_audited(
     rows = (await _rows(db_session))[before:]
     assert sorted(r.action for r in rows) == ["release.created", "release.updated"]
     route = ("PUT", f"{V1}/apps/{{key}}/releases/{{environment}}/{{version}}")
+    assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[route]
+
+
+async def test_org_members_read_route_is_audited(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, _key(), org_mode="required")
+    org = await _org(db_session)
+    role = await make_role(db_session, app, f"{app.key}:member")
+    await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    _, raw = await make_credential(db_session, app, scope="org-members:read")
+    url = f"{V1}/apps/{app.key}/orgs/{org.id}/members"
+    before = await _count(db_session)
+    resp = await client.get(url, headers={"Authorization": f"Bearer {raw}"})
+    assert resp.status_code == 200
+    rows = (await _rows(db_session))[before:]
+    route = ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/members")
+    assert [r.action for r in rows] == ["organization.members_read"]
+    assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[route]
+
+
+async def test_org_invitations_read_route_is_audited(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, _key(), org_mode="required")
+    org = await _org(db_session)
+    role = await make_role(db_session, app, f"{app.key}:member")
+    await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    _, raw = await make_credential(db_session, app, scope="org-members:read")
+    url = f"{V1}/apps/{app.key}/orgs/{org.id}/invitations"
+    before = await _count(db_session)
+    resp = await client.get(url, headers={"Authorization": f"Bearer {raw}"})
+    assert resp.status_code == 200
+    rows = (await _rows(db_session))[before:]
+    route = ("GET", f"{V1}/apps/{{key}}/orgs/{{org_id}}/invitations")
+    assert [r.action for r in rows] == ["organization.invitations_read"]
     assert {r.action for r in rows} <= APP_CREDENTIAL_AUDITED[route]
 
 
@@ -1052,3 +1171,22 @@ async def test_user_disable_with_pending_requests_writes_multiple_rows(
     for row in rows:
         assert (row.outcome, row.actor_user_id) == ("success", actor.id)
         assert "@" not in str(row.changes)
+
+
+async def test_usage_routes_write_no_audit_row_on_success(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """ADR-0022 §9: read, consume, settle and refund are not audit entries."""
+    from tests.usage_factories import consume, refund, settle, world
+
+    w = await world(db_session, limit=10)
+    before = await _count(db_session)
+    assert (await consume(client, w, "k", 2)).status_code == 200
+    assert (await settle(client, w, "k", 3)).status_code == 200
+    assert (await refund(client, w, "k")).status_code == 200
+    read = await client.get(
+        f"{V1}/apps/{w.app.key}/usage/users/{w.user.id}",
+        headers={"Authorization": f"Bearer {w.raw}"},
+    )
+    assert read.status_code == 200
+    assert await _count(db_session) == before

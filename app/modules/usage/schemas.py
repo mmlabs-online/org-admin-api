@@ -1,19 +1,18 @@
 import uuid
-from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
     Field,
     model_validator,
 )
-from pydantic_core import PydanticCustomError
 
-from app.core.text import nfc_if_str, reject_disallowed_categories
+from app.core.text import DisplayName, nfc_if_str, reject_disallowed_categories, trimmed
 from app.modules.usage.models import (
     MAX_LIMIT,
     METRIC_KEY_RE,
@@ -22,32 +21,13 @@ from app.modules.usage.models import (
     UsagePeriod,
 )
 
-
-def _trimmed(max_length: int) -> Callable[[str], str]:
-    """Strip, then 1..max_length (pydantic checks `min_length` before it strips)."""
-
-    def check(value: str) -> str:
-        value = value.strip()
-        if not 1 <= len(value) <= max_length:
-            raise PydanticCustomError("display_text", f"must be 1-{max_length} characters")
-        return value
-
-    return check
-
-
 # Trimmed, not blank, NFC, no control/bidi characters. Reused by ADM-040/044.
 Reason = Annotated[
     str,
     BeforeValidator(nfc_if_str),
-    AfterValidator(_trimmed(500)),
+    AfterValidator(trimmed(500)),
     AfterValidator(reject_disallowed_categories),
     Field(description="Why the change is made (1-500 chars); stored in the audit entry only."),
-]
-DisplayName = Annotated[
-    str,
-    BeforeValidator(nfc_if_str),
-    AfterValidator(_trimmed(100)),
-    AfterValidator(reject_disallowed_categories),
 ]
 Limit = Annotated[int, Field(strict=True, ge=0, le=MAX_LIMIT)]
 
@@ -99,5 +79,37 @@ class UsageMetricRead(BaseModel):
     default_limit: int
     period: UsagePeriod
     status: UsageMetricStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class UsageLimitOverrideSet(BaseModel):
+    """Full replacement of the user's override for the metric (OQ62)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: Limit
+    expires_at: AwareDatetime | None = None
+    reason: Reason
+
+
+class UsageLimitOverrideRemove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Reason
+
+
+class UsageLimitOverrideRead(BaseModel):
+    """No `reason`: it is stored in the audit entry only (ADR-0024 point 5)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    app_key: str
+    metric_id: uuid.UUID
+    user_id: uuid.UUID
+    limit: int
+    expires_at: datetime | None
+    active: bool
+    created_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime

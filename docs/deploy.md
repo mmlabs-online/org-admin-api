@@ -8,7 +8,7 @@ Only the owner merges in either repository.
 ## Flow
 
 ```
-push branch release/vX.Y.Z (from main) ─► release.yml (GitHub runner)
+push branch release/X.Y.Z (from main) ─► release.yml (GitHub runner)
                                    ├─ check: commit on main, version new and higher than every tag; create tag vX.Y.Z
                                    ├─ build image mingming21400/org-admin-api:vX.Y.Z (linux/amd64), push to Docker Hub
                                    ├─ smoke test: run the pushed image, GET /healthz
@@ -23,15 +23,15 @@ owner merges that PR ─────────────► deploy-org-admin
                                    6. replace the API, wait for /readyz                   ── fail → restore previous image, push revert
 ```
 
-Release a version: create a branch `release/vX.Y.Z` from the current `main` and push it. Either on
-GitHub (branch dropdown → type `release/v0.1.0` → "Create branch release/v0.1.0 from main"), or:
+Release a version: create a branch `release/X.Y.Z` from the current `main` and push it. Either on
+GitHub (branch dropdown → type `release/0.1.0` → "Create branch release/0.1.0 from main"), or:
 
 ```bash
-git fetch origin && git push origin origin/main:refs/heads/release/v0.1.0
+git fetch origin && git push origin origin/main:refs/heads/release/0.1.0
 ```
 
 The workflow refuses a commit that is not on main, a version that already exists or is not higher
-than the latest tag, and a branch name that is not `release/vX.Y.Z`. It creates the tag itself.
+than the latest tag, and a branch name that is not `release/X.Y.Z`. It creates the tag itself.
 `/healthz` then reports `"version": "v0.1.0"`. Never commit to a release branch directly.
 
 ## Database
@@ -323,7 +323,7 @@ recomputes it from the current role contents.
    tunnel → Public hostnames), add `api.mmlabs.online` → `HTTP` → `org-admin-api:8000`.
    No Cloudflare Access application (owner decision, 2026-11-10). Since ADM-002 the admin endpoints
    need a Bearer `aud=admin` token (see "Admin access (ADM-002)").
-5. Push the branch `release/v0.1.0` from main, merge the release PR it opens, and check
+5. Push the branch `release/0.1.0` from main, merge the release PR it opens, and check
    `https://api.mmlabs.online/healthz`.
 6. **Ops workflow environment:** in `mmlabs-online/deployment` create the GitHub Environment
    `org-admin-api-ops` (required reviewer: owner; deployment branches: `main` only). The
@@ -542,8 +542,8 @@ runbook. The browser console is not a supported path.
 
 An app pushes its permission manifest with a per-app credential (ADR-0016, route `PUT /api/v1/apps/{key}/manifest`, USR-05b).
 Staff issue, list and revoke credentials through the admin API. Issuing needs `admin:*` on top of
-`admin:apps:write`; at most **2 active** credentials per app; the `admin` app and disabled apps
-get none. Run these calls inside the marked section of the "Admin access" subshell (token only via
+`admin:apps:write`; at most **2 active** credentials per (app, scope); disabled apps get none, and the `admin` app
+(org-admin-api) may only get `releases` keys. Run these calls inside the marked section of the "Admin access" subshell (token only via
 `-H @"$hdr"`). The credential value is shown **once**: write it straight to a 0600 file, never to
 stdout, argv, a log or an issue. The `key_id` is safe to share.
 
@@ -575,6 +575,11 @@ List (metadata only, newest first; revoked ones stay with `active: false`):
 curl -fsS -H @"$hdr" "$api/apps/<key>/credentials"
 ```
 
+- **Release-log key (ADM-037):** the issue call takes an optional body `{"scope": "releases"}`
+  (default `manifest`; add `-H "Content-Type: application/json" -d '{"scope":"releases"}'` to the
+  curl above) for a key that lets the app repo write its release record. Store it as the
+  Environment secret `MMLABS_RELEASE_CREDENTIAL` in the app repo (environment limited to the release
+  branch). Rotation and revocation work as below. Guide: [release-log.md](release-log.md).
 - **Rotation:** issue the second credential, update the secret, deploy once, then revoke the old
   one (find its `id` by `key_id` in the list): `curl -fsS -X DELETE -H @"$hdr" "$api/apps/<key>/credentials/<id>"`.
 - **Leak:** revoke at once (`DELETE` as above; revoking twice is a no-op), then issue a new one.
@@ -592,7 +597,7 @@ The release deployment report (ADM-036) is sent by the deployment repo with a **
 through the admin API; all three calls need `admin:*`. At most **2 active** keys. The only route that
 accepts it is `PUT /api/v1/apps/{key}/releases/{environment}/{version}/deployment` with body
 `{"status": "deployed"|"failed", "deployed_at": ..., "deploy_run_url": ...}`; in CI a 4xx/429 answer
-is warning-only. Run the calls inside the marked section of
+is warning-only (copy-paste steps: [release-log.md](release-log.md)). Run the calls inside the marked section of
 the "Admin access" subshell (token only via `-H @"$hdr"`). The value is shown **once**
 (`Cache-Control: no-store`): write it straight to a 0600 file, never to stdout, argv, a log or an issue.
 
@@ -978,6 +983,41 @@ Locally: `make cleanup ARGS=--dry-run`.
 
 A scheduled run (a separate `schedule:` workflow that can run only `cleanup`, in its own
 environment without a required reviewer, since the ops approval gate would block a cron run) is
+an open owner decision.
+
+## Usage event purge (ADM-045)
+
+Per-use usage events (`usage_events`) are kept 90 days (spec §5.14, OQ69); per-period totals
+(`usage_counters`) are kept indefinitely and are never touched. The CLI is a **dry run by
+default**:
+
+```bash
+python -m app.cli usage-events-purge          # counts only, nothing is written
+python -m app.cli usage-events-purge --apply  # deletes, in batches of 1000
+```
+
+- Retention is `USAGE_EVENT_RETENTION_DAYS` (default 90, minimum 90, and at least
+  `USAGE_ADJUST_WINDOW_SECONDS`). There is no command-line override.
+- Output is one line: `usage_events: deleted|would delete <n> (older than <N> d, cutoff <iso>)`,
+  plus `dry-run: nothing was deleted` on a dry run. Counts only: no keys, user ids or emails.
+- Each deleting batch commits with a `usage_events.purged` audit row (cutoff, retention days,
+  count). Rows locked by a live transaction are skipped; run again to catch them.
+- Exit codes: 0 done; 1 a fixed error line (batches already committed stay deleted; running again
+  is safe); 64 usage error.
+- A consume replayed with a purged idempotency key counts as a new consume (ADR-0022), and settle
+  or refund on a purged key returns 404 `usage_event_not_found`.
+- After a large first purge run `VACUUM (ANALYZE) usage_events` (never `VACUUM FULL`).
+
+The `usage-events-purge` choice must be added to the `ops-org-admin-api` workflow in
+`mmlabs-online/deployment` (owner). Run it in production with a dry run first, then `--apply`.
+**Fallback** with a shell on the Mac:
+
+```bash
+docker compose -p org-admin-api -f apps/org-admin-api/compose.yml --env-file apps/org-admin-api/release.env \
+  run --rm --no-deps migrate /app/.venv/bin/python -m app.cli usage-events-purge
+```
+
+Locally: `make usage-events-purge ARGS=--apply`. Scheduling it (cron or a scheduled workflow) is
 an open owner decision.
 
 ## Attachments — Google Drive (ADM-027)

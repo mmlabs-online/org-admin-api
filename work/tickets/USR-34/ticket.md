@@ -1,13 +1,13 @@
-# USR-34: Single role-assignment POST — correct OpenAPI errors and add stable 409 reasons
+# USR-34: Users list — opt-in active-access summary (`include=access`)
 
 | Field | Value |
 |---|---|
 | State | BACKLOG |
 | Priority | P2 |
-| Size | S |
-| Areas | api |
+| Size | M |
+| Areas | api, db |
 | Gate | plan-approval |
-| Depends on | ADM-023 |
+| Depends on | ADM-013, ADM-023 |
 | Needs Ming | — |
 | Attempts | 0 |
 | Created | 2026-11-26 |
@@ -15,31 +15,37 @@
 | PR | — |
 
 ## Goal
-The documented errors of `POST /api/v1/users/{user_id}/role-assignments` match what the API really returns, and its 409s carry a stable reason clients can map. Helps admin-pan's single-assign dialog and PAN-033.
+Staff see each user's current access (active roles per app, with scope) directly in the users list, without one request per row. Requested by admin-pan for PAN-032 (access column).
 
 ## Scope reference
-- `docs/spec-v1.md` §5.15 Part 4 (owner, 2026-11-26, OQ77). Reason naming aligned with USR-26 (`changed_concurrently`).
+- `docs/spec-v1.md` §5.15 Part 1 (owner, 2026-11-25; details 2026-11-26: OQ74 cap, OQ75 disabled apps / no names); §6 (p95 < 200 ms).
+- Owner decision: "access" = active role assignments only; expired excluded.
 
 ## Scope
-- Correct the OpenAPI responses: 404 `not_found`; 409 `conflict` (remove the wrong "app disabled, user unverified or disabled" text); 422 reasons `unknown_role`, `org_id_not_allowed`, `unknown_org`, `expiry_not_allowed`, `expires_in_past`; 403 `admin_wildcard_required` and `self_assignment_forbidden`.
-- Add `details: [{reason}]` to the 409s, keeping `code: conflict`: `assignment_exists` (active duplicate or racing insert) and a concurrent-change reason (owner's example `concurrent_change`; PLAN aligns with USR-26's `changed_concurrently`).
-- The next release publishes the corrected OpenAPI (admin-pan regenerates types).
+- `GET /api/v1/users?include=access` (permission `admin:users:read`, unchanged). Without `include` the response is unchanged.
+- Each item gains `access: [{app, app_status, roles: [{assignment_id, role_id, role_key, org_id | null, expires_at | null}]}]` and `access_truncated`; active assignments only (`expires_at IS NULL OR > now()`), grouped by app key; assignments in disabled apps included with `app_status`.
+- Cap: at most 20 assignments per user, ordered by app key, role key, app scope before org scope; `access_truncated: true` when the user has more.
+- One extra query per page for all users of the page (no N+1).
+- Proposed defaults (spec, not answered): user with none → `access: []`; `include` accepts only `access`, anything else → 422.
 
 ## Out of scope
-- Any other behaviour change on this endpoint; target-state checks (OQ78).
+- Role or org names (USR-27); filters (USR-35); any write.
 
 ## Acceptance criteria
-- [ ] OpenAPI for the POST lists exactly the real 401/403/404/409/422 outcomes with the reasons above; no mention of checks the code does not make.
-- [ ] Active duplicate → 409 `conflict` with `details[0].reason = assignment_exists`; concurrent change → 409 with the chosen concurrent-change reason.
-- [ ] All other responses unchanged (additive, R9); existing tests stay green.
-- [ ] Tests assert each 409 reason and the OpenAPI responses of the route.
+- [ ] `include=access` returns `access` and `access_truncated` per item with the shape above; without it the response matches today's `UserRead` page.
+- [ ] Expired assignments are excluded; app-scope and org-scope rows both appear; disabled-app assignments appear with `app_status: disabled`.
+- [ ] A user with more than 20 active assignments gets exactly 20, in the spec order, and `access_truncated: true`.
+- [ ] The number of SQL queries per request does not grow with page size (test asserts it).
+- [ ] Unknown `include` value → 422; no token → 401; token without `admin:users:read` → 403.
+- [ ] OpenAPI documents the new parameter and fields (additive, R9).
 
 ## Technical notes
-- Files: `app/modules/rbac/assignments_router.py` (responses), `app/modules/rbac/service.py` (409 details); both High paths.
-- If USR-33 lands first, the batch may reuse the same reason names in `failed` errors.
+- Files: users router/schemas/service; the access read in the rbac or users repository (where it lives decides Medium vs High review; rbac is a High path).
+- Query: second query `user_id = ANY(:page_ids) AND active`, joined to roles and apps; `row_number() OVER (PARTITION BY user_id …)` up to cap+1 for `truncated`. Uses `uq_role_assignments_user_role_org` (leading `user_id`); no migration expected (architect consult, 2026-11-25).
+- Shares the "active assignment" predicate with USR-35.
 
 ## Test plan
-- API tests for both 409 reasons; OpenAPI snapshot / schema assertion for the route.
+- API tests per criterion against the Postgres test DB, including a query-count assertion.
 
 ## Notes / answers from Ming
 

@@ -1,4 +1,4 @@
-.PHONY: install dev db-up db-down migrate migration grant-super-admin register-app set-admin-origins cleanup openapi lint format typecheck test check
+.PHONY: install dev db-up db-down migrate migration grant-super-admin register-app set-admin-origins cleanup usage-events-purge openapi lint format typecheck test check
 
 install:        ## Install deps (incl. dev)
 	uv sync
@@ -32,6 +32,9 @@ set-admin-origins:  ## Set the admin app origins: make set-admin-origins ARGS='-
 
 cleanup:  ## Email retention cleanup: make cleanup [ARGS=--dry-run]
 	@uv run python -m app.cli cleanup $(ARGS)
+
+usage-events-purge:  ## Usage event purge, dry run by default: make usage-events-purge [ARGS=--apply]
+	@uv run python -m app.cli usage-events-purge $(ARGS)
 
 openapi:  ## Write the OpenAPI document: make openapi [OUT=path]
 	@uv run python -m app.cli openapi $(if $(OUT),--output $(OUT))

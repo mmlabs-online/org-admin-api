@@ -95,7 +95,7 @@ the session's context (and token cost) small on long batches.
 - Approve plans for High tickets and answer blocking questions (in `ticket.md` → *Notes / answers from owner*, or in
   the batch round).
 - Merge High PRs (and any PR the batch did not merge).
-- Release: push `release/vX.Y.Z` from `main` (see `docs/deploy.md`), then merge the deployment PR. Agents never
+- Release: push `release/X.Y.Z` from `main` (see `docs/deploy.md`), then merge the deployment PR. Agents never
   push `release/*` and never touch the production database, signing keys or `IDENTITY_HMAC_KEY`.
 - Items in `work/ming-todo.md`.
 

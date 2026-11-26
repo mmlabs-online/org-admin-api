@@ -70,9 +70,9 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-18 | Filters and sort for the staff apps list | MERGED | P1 | api | 0 | 2026-11-18 |
 | ADM-021 | Audit log: org filter and single-entry read | MERGED | P2 | api, db | 1 | 2026-11-18 |
 | ADM-023 | Declare 404/409 responses and admin:* requirements in OpenAPI | MERGED | P2 | api | 0 | 2026-11-18 |
-| USR-31 | Users list: opt-in active-access summary (`include=access`) | BACKLOG | P2 | api, db | 0 | 2026-11-26 |
-| USR-32 | Users list filters `app` and `role_id` | BACKLOG | P2 | api, db | 0 | 2026-11-26 |
-| USR-34 | Single role-assignment POST: correct OpenAPI errors, stable 409 reasons | BACKLOG | P2 | api | 0 | 2026-11-26 |
+| USR-34 | Users list: opt-in active-access summary (`include=access`) | BACKLOG | P2 | api, db | 0 | 2026-11-26 |
+| USR-35 | Users list filters `app` and `role_id` | BACKLOG | P2 | api, db | 0 | 2026-11-26 |
+| USR-37 | Single role-assignment POST: correct OpenAPI errors, stable 409 reasons | BACKLOG | P2 | api | 0 | 2026-11-26 |
 | ADM-025 | Grant admin:entitlements:* to a staff role (needs owner) | BACKLOG | P2 | db, auth, security | 0 | 2026-11-17 |
 | ADM-022 | Server-side CSV export of the audit log | MERGED | P3 | api, security | 0 | 2026-11-18 |
 | ADM-024 | Optimistic concurrency (ETag / If-Match) on PATCH for organizations and entitlements | MERGED | P3 | api, architecture | 0 | 2026-11-19 |
@@ -83,10 +83,10 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-23 | Staff read of an organization's members and invitations | MERGED | P1 | api, auth, security, db | 1 | 2026-11-19 |
 | USR-24 | Optimistic concurrency on PUT role permissions | MERGED | P2 | api, db | 0 | 2026-11-19 |
 | USR-25 | Scope of `self_assignment_forbidden` beyond the admin app | BACKLOG | P2 | auth, security | 0 | 2026-11-19 |
-| USR-33 | Bulk-assign one role to up to 100 users (`assignment-batches`) | BACKLOG | P2 | architecture, api, auth, security, db | 0 | 2026-11-26 |
-| USR-35 | Designated per-app super-admin role for org apps (simap SIM-043) | BACKLOG | P2 | architecture, db, api, auth, security | 0 | 2026-11-26 |
-| USR-36 | Org token for a non-member org via the app's super-admin role (simap SIM-043) | BACKLOG | P2 | auth, security, api | 0 | 2026-11-26 |
-| USR-37 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | BACKLOG | P2 | api, auth | 0 | 2026-11-26 |
+| USR-36 | Bulk-assign one role to up to 100 users (`assignment-batches`) | BACKLOG | P2 | architecture, api, auth, security, db | 0 | 2026-11-26 |
+| USR-38 | Designated per-app super-admin role for org apps (simap SIM-043) | BACKLOG | P2 | architecture, db, api, auth, security | 0 | 2026-11-26 |
+| USR-39 | Org token for a non-member org via the app's super-admin role (simap SIM-043) | BACKLOG | P2 | auth, security, api | 0 | 2026-11-26 |
+| USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | BACKLOG | P2 | api, auth | 0 | 2026-11-26 |
 | USR-26 | Role definitions: assignment count, org-owner flag, stable reasons on 409 conflicts | BACKLOG | P3 | api, db | 0 | 2026-11-19 |
 | USR-27 | Role assignments: return role and org names | BACKLOG | P3 | api | 0 | 2026-11-19 |
 | USR-28 | Exact email lookup for staff user search | BACKLOG | P3 | api, security | 0 | 2026-11-19 |
@@ -101,22 +101,25 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | ADM-033 | Release log: data model and staff read (list, detail, live version, delete) | MERGED | P2 | db, api | 0 | 2026-11-20 |
 | ADM-034 | Release log: scoped app credentials and the app's release write | MERGED | P2 | db, api, auth, security | 1 | 2026-11-20 |
 | ADM-035 | Deployer credential: data model and staff issue, list, revoke | MERGED | P2 | db, auth, security | 1 | 2026-11-20 |
-| ADM-036 | Release log: deploy result report (deployer credential) | DONE | P2 | api, auth, security | 1 | 2026-11-20 |
-| ADM-037 | Release log: guide for app repos and the deployment repo | BACKLOG | P3 | api | 0 | 2026-11-19 |
-| ADM-038 | Bug reports carry the release the user was running | BACKLOG | P2 | db, api | 0 | 2026-11-19 |
-| USR-29 | App-facing read of an org's members for org-mode apps (requested by simap) | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-20 |
-| USR-30 | Org owners remove a member's org roles from the app (requested by simap) | BACKLOG | P1 | api, auth, security, db | 0 | 2026-11-20 |
+| ADM-036 | Release log: deploy result report (deployer credential) | MERGED | P2 | api, auth, security | 1 | 2026-11-20 |
+| ADM-037 | Release log: guide for app repos and the deployment repo | MERGED | P3 | api | 1 | 2026-11-24 |
+| ADM-038 | Bug reports carry the release the user was running | MERGED | P2 | db, api | 1 | 2026-11-22 |
+| USR-29 | App-facing read of an org's members for org-mode apps (requested by simap) | MERGED | P1 | api, auth, security, db | 1 | 2026-11-21 |
+| USR-30 | Org owners remove a member's org roles from the app (requested by simap) | MERGED | P1 | api, auth, security, db | 2 | 2026-11-21 |
+| USR-31 | Pending org invitations in the app-facing member read (requested by simap) | MERGED | P2 | api, auth, security, db | 1 | 2026-11-24 |
+| USR-32 | Display name claim in app access tokens | MERGED | P2 | auth, security | 1 | 2026-11-24 |
+| USR-33 | Let users and staff set a display name | MERGED | P2 | api, auth, security, db | 1 | 2026-11-25 |
 | ADM-039 | Usage metrics, defaults and periods (staff config) | MERGED | P2 | db, api, auth | 0 | 2026-11-20 |
-| ADM-040 | Per-user usage limit overrides (staff) | PLANNING | P2 | db, api | 0 | 2026-11-20 |
+| ADM-040 | Per-user usage limit overrides (staff) | MERGED | P2 | db, api | 1 | 2026-11-21 |
 | ADM-041 | Usage key scopes (ADR-0022, amends ADR-0021) | MERGED | P2 | architecture, auth, security | 0 | 2026-11-20 |
-| ADM-042 | Usage consume, refund and current-usage read for app backends | BACKLOG | P2 | db, api, auth, security | 0 | 2026-11-20 |
-| ADM-043 | Staff usage reads | BACKLOG | P3 | api | 0 | 2026-11-20 |
+| ADM-042 | Usage consume, refund and current-usage read for app backends | MERGED | P2 | db, api, auth, security | 1 | 2026-11-22 |
+| ADM-043 | Staff usage reads | MERGED | P3 | api | 1 | 2026-11-25 |
 | ADM-044 | App-admin usage actions through limits:write with on_behalf_of | BACKLOG | P3 | auth, api, security | 0 | 2026-11-20 |
-| ADM-045 | Usage event retention purge | BACKLOG | P3 | db | 0 | 2026-11-20 |
+| ADM-045 | Usage event retention purge | DONE | P3 | db | 2 | 2026-11-26 |
 | ADM-046 | Usage fail-open grace and late reconciliation | BACKLOG | P3 | api, db | 0 | 2026-11-20 |
 
 Order of work (dependencies; reprioritised 2026-11-12 by the owner for the ricotdin integration path): USR-01 → USR-01b → USR-02 → USR-02b → USR-02d → USR-02e → ADM-011 → USR-02c → USR-02f → USR-03 → USR-03f → USR-03c → USR-03e → USR-04 → USR-04c → USR-07 → USR-04b → USR-03b → ADM-002 → ADM-002c → ADM-002b → ADM-004 → ADM-004b → ADM-004c → ADM-002e → ADM-012 → USR-08 → ADM-013 → ADM-014 → USR-11 → USR-12 → USR-06 → USR-06b → USR-06c → USR-05 → USR-05b. admin-pan requests (2026-11-17): USR-16 → USR-17 → ADM-020 → USR-18 → ADM-021 → ADM-023 → ADM-025 → ADM-022 → ADM-024 → USR-19 → USR-20 → USR-21 → USR-22. admin-pan requests (2026-11-19): USR-23 → USR-24 → USR-25 → USR-26 → USR-27 → USR-28 → ADM-026.
-Hard dependencies: USR-01b ← USR-01 · USR-02 ← USR-01 · USR-02b ← USR-02 · USR-02d ← USR-02b · USR-02e ← USR-02d · USR-02c ← USR-02, USR-02b, USR-02d · USR-02f ← USR-02c · USR-03 ← USR-01, USR-02 · USR-03f ← USR-03 · USR-03c ← USR-03, USR-03f, USR-02 · USR-03e ← USR-03, USR-02 · USR-03b ← USR-03, USR-03c, USR-03e · ADM-002 ← USR-02, USR-02b, USR-02c, USR-02d, USR-02f, USR-02e, USR-03, USR-03c, USR-03e · ADM-002b ← ADM-002 · ADM-002c ← ADM-002 · ADM-002d ← ADM-002b · ADM-002e ← ADM-002d · ADM-012 ← ADM-002, ADM-002c, USR-03e · ADM-013 ← ADM-002, USR-03b · ADM-014 ← ADM-002e · USR-11 ← ADM-002, ADM-013 · USR-12 ← ADM-002d, USR-04 · ADM-015 ← ADM-004b, ADM-012 · ADM-016 ← USR-02c, ADM-012 · USR-10 ← USR-03, ADM-002b, ADM-004b, ADM-012 · ADM-017 ← ADM-012, ADM-004b · ADM-004 ← ADM-002 · ADM-004b ← ADM-004 · ADM-004c ← ADM-004b · ADM-004d ← ADM-004c · USR-04 ← USR-01, USR-03, USR-03c · USR-07 ← USR-02, USR-02f · USR-04c ← USR-04 · USR-04b ← USR-04, USR-04c · USR-04d ← USR-04b · USR-06 ← USR-03b, USR-03c, ADM-004, USR-04 · USR-06b ← USR-06 · USR-06c ← USR-06, USR-06b · USR-03g ← USR-03b · USR-08 ← USR-03b · USR-05 ← USR-02e, USR-03b, USR-06c · USR-05b ← USR-05 · ADM-006 ← USR-02 · ADM-018 ← ADM-006 · USR-14 ← USR-13, USR-10 · USR-15 ← USR-03g · ADM-019 ← ADM-006 · USR-09 ← USR-01, USR-02f, USR-07 · USR-16 ← USR-02d, ADM-002b, ADM-012, ADM-013 · USR-17 ← USR-16, USR-02c · ADM-020 ← ADM-002b, ADM-013 · USR-18 ← USR-02b, ADM-016 (shares design with ADM-020) · ADM-021 ← ADM-004, ADM-004b · ADM-022 ← ADM-021, ADM-004b · ADM-023 ← ADM-013 · ADM-024 ← ADM-006, ADM-012, ADM-013 · ADM-025 ← ADM-006 · USR-19 ← USR-05, USR-05b · USR-20 ← USR-03g · USR-21 ← USR-03g · USR-22 ← USR-03g · USR-23 ← USR-06, USR-06b, ADM-002b, ADM-012 · USR-24 ← USR-02d, USR-16 (shape shared with ADM-024) · USR-25 ← USR-02c, ADM-002b, USR-03g · USR-26 ← USR-16, USR-17 · USR-27 ← USR-02c, USR-17 · USR-28 ← USR-01b, ADM-002b · ADM-026 ← ADM-020, USR-18, ADM-016 · USR-31 ← ADM-013, ADM-023 · USR-32 ← USR-31 · USR-34 ← ADM-023 · USR-33 (soft: after USR-25) · USR-36 ← USR-35 · USR-37 ← USR-35.
+Hard dependencies: USR-01b ← USR-01 · USR-02 ← USR-01 · USR-02b ← USR-02 · USR-02d ← USR-02b · USR-02e ← USR-02d · USR-02c ← USR-02, USR-02b, USR-02d · USR-02f ← USR-02c · USR-03 ← USR-01, USR-02 · USR-03f ← USR-03 · USR-03c ← USR-03, USR-03f, USR-02 · USR-03e ← USR-03, USR-02 · USR-03b ← USR-03, USR-03c, USR-03e · ADM-002 ← USR-02, USR-02b, USR-02c, USR-02d, USR-02f, USR-02e, USR-03, USR-03c, USR-03e · ADM-002b ← ADM-002 · ADM-002c ← ADM-002 · ADM-002d ← ADM-002b · ADM-002e ← ADM-002d · ADM-012 ← ADM-002, ADM-002c, USR-03e · ADM-013 ← ADM-002, USR-03b · ADM-014 ← ADM-002e · USR-11 ← ADM-002, ADM-013 · USR-12 ← ADM-002d, USR-04 · ADM-015 ← ADM-004b, ADM-012 · ADM-016 ← USR-02c, ADM-012 · USR-10 ← USR-03, ADM-002b, ADM-004b, ADM-012 · ADM-017 ← ADM-012, ADM-004b · ADM-004 ← ADM-002 · ADM-004b ← ADM-004 · ADM-004c ← ADM-004b · ADM-004d ← ADM-004c · USR-04 ← USR-01, USR-03, USR-03c · USR-07 ← USR-02, USR-02f · USR-04c ← USR-04 · USR-04b ← USR-04, USR-04c · USR-04d ← USR-04b · USR-06 ← USR-03b, USR-03c, ADM-004, USR-04 · USR-06b ← USR-06 · USR-06c ← USR-06, USR-06b · USR-03g ← USR-03b · USR-08 ← USR-03b · USR-05 ← USR-02e, USR-03b, USR-06c · USR-05b ← USR-05 · ADM-006 ← USR-02 · ADM-018 ← ADM-006 · USR-14 ← USR-13, USR-10 · USR-15 ← USR-03g · ADM-019 ← ADM-006 · USR-09 ← USR-01, USR-02f, USR-07 · USR-16 ← USR-02d, ADM-002b, ADM-012, ADM-013 · USR-17 ← USR-16, USR-02c · ADM-020 ← ADM-002b, ADM-013 · USR-18 ← USR-02b, ADM-016 (shares design with ADM-020) · ADM-021 ← ADM-004, ADM-004b · ADM-022 ← ADM-021, ADM-004b · ADM-023 ← ADM-013 · ADM-024 ← ADM-006, ADM-012, ADM-013 · ADM-025 ← ADM-006 · USR-19 ← USR-05, USR-05b · USR-20 ← USR-03g · USR-21 ← USR-03g · USR-22 ← USR-03g · USR-23 ← USR-06, USR-06b, ADM-002b, ADM-012 · USR-24 ← USR-02d, USR-16 (shape shared with ADM-024) · USR-25 ← USR-02c, ADM-002b, USR-03g · USR-26 ← USR-16, USR-17 · USR-27 ← USR-02c, USR-17 · USR-28 ← USR-01b, ADM-002b · ADM-026 ← ADM-020, USR-18, ADM-016 · USR-34 ← ADM-013, ADM-023 · USR-35 ← USR-34 · USR-37 ← ADM-023 · USR-36 (soft: after USR-25) · USR-39 ← USR-38 · USR-40 ← USR-38.
 Note (D16): joining an app or getting any token needs a verified email, which only works after USR-04. Release ADM-002 together with or after USR-04.
 Plan and decisions: `docs/identity-architecture.md` (decision log D1–D12, 2026-11-11).
 

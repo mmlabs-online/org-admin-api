@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import create_app
 from app.modules.audit.models import AuditLog
+from app.modules.bug_reports.models import BugReport
 from app.modules.rbac.models import App
 from app.modules.releases.models import AppRelease
 from app.modules.users.models import User
@@ -194,6 +195,41 @@ async def test_list_items_have_no_bodies(
 
 
 # --- detail ---------------------------------------------------------------------
+
+
+async def test_release_detail_bug_report_counts(
+    make_client: MakeClient, db_session: AsyncSession, staff: User
+) -> None:
+    app = await make_app(db_session, _key())
+    user = await make_user(db_session)
+    rel = await make_release(db_session, app)
+    link = {"release_id": rel.id, "release_match": "reported"}
+    db_session.add_all(
+        [
+            BugReport(app_id=app.id, user_id=user.id, description="a", **link),
+            BugReport(app_id=app.id, user_id=user.id, description="b", **link),
+            BugReport(
+                app_id=app.id,
+                user_id=user.id,
+                description="c",
+                status="done",
+                handled_at=datetime.now(UTC),
+                **link,
+            ),
+            BugReport(app_id=app.id, user_id=user.id, description="unlinked"),
+        ]
+    )
+    await db_session.flush()
+    body = (await _get(make_client, staff, f"/{rel.id}")).json()
+    assert body["bug_reports"] == {"open": 2, "done": 1}
+
+
+async def test_release_detail_counts_zero_when_no_reports(
+    make_client: MakeClient, db_session: AsyncSession, staff: User
+) -> None:
+    rel = await make_release(db_session, await make_app(db_session, _key()))
+    body = (await _get(make_client, staff, f"/{rel.id}")).json()
+    assert body["bug_reports"] == {"open": 0, "done": 0}
 
 
 async def test_detail_full_and_thin_record(

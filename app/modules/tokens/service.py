@@ -3,14 +3,17 @@
 import logging
 import re
 import time
+import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from pydantic import TypeAdapter, ValidationError
+from pydantic_core import PydanticCustomError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_keys import KeySet
+from app.core.text import reject_disallowed_categories
 from app.modules.entitlements.repository import EntitlementRepository, EntitlementView
 from app.modules.entitlements.schemas import PLAN_PATTERN, Limits
 from app.modules.membership.service import join_available
@@ -33,6 +36,7 @@ from app.modules.users.repository import UserRepository
 logger = logging.getLogger(__name__)
 
 _LIMITS = TypeAdapter(Limits)
+NAME_CLAIM_MAX_LEN = 100  # matches users.display_name String(100)
 
 
 def _ent_claim(view: EntitlementView, aud: str) -> dict[str, object] | None:
@@ -45,6 +49,23 @@ def _ent_claim(view: EntitlementView, aud: str) -> dict[str, object] | None:
         logger.warning("ent_out_of_contract entitlement_id=%s aud=%s", view.id, aud)
         return None
     return {"plan": view.plan, "limits": dict(view.limits)}
+
+
+def _name_claim(display_name: str | None, *, user_id: uuid.UUID, aud: str) -> str | None:
+    """The `name` claim (USR-32): NFC text, 1-100 allowed characters, else `None` (fail closed)."""
+    if display_name is None:
+        return None
+    value = unicodedata.normalize("NFC", display_name)
+    if value.strip() == "":
+        return None
+    try:
+        if len(value) > NAME_CLAIM_MAX_LEN:
+            raise ValueError("length")
+        reject_disallowed_categories(value)
+    except (ValueError, PydanticCustomError):
+        logger.warning("name_out_of_contract user_id=%s aud=%s", user_id, aud)
+        return None
+    return value
 
 
 @dataclass(frozen=True)
@@ -120,6 +141,8 @@ class TokenService:
 
         if app.key == ADMIN_APP_KEY:
             claims["sid"] = str(account.id)  # admin tokens end with this account session (USR-14)
+        elif (name := _name_claim(user.display_name, user_id=user.id, aud=app.key)) is not None:
+            claims["name"] = name  # app tokens only; absent when unset (USR-32)
 
         now = int(self.clock())
         jti = str(uuid.uuid4())

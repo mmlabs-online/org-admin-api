@@ -1,9 +1,9 @@
-# ADR-0025: Bulk role assignment
+# ADR-0029: Bulk role assignment
 
 Status: Accepted (2026-11-26)
 Date: 2026-11-26
 
-Decision-log row D34 (`docs/identity-architecture.md`). Spec §5.15 Part 3, OQ70–OQ73 (owner, 2026-11-26).
+Decision-log row D41 (`docs/identity-architecture.md`). Spec §5.15 Part 3, OQ70–OQ73 (owner, 2026-11-26).
 
 ## Context
 admin-pan (PAN-033) assigns one role to many users. A client loop of single

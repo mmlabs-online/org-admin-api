@@ -15,10 +15,25 @@ from app.db.base import Base, UUIDPkMixin
 
 
 class AppCredentialScope(StrEnum):
-    """One scope per key (ADR-0021 §1). ADM-042 widens the CHECK with the runtime scopes."""
+    """One scope per key (ADR-0021 §1). USR-29 adds the first runtime scope (ADR-0025)."""
 
     MANIFEST = "manifest"
     RELEASES = "releases"
+    ORG_MEMBERS_READ = "org-members:read"
+    USAGE_READ = "usage:read"
+    USAGE_WRITE = "usage:write"
+    LIMITS_WRITE = "limits:write"  # issuance refused until ADM-044
+
+
+# Runtime scopes: no app lock, throttled `last_used_at` (ADR-0022 §3, ADR-0025).
+RUNTIME_SCOPES = frozenset(
+    {
+        AppCredentialScope.ORG_MEMBERS_READ,
+        AppCredentialScope.USAGE_READ,
+        AppCredentialScope.USAGE_WRITE,
+        AppCredentialScope.LIMITS_WRITE,
+    }
+)
 
 
 class AppCredential(UUIDPkMixin, Base):
@@ -28,8 +43,11 @@ class AppCredential(UUIDPkMixin, Base):
     __table_args__ = (
         CheckConstraint("key_id ~ '^[0-9a-f]{16}$'", name="key_id_format"),
         CheckConstraint("octet_length(secret_hash) = 32", name="secret_hash_length"),
-        # ADM-042 drops and recreates `ck_app_credentials_scope_valid` to add the runtime scopes.
-        CheckConstraint("scope IN ('manifest', 'releases')", name="scope_valid"),
+        CheckConstraint(
+            "scope IN ('manifest', 'releases', 'org-members:read', 'usage:read', 'usage:write', "
+            "'limits:write')",
+            name="scope_valid",
+        ),
         Index("ix_app_credentials_app_id_created_at", "app_id", "created_at"),
         Index(
             "ix_app_credentials_app_id_scope_active",

@@ -17,7 +17,13 @@ class User(UUIDPkMixin, TimestampMixin, Base):
     """An mmlabs Identity account (one account for every mmlabs app)."""
 
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("status IN ('active', 'disabled')", name="status_valid"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'disabled')", name="status_valid"),
+        CheckConstraint(
+            "display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 100",
+            name="display_name_length",
+        ),
+    )
 
     email: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)

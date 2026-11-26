@@ -740,7 +740,11 @@ async def test_same_key_in_both_flags_refused(
 
 @pytest.mark.parametrize(
     "flag,key",
-    [("--org-permission", "ricotdin:org:create"), ("--permission", "ricotdin:org:invite")],
+    [
+        ("--org-permission", "ricotdin:org:create"),
+        ("--permission", "ricotdin:org:invite"),
+        ("--permission", "ricotdin:org:remove-member"),
+    ],
 )
 async def test_reserved_scope_refused(
     flag: str, key: str, db_session: AsyncSession, capsys: pytest.CaptureFixture[str]

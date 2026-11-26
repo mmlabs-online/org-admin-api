@@ -114,6 +114,40 @@ class Settings(BaseSettings):
     release_deployment_max_bytes: int = Field(default=4096, ge=512)
     release_deployment_read_timeout_seconds: int = Field(default=10, ge=1)
 
+    # Org member removal (USR-30, ADR-0026): per IP, and per signed-in user after the session check.
+    org_member_remove_rate_limit: int = Field(default=30, ge=1)
+    org_member_remove_rate_window_seconds: int = Field(default=3600, ge=1)
+    org_member_remove_user_rate_limit: int = Field(default=10, ge=1)
+    org_member_remove_user_rate_window_seconds: int = Field(default=600, ge=1)
+
+    # Display name write (USR-33, D40): per IP, and per signed-in user after the session check.
+    profile_rate_limit: int = Field(default=20, ge=1)
+    profile_rate_window_seconds: int = Field(default=60, ge=1)
+    profile_user_rate_limit: int = Field(default=10, ge=1)
+    profile_user_rate_window_seconds: int = Field(default=3600, ge=1)
+
+    # Org members read (USR-29, ADR-0025): per IP before auth, per credential after auth.
+    app_org_members_rate_limit: int = Field(default=120, ge=1)
+    app_org_members_rate_window_seconds: int = Field(default=60, ge=1)
+    app_org_members_key_rate_limit: int = Field(default=60, ge=1)
+    app_org_members_key_rate_window_seconds: int = Field(default=60, ge=1)
+
+    # Usage metering (ADM-042, ADR-0022 §5, §7): per IP before auth, per IP for failed auth, per
+    # key after auth (shared by the four usage routes); amount cap, body cap, read deadline and
+    # the window in which a consume may still be settled or refunded.
+    usage_rate_limit: int = Field(default=1200, ge=1)
+    usage_rate_window_seconds: int = Field(default=60, ge=1)
+    usage_auth_failed_rate_limit: int = Field(default=20, ge=1)
+    usage_auth_failed_rate_window_seconds: int = Field(default=60, ge=1)
+    usage_key_rate_limit: int = Field(default=600, ge=1)
+    usage_key_rate_window_seconds: int = Field(default=60, ge=1)
+    usage_max_amount_per_call: int = Field(default=1_000_000, ge=1, le=2**31 - 1)
+    usage_max_bytes: int = Field(default=2048, ge=512)
+    usage_read_timeout_seconds: int = Field(default=5, ge=1)
+    usage_adjust_window_seconds: int = Field(default=86400, ge=60)
+    # Per-use events are purged after this many days (OQ69, ADM-045); 90 is the floor (ADR-0022).
+    usage_event_retention_days: int = Field(default=90, ge=90)
+
     # Access-token signing (ADR-0005): base64 of a PEM P-256 private key on one line. Required
     # in staging/production; local/test fall back to an ephemeral per-process key.
     jwt_signing_key: SecretStr | None = None
@@ -242,6 +276,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "JOIN_REQUEST_RETENTION_DAYS must be at least JOIN_REJECT_COOLDOWN_SECONDS"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _usage_retention_covers_adjust_window(self) -> Self:
+        if self.usage_event_retention_days * 86400 < self.usage_adjust_window_seconds:
+            raise ValueError("USAGE_EVENT_RETENTION_DAYS must cover USAGE_ADJUST_WINDOW_SECONDS")
         return self
 
     @model_validator(mode="after")

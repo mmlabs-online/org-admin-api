@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.organizations.models import OrganizationStatus
+from app.modules.users.models import UserStatus
 
 SLUG_PATTERN = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
 
@@ -65,3 +66,28 @@ class MyOrgRead(BaseModel):
     name: str
     status: OrganizationStatus
     roles: list[str]  # the caller's role keys in this org
+
+
+class AppOrgMemberRead(BaseModel):
+    user_id: uuid.UUID  # = access-token `sub`
+    email: str | None  # null for a disabled account
+    email_verified: bool
+    display_name: str | None  # null when unset or for a disabled account
+    status: UserStatus
+    org_roles: list[str]  # full role keys of the app held in the org, not expired, sorted
+    joined_at: datetime  # earliest creation among those assignments
+
+
+class AppOrgInvitationRead(BaseModel):
+    id: uuid.UUID
+    role: str  # full role key of the app, e.g. "simap:member"
+    created_at: datetime
+    expires_at: datetime
+
+
+class OrgMemberRemove(BaseModel):
+    """`POST /auth/orgs/{org_id}/members/{user_id}/remove`: `account_id` is the caller's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: uuid.UUID

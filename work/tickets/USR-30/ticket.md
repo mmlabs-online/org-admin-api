@@ -2,17 +2,17 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | MERGED |
 | Priority | P1 |
 | Size | M |
 | Areas | api, auth, security, db |
 | Gate | plan-approval |
 | Depends on | USR-29 |
 | Needs Ming | — |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-20 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/93 |
 
 ## Goal
 An org member holding a new org-level permission (simap grants it to its org owner role `simap:admin`) can remove another person from the org for that app, by removing that person's org-scoped roles of the app in that org — without staff and without touching the account.
@@ -50,6 +50,15 @@ An org member holding a new org-level permission (simap grants it to its org own
 - API tests per criterion; concurrency test; token claim test after removal.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-21, batch 2026-11-21-1) — Ming: "duyệt hết; câu 1–25 theo mặc định" (all batch questions answered with the defaults).
 - 2026-11-20 (orchestrator): requested by simap as a second item next to USR-29. Choices made here (Ming may change them at the plan gate): cookie class rather than app credential; permission name `<app>:org:remove-member` (the requested four-segment key is invalid); depends on USR-29 only for docs ordering in consumers.md — it can run independently if Ming prefers.
 
 ## Handoff
+
+### 2026-11-21 — claude — DONE (waiting for merge)
+- Agent calls: 9, tokens ~644k total (database-optimizer×1 34k, api-platform-engineer×1 29k, identity-access-engineer×1 50k, security-architect×1 53k, planner×1 opus 149k, implementer×2 sonnet 126k+44k, reviewer×2 opus 66k+26k, appsec-engineer×1 67k)
+- Done: member removal route, permission `<app>:org:remove-member`, guards (rank, self, last owner), invitation revocation, ADR-0026/D35, docs. Review REWORK attempt 1 (test audit helper not scoped by org) → PASS attempt 2 (3857 passed); appsec PASS (4 💭). PR https://github.com/mmlabs-online/org-admin-api/pull/93 (tier high).
+- Stopped (--auto-merge merge rule): tier high → never agent-merged; CI red only on the known kit lint. Ming merges #93; M-5 after deploy.
+
+### 2026-11-21 — claude — MERGED
+- PR #93 merged by the agent at Ming's explicit request ("merge cho tôi #93"), merge commit 6d1da8b. Owner exception to the "High is never agent-merged" rule, logged. CI `check` failed only on the known kit lint (`risk_tier.py`, 13 errors, stops before tests); full suite run locally by the reviewer (3857 passed).

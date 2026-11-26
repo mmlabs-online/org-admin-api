@@ -17,17 +17,17 @@ def _local_start(period: UsagePeriod, at: datetime) -> datetime:
     if at.tzinfo is None or at.utcoffset() is None:
         raise ValueError("`at` must be timezone-aware")
     local = at.astimezone(USAGE_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-    if period is UsagePeriod.WEEK:
+    if period == UsagePeriod.WEEK:
         return local - timedelta(days=local.weekday())
-    if period is UsagePeriod.MONTH:
+    if period == UsagePeriod.MONTH:
         return local.replace(day=1)
     return local
 
 
 def _next_local(period: UsagePeriod, start: datetime) -> datetime:
-    if period is UsagePeriod.DAY:
+    if period == UsagePeriod.DAY:
         return start + timedelta(days=1)
-    if period is UsagePeriod.WEEK:
+    if period == UsagePeriod.WEEK:
         return start + timedelta(days=7)
     if start.month == 12:
         return start.replace(year=start.year + 1, month=1)

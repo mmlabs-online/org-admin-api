@@ -6,13 +6,21 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 
 from app.modules.attachments.store import ImageType
 from app.modules.bug_reports import text
-from app.modules.bug_reports.models import BugReportStatus
+from app.modules.bug_reports.models import BugReportReleaseMatch, BugReportStatus
+from app.modules.releases.schemas import ReleaseSummary
 
 UNTRUSTED = (
     "Untrusted plain text supplied by the reporter's app (or staff), returned verbatim. It may "
     "contain HTML metacharacters (< > & \" ') and invisible or bidi characters. Render it as "
     "text, never as HTML."
 )
+RELEASE_MATCH_DESCRIPTION = (
+    "How `release` was linked at submit: `reported` = the app's version equals a release version "
+    "of that app; `inferred` = no or unknown version, the production release live at submit time; "
+    "`none` = no link. `reported`/`inferred` with `release: null` means the linked release was "
+    "deleted. Clients should tolerate unknown values."
+)
+RELEASE_DESCRIPTION = "Release summary, linked at submit; null for `none` or a deleted release."
 UNTRUSTED_URL = (
     UNTRUSTED + " http(s) only (enforced at submit); re-check the scheme before rendering it as a "
     "link."
@@ -64,6 +72,9 @@ class BugReportListItem(BaseModel):
     status: BugReportStatus
     reporter: BugReportReporter
     description_preview: str = Field(description="First 200 characters. " + UNTRUSTED)
+    app_version: str | None = Field(description=UNTRUSTED)
+    release_match: BugReportReleaseMatch = Field(description=RELEASE_MATCH_DESCRIPTION)
+    release: ReleaseSummary | None = Field(description=RELEASE_DESCRIPTION)
     handler: BugReportHandler | None = Field(
         description="Null when open, or when the handler account was deleted."
     )
@@ -91,6 +102,8 @@ class BugReportRead(BaseModel):
     description: str = Field(description=UNTRUSTED)
     page_url: str | None = Field(description=UNTRUSTED_URL)
     app_version: str | None = Field(description=UNTRUSTED)
+    release_match: BugReportReleaseMatch = Field(description=RELEASE_MATCH_DESCRIPTION)
+    release: ReleaseSummary | None = Field(description=RELEASE_DESCRIPTION)
     user_agent: str | None = Field(description=UNTRUSTED)
     resolution_note: str | None = Field(description="Staff only. " + UNTRUSTED)
     handler: BugReportHandler | None = Field(

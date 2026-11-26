@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -8,15 +9,20 @@ from httpx import AsyncClient
 from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.diff import USER as USER_DIFF_FIELDS
 from app.modules.audit.models import AuditLog
 from app.modules.auth.email_verification import VERIFY, email_token_hash
 from app.modules.auth.models import EmailToken
 from app.modules.auth.password_reset import RESET
 from app.modules.auth.repository import EmailTokenRepository
 from app.modules.join_requests.models import AppJoinRequest
+from app.modules.rbac.models import App
+from app.modules.users import service as users_service
 from app.modules.users.models import User
+from tests.auth_factories import make_login_user
 from tests.conftest import MakeClient
 from tests.join_request_factories import make_approval_app, make_join_request
+from tests.rbac_factories import assign, make_role
 
 BASE = "/api/v1/users"
 USER_READ_KEYS = {
@@ -458,3 +464,158 @@ async def test_disable_noop_cancels_nothing(
         await db_session.refresh(row)
         assert row.status == "pending"
     assert await _cancel_audit(db_session, seeded.id, live.id) == []
+
+
+# --- display name (USR-33) ------------------------------------------------------
+
+
+async def _rows(db: AsyncSession, action: str, user_id: uuid.UUID) -> list[AuditLog]:
+    rows = await db.scalars(
+        select(AuditLog)
+        .where(AuditLog.action == action, AuditLog.target_id == user_id)
+        .order_by(AuditLog.occurred_at, AuditLog.id)
+        .execution_options(populate_existing=True)
+    )
+    return list(rows)
+
+
+async def test_patch_sets_display_name(users_client: AsyncClient, db_session: AsyncSession) -> None:
+    user = await _user(db_session, "named@x.io")
+    resp = await users_client.patch(f"{BASE}/{user.id}", json={"display_name": "  Nguyễn  Ánh "})
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()) == USER_READ_KEYS
+    assert resp.json()["display_name"] == "Nguyễn Ánh"
+    assert resp.json()["status"] == "active"
+
+
+async def test_patch_null_clears_display_name(
+    users_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await _user(db_session, "clear@x.io")
+    user.display_name = "Old"
+    await db_session.flush()
+    resp = await users_client.patch(f"{BASE}/{user.id}", json={"display_name": None})
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] is None
+    await db_session.refresh(user)
+    assert user.display_name is None
+
+
+async def test_patch_status_and_name_together(
+    users_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await _user(db_session, "both@x.io")
+    resp = await users_client.patch(
+        f"{BASE}/{user.id}", json={"status": "disabled", "display_name": "Both"}
+    )
+    assert resp.status_code == 200
+    assert (resp.json()["status"], resp.json()["display_name"]) == ("disabled", "Both")
+    assert len(await _rows(db_session, "user.disabled", user.id)) == 1
+    assert len(await _rows(db_session, "user.display_name_changed", user.id)) == 1
+
+
+async def test_patch_name_same_value_noop(
+    users_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    past = datetime(2020, 1, 1, tzinfo=UTC)
+    user = await _user(db_session, "same@x.io", updated_at=past)
+    user.display_name = "Same"
+    await db_session.flush()
+    await db_session.refresh(user)
+    stamp = user.updated_at
+    resp = await users_client.patch(f"{BASE}/{user.id}", json={"display_name": "Same"})
+    assert resp.status_code == 200
+    assert datetime.fromisoformat(resp.json()["updated_at"]) == stamp
+    assert await _rows(db_session, "user.display_name_changed", user.id) == []
+
+
+@pytest.mark.parametrize(
+    "name", ["", "a" * 101, "zzbad\u202e", "zzbad\u3164", "zzbad\u0300\u0301\u0302", 5]
+)
+async def test_patch_invalid_display_name_422_no_echo(
+    users_client: AsyncClient, db_session: AsyncSession, name: Any
+) -> None:
+    user = await _user(db_session, "bad@x.io")
+    resp = await users_client.patch(f"{BASE}/{user.id}", json={"display_name": name})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "zzbad" not in resp.text
+    await db_session.refresh(user)
+    assert user.display_name is None
+
+
+async def test_patch_name_requires_users_write(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    user = await _user(db_session, "ro@x.io")
+    async with make_client(admin_permissions=["admin:users:read"]) as client:
+        resp = await client.patch(f"{BASE}/{user.id}", json={"display_name": "Nope"})
+    assert resp.status_code == 403
+    await db_session.refresh(user)
+    assert user.display_name is None
+
+
+async def test_patch_name_unknown_user_404(users_client: AsyncClient) -> None:
+    resp = await users_client.patch(f"{BASE}/{uuid.uuid4()}", json={"display_name": "Ghost"})
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"
+
+
+async def test_patch_name_privileged_target_needs_wildcard(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    actor = await make_login_user(db_session)
+    target = await make_login_user(db_session)
+    admin = await db_session.scalar(select(App).where(App.key == "admin"))
+    assert admin is not None
+    await assign(db_session, target, await make_role(db_session, admin, "admin:auditor"))
+    target_id = target.id
+    await db_session.commit()  # a refused request rolls back to the last savepoint
+    await db_session.refresh(actor)
+    async with make_client(admin_permissions=["admin:users:write"], admin_user=actor) as client:
+        denied = await client.patch(f"{BASE}/{target_id}", json={"display_name": "Nope"})
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "admin_wildcard_required"
+    (row,) = await _rows(db_session, "user.display_name_changed", target_id)
+    assert (row.outcome, row.target_id) == ("denied", target_id)
+    name = await db_session.scalar(select(User.display_name).where(User.id == target_id))
+    assert name is None
+    await db_session.refresh(actor)
+    async with make_client(admin_permissions=["admin:*"], admin_user=actor) as client:
+        ok = await client.patch(f"{BASE}/{target_id}", json={"display_name": "Yes"})
+    assert ok.status_code == 200
+    assert ok.json()["display_name"] == "Yes"
+
+
+async def test_patch_name_audit_row_has_no_value(
+    users_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await _user(db_session, "audit@x.io")
+    await users_client.patch(f"{BASE}/{user.id}", json={"display_name": "zzauditmarker"})
+    (row,) = await _rows(db_session, "user.display_name_changed", user.id)
+    assert (row.outcome, row.target_type, row.target_id) == ("success", "user", user.id)
+    assert row.changes == {"display_name": {"set": True}}
+    assert "zzauditmarker" not in str(row.changes)
+
+
+def test_user_diff_tuple_excludes_display_name() -> None:
+    assert "display_name" not in USER_DIFF_FIELDS
+
+
+async def test_patch_name_logs_no_value(
+    users_client: AsyncClient,
+    db_session: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Alembic's `fileConfig` (test DB setup) disables existing loggers.
+    monkeypatch.setattr(users_service.logger, "disabled", False)
+    user = await _user(db_session, "logs@x.io")
+    with caplog.at_level(logging.DEBUG, logger="app"):
+        resp = await users_client.patch(f"{BASE}/{user.id}", json={"display_name": "zznamemarker"})
+    assert resp.status_code == 200
+    records = [r for r in caplog.records if "display_name_changed" in r.getMessage()]
+    assert len(records) == 1  # non-vacuous: an app-module line was captured
+    assert records[0].name == "app.modules.users.service"
+    assert str(user.id) in records[0].getMessage()
+    assert "zznamemarker" not in caplog.text

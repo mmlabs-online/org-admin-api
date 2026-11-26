@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | MERGED |
 | Priority | P3 |
 | Size | S |
 | Areas | api |
@@ -12,7 +12,7 @@
 | Attempts | 0 |
 | Created | 2026-11-20 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/100 |
 
 ## Goal
 Staff see a user's current usage per app and metric, and the kept history.
@@ -27,5 +27,14 @@ Staff see a user's current usage per app and metric, and the kept history.
 - [ ] Reads tested with overrides and expired overrides; 401/403/404.
 
 ## Notes / answers from Ming
+- Plan approved (2026-11-25, batch 2026-11-25-1) — Ming: "duyệt hết; câu 1–23 theo mặc định" (all batch questions answered with the defaults).
 
 ## Handoff
+
+### 2026-11-25 — claude — DONE (waiting for merge)
+- Agent calls: 4, tokens ~238k total (api-platform-engineer×1 37k, planner×1 opus 83k, implementer×1 sonnet 67k, reviewer×1 opus 51k)
+- Done: three staff usage read routes (current, periods, events), R9/D36 docs. Review PASS attempt 1 (4220 passed). PR https://github.com/mmlabs-online/org-admin-api/pull/100 (tier medium).
+- Next: Ming merges #100; then ADM-045.
+
+### 2026-11-26 — claude — MERGED
+- PR #100 merged by Ming on GitHub (merge commit ed7691c).

@@ -2,6 +2,7 @@
 
 Status: Accepted (2026-11-19)
 Amended by ADR-0022 (§1 scope set and auth path, §3 rate limits, §12 R3 text)
+Amended by ADR-0025 (§1 scope set, §3 rate limits)
 
 > Originally numbered ADR-0018 with decision-log row D28; renumbered to ADR-0021 / D30 on 2026-11-20 (collision with `0018-attachment-storage-google-drive.md` and with D28 bug-report submit). Old PR and commit references to "ADR-0018 release log" mean this record.
 Date: 2026-11-19
