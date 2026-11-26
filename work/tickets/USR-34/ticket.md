@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | M |
 | Areas | api, db |
@@ -60,4 +60,7 @@ Staff see each user's current access (active roles per app, with scope) directly
 - Follow-ups: move rbac's inline active-assignment copies onto one shared definition (High, separate ticket); tell admin-pan (PAN-032) the 200 response is now `anyOf` two page types; nits in review.md.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/106 (tier medium, merge approved by Ming).
 - Merge rule not met: CI `check` failed only on the 13 known kit-lint errors in `.github/scripts/risk_tier.py` (job log checked); tier medium, `risk:medium` label agrees, merge approved. Stopped for Ming: merge #106 or say "merge cho tôi #106", then `/run-batch --resume`.
+
+### 2026-11-26 — merged (batch 2026-11-26-2)
+- PR [#106](https://github.com/mmlabs-online/org-admin-api/pull/106) merged by the agent at 3b597fb on Ming's explicit instruction ("merge cho tôi #106"), overriding merge-rule condition 2 (CI `check` red only on the 13 known kit-lint errors, job log checked). Tier medium, merge approved in the batch round. Tree equals the reviewed head (4416 passed at review).
 

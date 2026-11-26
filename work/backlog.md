@@ -70,8 +70,8 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-18 | Filters and sort for the staff apps list | MERGED | P1 | api | 0 | 2026-11-18 |
 | ADM-021 | Audit log: org filter and single-entry read | MERGED | P2 | api, db | 1 | 2026-11-18 |
 | ADM-023 | Declare 404/409 responses and admin:* requirements in OpenAPI | MERGED | P2 | api | 0 | 2026-11-18 |
-| USR-34 | Users list: opt-in active-access summary (`include=access`) | DONE | P2 | api, db | 1 | 2026-11-26 |
-| USR-35 | Users list filters `app` and `role_id` | PLANNING | P2 | api, db | 0 | 2026-11-26 |
+| USR-34 | Users list: opt-in active-access summary (`include=access`) | MERGED | P2 | api, db | 1 | 2026-11-26 |
+| USR-35 | Users list filters `app` and `role_id` | DONE | P2 | api, db | 1 | 2026-11-26 |
 | USR-37 | Single role-assignment POST: correct OpenAPI errors, stable 409 reasons | PLANNING | P2 | api | 0 | 2026-11-26 |
 | ADM-025 | Grant admin:entitlements:* to a staff role (needs owner) | BACKLOG | P2 | db, auth, security | 0 | 2026-11-17 |
 | ADM-022 | Server-side CSV export of the audit log | MERGED | P3 | api, security | 0 | 2026-11-18 |

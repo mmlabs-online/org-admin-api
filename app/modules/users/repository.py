@@ -152,13 +152,43 @@ class UserRepository:
         return [AccessRow(*row) for row in result.all()]
 
     async def list(
-        self, *, email: str | None, status: UserStatus | None, limit: int, offset: int
+        self,
+        *,
+        email: str | None,
+        status: UserStatus | None,
+        app_id: uuid.UUID | None = None,
+        role_id: uuid.UUID | None = None,
+        limit: int,
+        offset: int,
     ) -> tuple[list[User], int]:
         conditions: list[ColumnElement[bool]] = []
         if email is not None:
             conditions.append(User.email.ilike(f"%{escape_like(email)}%", escape="\\"))
         if status is not None:
             conditions.append(User.status == status.value)
+        if role_id is not None:
+            conditions.append(
+                select(RoleAssignment.id)
+                .where(
+                    RoleAssignment.user_id == User.id,
+                    RoleAssignment.role_id == role_id,
+                    active_assignment_clause(),
+                )
+                .correlate(User)
+                .exists()
+            )
+        if app_id is not None:
+            conditions.append(
+                select(RoleAssignment.id)
+                .join(Role, Role.id == RoleAssignment.role_id)
+                .where(
+                    RoleAssignment.user_id == User.id,
+                    Role.app_id == app_id,
+                    active_assignment_clause(),
+                )
+                .correlate(User)
+                .exists()
+            )
         total = await self.session.scalar(select(func.count()).select_from(User).where(*conditions))
         result = await self.session.execute(
             select(User)
