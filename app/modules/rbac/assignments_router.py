@@ -15,7 +15,11 @@ from app.modules.admin_auth.deps import AdminDep, current_admin, require_permiss
 from app.modules.audit.deps import AuditContextDep
 from app.modules.rbac.models import APP_KEY_RE
 from app.modules.rbac.schemas import AssignmentCreate, AssignmentRead
-from app.modules.rbac.service import AssignmentService
+from app.modules.rbac.service import (
+    REASON_ASSIGNMENT_EXISTS,
+    REASON_CHANGED_CONCURRENTLY,
+    AssignmentService,
+)
 
 router = APIRouter(
     prefix="/users", tags=["role-assignments"], dependencies=[Depends(current_admin)]
@@ -42,20 +46,38 @@ async def list_role_assignments(
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
+_ASSIGN_403 = (
+    "Missing permission (permission_denied), admin:* required for a privileged role "
+    "(admin_wildcard_required), or the caller's own admin-app role or the app's designated "
+    "super-admin role (self_assignment_forbidden)"
+)
+_ASSIGN_409 = (
+    f"code=conflict; details[0].reason: {REASON_ASSIGNMENT_EXISTS} (role already actively held "
+    f"in this scope, or a racing insert), {REASON_CHANGED_CONCURRENTLY}"
+)
+_ASSIGN_422 = (
+    "validation_error (malformed body), or unprocessable with details[].reason: unknown_role, "
+    "org_id_not_allowed, unknown_org, expiry_not_allowed, expires_in_past, "
+    "recipient_not_staff_super_admin"
+)
+_ASSIGN_KWARGS = require_permission(
+    "admin:roles:assign",
+    errors={
+        404: "Unknown user (not_found); an unknown role is 422 unknown_role",
+        409: _ASSIGN_409,
+        422: _ASSIGN_422,
+    },
+    requires_super="conditional",
+    super_when=_PRIVILEGED,
+)
+_ASSIGN_KWARGS["responses"][403] = {"description": _ASSIGN_403}
+
+
 @router.post(
     "/{user_id}/role-assignments",
     response_model=AssignmentRead,
     status_code=status.HTTP_201_CREATED,
-    **require_permission(
-        "admin:roles:assign",
-        errors={
-            404: _USER_404,
-            409: "Already assigned, app disabled, user unverified or disabled, or other "
-            "assignment rule (details[0].reason)",
-        },
-        requires_super="conditional",
-        super_when=_PRIVILEGED,
-    ),
+    **_ASSIGN_KWARGS,
 )
 async def assign_role(
     session: SessionDep,

@@ -5,10 +5,13 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.organizations.models import Organization
 from app.modules.rbac.models import App, Role
+from app.modules.rbac.repository import RbacRepository
+from app.modules.rbac.service import REASON_ASSIGNMENT_EXISTS, REASON_CHANGED_CONCURRENTLY
 from app.modules.users.models import User
 from tests.conftest import MakeClient
 from tests.rbac_factories import assign, make_app, make_role, make_user, super_admin_role
@@ -311,8 +314,67 @@ async def test_assign_active_duplicate_409(
         body["org_id"] = str((await _make_org(db_session)).id)
 
     assert (await rbac_client.post(_url(user.id), json=body)).status_code == 201
-    _assert_error(await rbac_client.post(_url(user.id), json=body), 409, "conflict")
+    error = _assert_error(await rbac_client.post(_url(user.id), json=body), 409, "conflict")
+    assert error["message"] == "Role is already assigned"
+    assert error["details"] == [{"reason": "assignment_exists"}]
     assert (await rbac_client.get(_url(user.id))).json()["total"] == 1
+
+
+def _integrity_error() -> IntegrityError:
+    return IntegrityError("INSERT ...", {}, Exception("duplicate"))
+
+
+async def test_assign_racing_insert_409_assignment_exists(
+    rbac_client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = await make_user(db_session)
+    _, viewer = await _stoktok(db_session)
+
+    async def _raise(*_: object, **__: object) -> None:
+        raise _integrity_error()
+
+    monkeypatch.setattr(RbacRepository, "add_assignment", _raise)
+    resp = await rbac_client.post(_url(user.id), json={"role_id": str(viewer.id)})
+    error = _assert_error(resp, 409, "conflict")
+    assert error["message"] == "Role is already assigned"
+    assert error["details"] == [{"reason": "assignment_exists"}]
+
+
+async def test_assign_expired_duplicate_race_409_changed_concurrently(
+    rbac_client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = await make_user(db_session)
+    _, viewer = await _stoktok(db_session)
+    await assign(db_session, user, viewer, expires_at=_past())
+
+    async def _raise(*_: object, **__: object) -> None:
+        raise _integrity_error()
+
+    monkeypatch.setattr(RbacRepository, "save", _raise)
+    resp = await rbac_client.post(_url(user.id), json={"role_id": str(viewer.id)})
+    error = _assert_error(resp, 409, "conflict")
+    assert error["message"] == "Assignment was changed concurrently"
+    assert error["details"] == [{"reason": "changed_concurrently"}]
+
+
+async def test_assign_row_vanished_409_changed_concurrently(
+    rbac_client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = await make_user(db_session)
+    _, viewer = await _stoktok(db_session)
+
+    async def _none(*_: object, **__: object) -> None:
+        return None
+
+    monkeypatch.setattr(RbacRepository, "get_assignment_row", _none)
+    resp = await rbac_client.post(_url(user.id), json={"role_id": str(viewer.id)})
+    error = _assert_error(resp, 409, "conflict")
+    assert error["details"] == [{"reason": "changed_concurrently"}]
+
+
+def test_assignment_conflict_reason_constants() -> None:
+    assert REASON_ASSIGNMENT_EXISTS == "assignment_exists"
+    assert REASON_CHANGED_CONCURRENTLY == "changed_concurrently"
 
 
 async def test_assign_expired_duplicate_replaced(
