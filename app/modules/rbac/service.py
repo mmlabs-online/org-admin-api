@@ -1153,7 +1153,8 @@ class PermissionService:
 
 
 def role_is_privileged(app: App, role_id: uuid.UUID, holds_admin_permission: bool) -> bool:
-    """Mirrors `AssignmentService._guard_privileged` (ADR-0008 G4) and the repository's
+    """Mirrors `AssignmentService._role_is_privileged` (ADR-0008 G4; used by
+    `_require_privileged_grant` and `_forbid_self`) and the repository's
     `user_has_privileged_assignment` (G5); change all three together (ADR-0030)."""
     return (
         app.key == ADMIN_APP_KEY
@@ -1706,10 +1707,20 @@ class AssignmentService:
     ) -> tuple[RoleAssignment, bool]:
         """The caller holds `lock_app(app.key)`. Returns (assignment, created). Never audits."""
         now = await self.repo.db_now()
-        await self._check_grant_request(app, role, org_id, expires_at, actor=actor, now=now)
+        privileged = await self._check_grant_request(
+            app, role, org_id, expires_at, actor=actor, now=now
+        )
         existing = await self.repo.find_assignment(user_id, role.id, org_id)
         ra, outcome = await self._grant_user_locked(
-            app, role, user_id, org_id, expires_at, actor=actor, now=now, existing=existing
+            app,
+            role,
+            user_id,
+            org_id,
+            expires_at,
+            actor=actor,
+            now=now,
+            existing=existing,
+            privileged=privileged,
         )
         if outcome is GrantOutcome.UNCHANGED:
             raise _assignment_conflict("Role is already assigned", REASON_ASSIGNMENT_EXISTS)
@@ -1724,8 +1735,9 @@ class AssignmentService:
         *,
         actor: Actor,
         now: datetime,
-    ) -> None:
-        """The rules that depend on the request, not on the user (the caller holds the app lock)."""
+    ) -> bool:
+        """The rules that depend on the request, not on the user (the caller holds the app lock).
+        Returns whether the role is privileged (ADR-0008 G4), for `_forbid_self`."""
         designated = is_designated_super_admin_role(app, role.id)
         if designated and org_id is not None:  # before the org lookup: app scope only
             raise _assignment_unprocessable(
@@ -1747,7 +1759,7 @@ class AssignmentService:
                 raise _assignment_unprocessable(
                     "expires_at must be in the future", "expires_at", "expires_in_past"
                 )
-        await self._require_privileged_grant(app, role.id, actor)
+        return await self._require_privileged_grant(app, role.id, actor)
 
     async def _grant_user_locked(
         self,
@@ -1760,10 +1772,11 @@ class AssignmentService:
         actor: Actor,
         now: datetime,
         existing: RoleAssignment | None,
+        privileged: bool,
     ) -> tuple[RoleAssignment, GrantOutcome]:
         """The per-user part after `_check_grant_request`; `existing` is the user's row for
         (role, org), if any. An active duplicate is returned as `UNCHANGED`, untouched."""
-        self._forbid_self(app, role.id, user_id, actor)
+        self._forbid_self(privileged, user_id, actor)
         # Plain read under the target app's lock; never lock `admin` here (ADR-0030 §6).
         if is_designated_super_admin_role(
             app, role.id
@@ -1809,27 +1822,29 @@ class AssignmentService:
         self, app: App, role_id: uuid.UUID, user_id: uuid.UUID, actor: Actor
     ) -> None:
         """Revoke's guard: `_require_privileged_grant`, then `_forbid_self`."""
-        await self._require_privileged_grant(app, role_id, actor)
-        self._forbid_self(app, role_id, user_id, actor)
+        privileged = await self._require_privileged_grant(app, role_id, actor)
+        self._forbid_self(privileged, user_id, actor)
 
-    async def _require_privileged_grant(self, app: App, role_id: uuid.UUID, actor: Actor) -> None:
+    async def _role_is_privileged(self, app: App, role_id: uuid.UUID) -> bool:
+        """ADR-0008 G4 via `role_is_privileged`; queries `is_admin` only when the app or the
+        designation does not already decide."""
+        if role_is_privileged(app, role_id, holds_admin_permission=False):
+            return True
+        return await self.repo.role_has_admin_permission(role_id)
+
+    async def _require_privileged_grant(self, app: App, role_id: uuid.UUID, actor: Actor) -> bool:
         """A privileged role (admin app, holding an `is_admin` permission, or the app's designated
-        super-admin role) needs `admin:*`. Mirrors `role_is_privileged` (ADR-0030)."""
-        if (
-            app.key != ADMIN_APP_KEY
-            and not is_designated_super_admin_role(app, role_id)
-            and not await self.repo.role_has_admin_permission(role_id)
-        ):
-            return
-        require_super(actor)
+        super-admin role) needs `admin:*`. Returns the G4 result for `_forbid_self`."""
+        privileged = await self._role_is_privileged(app, role_id)
+        if privileged:
+            require_super(actor)
+        return privileged
 
-    def _forbid_self(self, app: App, role_id: uuid.UUID, user_id: uuid.UUID, actor: Actor) -> None:
-        """Nobody grants or revokes their own admin-app or designated role, super-admins
-        included."""
-        if app.key == ADMIN_APP_KEY and user_id == actor_user_id(actor):
-            raise SelfAssignmentForbiddenError("Cannot change your own admin roles")
-        if is_designated_super_admin_role(app, role_id) and user_id == actor_user_id(actor):
-            raise SelfAssignmentForbiddenError("Cannot change your own super-admin roles")
+    def _forbid_self(self, privileged: bool, user_id: uuid.UUID, actor: Actor) -> None:
+        """Nobody grants, renews or revokes their own privileged role (ADR-0008 G4 definition,
+        every app, either scope), super-admins included. System actors have no user id."""
+        if privileged and user_id == actor_user_id(actor):
+            raise SelfAssignmentForbiddenError("Cannot change your own privileged roles")
 
     async def assign_batch(
         self,
@@ -1892,7 +1907,7 @@ class AssignmentService:
             )
         now = await self.repo.db_now()
         try:
-            await self._check_grant_request(
+            privileged = await self._check_grant_request(
                 app, role, data.org_id, data.expires_at, actor=actor, now=now
             )
         except DENIED_ERRORS as exc:
@@ -1916,6 +1931,7 @@ class AssignmentService:
                         actor=actor,
                         now=now,
                         existing=held.get(uid),
+                        privileged=privileged,
                     )
                     if outcome is not GrantOutcome.UNCHANGED:
                         await self._record_grant(ra, app, role, actor, ctx)

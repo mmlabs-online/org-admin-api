@@ -448,9 +448,9 @@ async def test_batch_reuses_single_grant_logic(
     calls: dict[str, int] = {"check": 0, "user": 0}
     check, grant_user = AssignmentService._check_grant_request, AssignmentService._grant_user_locked
 
-    async def _check(self: AssignmentService, *a: Any, **k: Any) -> None:
+    async def _check(self: AssignmentService, *a: Any, **k: Any) -> bool:
         calls["check"] += 1
-        await check(self, *a, **k)
+        return await check(self, *a, **k)
 
     async def _user(self: AssignmentService, *a: Any, **k: Any) -> Any:
         calls["user"] += 1
@@ -491,12 +491,10 @@ async def test_batch_mid_batch_denied_keeps_other_grants(
     await db_session.commit()
     original = AssignmentService._forbid_self
 
-    def _forbid(
-        self: AssignmentService, app: App, role_id: uuid.UUID, uid: uuid.UUID, a: Any
-    ) -> None:
+    def _forbid(self: AssignmentService, privileged: bool, uid: uuid.UUID, a: Any) -> None:
         if uid == bad:
-            raise SelfAssignmentForbiddenError("Cannot change your own admin roles")
-        original(self, app, role_id, uid, a)
+            raise SelfAssignmentForbiddenError("Cannot change your own privileged roles")
+        original(self, privileged, uid, a)
 
     monkeypatch.setattr(AssignmentService, "_forbid_self", _forbid)
     async with make_strict_client(admin_permissions=["admin:*"], admin_user=actor) as c:
@@ -522,6 +520,60 @@ async def test_batch_mid_batch_denied_keeps_other_grants(
         select(RoleAssignment.user_id).where(RoleAssignment.user_id.in_(ids))
     )
     assert set(held) == {ids[0], ids[2]}
+
+
+async def test_batch_self_privileged_failed_one_denied_row(
+    make_strict_client: MakeClient, db_session: AsyncSession, actor: User
+) -> None:
+    app = await make_app(db_session, "stoktok")
+    perm = await make_permission(db_session, app, "stoktok:*", is_admin=True)
+    role = await make_role(db_session, app, "stoktok:admin")
+    await grant(db_session, role, perm)
+    u1, u2 = await make_user(db_session), await make_user(db_session)
+    ids, actor_id = [u1.id, actor.id, u2.id], actor.id
+    url = _url(role)
+    await db_session.commit()
+    async with make_strict_client(admin_permissions=["admin:*"], admin_user=actor) as c:
+        resp = await c.post(url, json=_body(list(ids)))
+    assert resp.status_code == 200, resp.text
+    results = resp.json()["results"]
+    assert [r["status"] for r in results] == ["created", "failed", "created"]
+    assert results[1]["error"] == {
+        "code": "self_assignment_forbidden",
+        "message": "Cannot change your own privileged roles",
+    }
+    assert results[1]["assignment_id"] is None and results[1]["expires_at"] is None
+    batch_id = resp.json()["batch_id"]
+    (denied,) = await db_session.scalars(
+        select(AuditLog)
+        .where(AuditLog.outcome == "denied", AuditLog.request_id == batch_id)
+        .execution_options(populate_existing=True)
+    )
+    assert (denied.target_type, denied.target_id) == ("user", actor_id)
+    assert denied.changes == {"reason": "self_assignment_forbidden", "role_key": "stoktok:admin"}
+    assert len(await _granted_rows(db_session, batch_id)) == 2
+    held = await db_session.scalars(
+        select(RoleAssignment).where(RoleAssignment.user_id == actor_id)
+    )
+    assert list(held) == []
+
+
+async def test_batch_self_privileged_without_wildcard_request_level_403(
+    make_strict_client: MakeClient, db_session: AsyncSession, actor: User
+) -> None:
+    app = await make_app(db_session, "stoktok")
+    perm = await make_permission(db_session, app, "stoktok:*", is_admin=True)
+    role = await make_role(db_session, app, "stoktok:admin")
+    await grant(db_session, role, perm)
+    other = await make_user(db_session)
+    body = _body([actor.id, other.id])
+    url = _url(role)
+    await db_session.commit()
+    before = await _counts(db_session)
+    async with make_strict_client(admin_permissions=["admin:roles:assign"], admin_user=actor) as c:
+        resp = await c.post(url, json=body)
+    _error(resp, 403, "admin_wildcard_required")
+    assert (await _counts(db_session))[0] == before[0]
 
 
 async def test_batch_unexpected_error_rolls_back_all(
@@ -583,4 +635,5 @@ async def test_batch_query_count_bounded(client: AsyncClient, db_session: AsyncS
     assert sum("FOR NO KEY UPDATE" in s and "FROM apps" in s for s in ten) == 1
     assert sum("FROM users" in s and "users.id IN" in s for s in ten) == 1
     assert sum("FROM role_assignments" in s and "IN (" in s for s in ten) == 1
+    assert sum("role_permissions" in s and "is_admin" in s for s in ten) == 1
     assert len(ten) <= one + 8 * per_created + 2  # unchanged users cost less than created ones

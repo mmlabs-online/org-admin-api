@@ -203,7 +203,7 @@ Privileged writes need `admin:*` on top of the route permission (ADM-002b, ADR-0
 anything on the `admin` app, any change across the `is_admin` boundary, granting or revoking a
 role that is an admin-app role or holds an `is_admin` permission, and the status of a user holding
 one. Codes: 403 `admin_wildcard_required` (`details.required = "admin:*"`), 403
-`self_assignment_forbidden` / `self_status_change_forbidden` / `self_session_change_forbidden` (nobody changes their own admin roles
+`self_assignment_forbidden` / `self_status_change_forbidden` / `self_session_change_forbidden` (nobody changes their own privileged roles
 or status), 409 `last_super_admin`, 409 `role_has_assignments`, 422 `wildcard_super_admin_only`,
 409 `conflict`/`origin_taken`, 409 `app_key_taken`. OpenAPI marks these operations with
 `x-requires-super` (`always` / `conditional` + `x-requires-super-when`). Disabling a user revokes its account sessions on every device.

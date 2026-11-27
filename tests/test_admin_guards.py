@@ -536,15 +536,17 @@ async def test_self_grant_admin_role_403(make_client: MakeClient, db_session: As
     assert await _state(db_session) == before
 
 
-async def test_self_grant_non_admin_app_role_ok(
+async def test_self_grant_product_admin_role_403(
     make_client: MakeClient, db_session: AsyncSession
 ) -> None:
     me = await _verified_user(db_session)
     _, role, _ = await _stoktok_admin_role(db_session)
+    await db_session.commit()  # a denied write rolls back (ADM-004b): keep the setup
+    before = await _state(db_session)
     async with make_client(admin_permissions=SUPER, admin_user=me) as client:
         resp = await client.post(_assignments(me.id), json={"role_id": str(role.id)})
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["granted_by"] == str(me.id)
+    _error(resp, 403, "self_assignment_forbidden")
+    assert await _state(db_session) == before
 
 
 async def test_self_revoke_admin_role_403(
