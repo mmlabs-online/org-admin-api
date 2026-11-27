@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
 | Areas | api, db |
@@ -57,4 +57,7 @@ Staff find the users who hold any role of an app, or one specific role, from the
 - Follow-ups: EXPLAIN (ANALYZE, BUFFERS) of the filter count query on a seeded DB; admin-pan PAN-034 shows `details[].reason` as field errors; test pinning `app=admin`.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/107 (tier medium, merge approved by Ming).
 - Merge rule not met: CI `check` failed only on the 13 known kit-lint errors (job log checked); tier medium, label agrees, merge approved. Stopped for Ming: merge #107 or "merge cho tôi #107", then `/run-batch --resume` builds USR-37.
+
+### 2026-11-26 — merged (batch 2026-11-26-2)
+- PR [#107](https://github.com/mmlabs-online/org-admin-api/pull/107) merged by Ming (1139722) before the agent acted on "merge cho tôi #107".
 

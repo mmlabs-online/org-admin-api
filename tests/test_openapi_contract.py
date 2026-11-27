@@ -558,3 +558,31 @@ def test_users_list_filter_params() -> None:
         "validation_error", "unprocessable", "unknown_app", "unknown_role", "role_not_in_app",
     ):  # fmt: skip
         assert word in resp["description"]
+
+
+def test_assign_role_post_documents_real_outcomes() -> None:
+    op = _schema()["paths"]["/api/v1/users/{user_id}/role-assignments"]["post"]
+    responses = op["responses"]
+    assert set(responses) == {"201", "401", "403", "404", "409", "422"}
+    for code in ("401", "403", "404", "409", "422"):
+        assert responses[code]["content"]["application/json"]["schema"] == {"$ref": REF}
+    expected = {
+        "403": ["permission_denied", "admin_wildcard_required", "self_assignment_forbidden"],
+        "404": ["not_found"],
+        "409": ["conflict", "assignment_exists", "changed_concurrently"],
+        "422": [
+            "validation_error",
+            "unknown_role",
+            "org_id_not_allowed",
+            "unknown_org",
+            "expiry_not_allowed",
+            "expires_in_past",
+            "recipient_not_staff_super_admin",
+        ],
+    }
+    for code, tokens in expected.items():
+        for token in tokens:
+            assert token in responses[code]["description"], (code, token)
+    for response in responses.values():
+        assert "disabled" not in response["description"]
+        assert "unverified" not in response["description"]

@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1476,6 +1476,14 @@ class RoleService:
         )
 
 
+REASON_ASSIGNMENT_EXISTS: Final = "assignment_exists"
+REASON_CHANGED_CONCURRENTLY: Final = "changed_concurrently"
+
+
+def _assignment_conflict(message: str, reason: str) -> ConflictError:
+    return ConflictError(message, details=[{"reason": reason}])
+
+
 def _assignment_unprocessable(message: str, field: str, reason: str) -> UnprocessableError:
     return UnprocessableError(message, details=[{"field": field, "reason": reason}])
 
@@ -1611,7 +1619,9 @@ class AssignmentService:
             raise
         row = await self.repo.get_assignment_row(user_id, ra.id)
         if row is None:  # unreachable while the transaction holds the app lock
-            raise ConflictError("Assignment was changed concurrently")
+            raise _assignment_conflict(
+                "Assignment was changed concurrently", REASON_CHANGED_CONCURRENTLY
+            )
         await self._record_grant(ra, app, role, actor, ctx)
         return _assignment_read(row)
 
@@ -1706,14 +1716,16 @@ class AssignmentService:
         existing = await self.repo.find_assignment(user_id, role.id, org_id)
         if existing is not None:
             if existing.expires_at is None or existing.expires_at > await self.repo.db_now():
-                raise ConflictError("Role is already assigned")
+                raise _assignment_conflict("Role is already assigned", REASON_ASSIGNMENT_EXISTS)
             # Expired duplicate: replaced in place (same id and created_at).
             existing.expires_at = expires_at
             existing.granted_by = granted_by
             try:
                 await self.repo.save()
             except IntegrityError as exc:
-                raise ConflictError("Assignment was changed concurrently") from exc
+                raise _assignment_conflict(
+                    "Assignment was changed concurrently", REASON_CHANGED_CONCURRENTLY
+                ) from exc
             return existing, False
 
         try:
@@ -1727,7 +1739,9 @@ class AssignmentService:
                 )
             )
         except IntegrityError as exc:  # racing insert, or the user was deleted meanwhile
-            raise ConflictError("Role is already assigned") from exc
+            raise _assignment_conflict(
+                "Role is already assigned", REASON_ASSIGNMENT_EXISTS
+            ) from exc
         return ra, True
 
     async def _guard_privileged(
