@@ -155,6 +155,7 @@ class UserRepository:
         self,
         *,
         email: str | None,
+        email_exact: bool = False,
         status: UserStatus | None,
         app_id: uuid.UUID | None = None,
         role_id: uuid.UUID | None = None,
@@ -162,7 +163,9 @@ class UserRepository:
         offset: int,
     ) -> tuple[list[User], int]:
         conditions: list[ColumnElement[bool]] = []
-        if email is not None:
+        if email is not None and email_exact:
+            conditions.append(User.email == email)  # CITEXT: case-insensitive, unique index
+        elif email is not None:
             conditions.append(User.email.ilike(f"%{escape_like(email)}%", escape="\\"))
         if status is not None:
             conditions.append(User.status == status.value)

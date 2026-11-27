@@ -6,7 +6,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.text import UserDisplayName
-from app.modules.rbac.models import AppStatus
+from app.modules.rbac.models import APP_KEY_RE, AppStatus
 from app.modules.users.models import UserStatus
 
 
@@ -26,6 +26,28 @@ class UserRead(BaseModel):
 
 class UserInclude(StrEnum):
     ACCESS = "access"
+
+
+class EmailMatch(StrEnum):
+    EXACT = "exact"
+    CONTAINS = "contains"
+
+
+class UserSearch(BaseModel):
+    """Body of `POST /users/search`: the `GET /users` filters, kept out of the URL (D43)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str | None = Field(None, min_length=1, max_length=254)
+    email_match: EmailMatch | None = Field(
+        None, description="`exact` or `contains` (default). Requires `email`."
+    )
+    status: UserStatus | None = None
+    app: str | None = Field(None, pattern=APP_KEY_RE, description="App key filter.")
+    role_id: uuid.UUID | None = Field(None, description="Role id filter.")
+    include: list[UserInclude] | None = Field(None, description="Opt-in extras; only `access`.")
+    limit: int = Field(20, ge=1, le=100)
+    offset: int = Field(0, ge=0)
 
 
 class AccessRole(BaseModel):
