@@ -323,7 +323,11 @@ class AssignmentRead(BaseModel):
     app: str  # app key
     role_id: uuid.UUID
     role_key: str
+    role_name: str = Field(description="Role display name, current value.")
     org_id: uuid.UUID | None
+    org_name: str | None = Field(
+        description="Name of the org scope, current value; null for an app-scope assignment."
+    )
     granted_by: uuid.UUID | None
     expires_at: datetime | None
     active: bool  # computed with the database clock

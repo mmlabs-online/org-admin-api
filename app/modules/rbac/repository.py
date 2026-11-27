@@ -78,12 +78,35 @@ def org_of_app_clause(app_id: uuid.UUID) -> ColumnElement[bool]:
 
 _APP_SORT_COLUMNS = {"key": App.key, "name": App.name, "created_at": App.created_at}
 
-# (assignment, app key, role key, active) — `active` is computed with the database clock.
-AssignmentRow = tuple[RoleAssignment, str, str, bool]
-# (assignment, app key, role key, active, holder email, holder display name, holder status)
-RoleHolderRow = tuple[RoleAssignment, str, str, bool, str, str | None, str]
-# (assignment, app key, role key, active, role name, email, display name, user status)
-OrgMemberRow = tuple[RoleAssignment, str, str, bool, str, str, str | None, str]
+
+@dataclass(frozen=True)
+class AssignmentRow:
+    assignment: RoleAssignment
+    app_key: str
+    role_key: str
+    role_name: str
+    org_name: str | None  # None for app scope
+    active: bool  # database clock
+
+
+@dataclass(frozen=True)
+class RoleHolderRow:
+    base: AssignmentRow
+    email: str
+    display_name: str | None
+    user_status: str
+
+
+@dataclass(frozen=True)
+class OrgMemberRow:
+    base: AssignmentRow
+    email: str
+    display_name: str | None
+    user_status: str
+
+
+# Columns selected by `_assignment_rows()`; extra columns start at this index.
+_ASSIGNMENT_COLUMNS = 6
 
 
 @dataclass(frozen=True)
@@ -615,12 +638,25 @@ class RbacRepository:
         return or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now())
 
     @staticmethod
-    def _assignment_rows() -> Select[RoleAssignment, str, str, bool]:
+    def _assignment_rows() -> Select[RoleAssignment, str, str, str, str | None, bool]:
         return (
-            select(RoleAssignment, App.key, Role.key, RbacRepository._is_active().label("active"))
+            select(
+                RoleAssignment,
+                App.key,
+                Role.key,
+                Role.name,
+                Organization.name,
+                RbacRepository._is_active().label("active"),
+            )
             .join(Role, Role.id == RoleAssignment.role_id)
             .join(App, App.id == Role.app_id)
+            .outerjoin(Organization, Organization.id == RoleAssignment.org_id)
         )
+
+    @staticmethod
+    def _assignment_row(r: Sequence[Any]) -> AssignmentRow:
+        """The only place reading the base columns of `_assignment_rows()` by index."""
+        return AssignmentRow(r[0], r[1], r[2], r[3], r[4], r[5])
 
     async def page_role_holders(
         self,
@@ -652,7 +688,10 @@ class RbacRepository:
             .limit(limit)
             .offset(offset)
         )
-        return [(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in result.all()], total or 0
+        n = _ASSIGNMENT_COLUMNS
+        return [
+            RoleHolderRow(self._assignment_row(r), r[n], r[n + 1], r[n + 2]) for r in result.all()
+        ], total or 0
 
     async def page_org_members(
         self,
@@ -681,14 +720,17 @@ class RbacRepository:
         )
         result = await self.session.execute(
             self._assignment_rows()
-            .add_columns(Role.name, User.email, User.display_name, User.status)
+            .add_columns(User.email, User.display_name, User.status)
             .join(User, User.id == RoleAssignment.user_id)
             .where(*filters)
             .order_by(RoleAssignment.created_at.desc(), RoleAssignment.id)
             .limit(limit)
             .offset(offset)
         )
-        rows = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]) for r in result.all()]
+        n = _ASSIGNMENT_COLUMNS
+        rows = [
+            OrgMemberRow(self._assignment_row(r), r[n], r[n + 1], r[n + 2]) for r in result.all()
+        ]
         return rows, total or 0
 
     async def org_related_to_app(self, org_id: uuid.UUID, app_id: uuid.UUID) -> bool:
@@ -787,7 +829,7 @@ class RbacRepository:
             .limit(limit)
             .offset(offset)
         )
-        return [(r[0], r[1], r[2], r[3]) for r in result.all()], total or 0
+        return [self._assignment_row(r) for r in result.all()], total or 0
 
     async def get_assignment_row(
         self, user_id: uuid.UUID, assignment_id: uuid.UUID
@@ -800,7 +842,7 @@ class RbacRepository:
                 .execution_options(populate_existing=True)
             )
         ).first()
-        return None if row is None else (row[0], row[1], row[2], row[3])
+        return None if row is None else self._assignment_row(row)
 
     async def find_assignment(
         self, user_id: uuid.UUID, role_id: uuid.UUID, org_id: uuid.UUID | None
