@@ -572,6 +572,9 @@ async def test_delete_designated_role_409(
     await _designate(db_session, world)
     resp = await client.delete(f"{APPS}/simap/roles/{world.role.id}")
     _reason(resp, 409, "super_admin_role_designated")
+    assert resp.json()["error"]["details"] == [
+        {"field": "role_id", "reason": "super_admin_role_designated"}
+    ]
 
 
 async def test_org_mode_none_while_designated_409(
@@ -600,6 +603,9 @@ async def test_replace_permissions_designated_org_permission_409(
     await _designate(db_session, world)
     resp = await _put(client, world, ["simap:items:read", "simap:orders:write"])
     _reason(resp, 409, "role_has_org_permissions")
+    assert resp.json()["error"]["details"] == [
+        {"field": "permission_keys", "reason": "role_has_org_permissions"}
+    ]
 
 
 async def test_replace_permissions_designated_wildcard_409(
@@ -607,7 +613,11 @@ async def test_replace_permissions_designated_wildcard_409(
 ) -> None:
     await _designate(db_session, world)
     await make_permission(db_session, world.app, "simap:*", is_admin=True)
-    _reason(await _put(client, world, ["simap:*"]), 409, "wildcard_not_allowed")
+    resp = await _put(client, world, ["simap:*"])
+    _reason(resp, 409, "wildcard_not_allowed")
+    assert resp.json()["error"]["details"] == [
+        {"field": "permission_keys", "reason": "wildcard_not_allowed"}
+    ]
 
 
 async def test_replace_permissions_designated_unchanged_reput_200(

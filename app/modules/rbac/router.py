@@ -36,7 +36,14 @@ from app.modules.rbac.schemas import (
     RoleRead,
     RoleUpdate,
 )
-from app.modules.rbac.service import AppService, AssignmentService, PermissionService, RoleService
+from app.modules.rbac.service import (
+    ROLE_DELETE_CONFLICT_REASONS,
+    ROLE_PERMISSIONS_CONFLICT_REASONS,
+    AppService,
+    AssignmentService,
+    PermissionService,
+    RoleService,
+)
 from app.modules.releases.body import inline_schema, read_json_body
 
 router = APIRouter(prefix="/apps", tags=["apps"], dependencies=[Depends(current_admin)])
@@ -384,6 +391,14 @@ async def update_role(
     return await RoleService(session).update(key, role_id, body, actor=principal, ctx=ctx)
 
 
+_ROLE_DELETE_409 = f"code=conflict; details[0].reason: {', '.join(ROLE_DELETE_CONFLICT_REASONS)}"
+_ROLE_PERMISSIONS_409 = (
+    f"code=conflict; details[0].reason: {', '.join(ROLE_PERMISSIONS_CONFLICT_REASONS)}. "
+    "role_has_assignments (an is_admin permission added to a role with assignments) answers "
+    "code=role_has_assignments instead"
+)
+
+
 @router.delete(
     "/{key}/roles/{role_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -391,7 +406,7 @@ async def update_role(
         "admin:roles:manage",
         errors={
             404: _ROLE_404,
-            409: "Default or super-admin role, or role has assignments",
+            409: _ROLE_DELETE_409,
         },
         requires_super="conditional",
         super_when=_ADMIN_APP,
@@ -411,7 +426,7 @@ async def delete_role(
             "admin:roles:manage",
             errors={
                 404: _ROLE_404,
-                409: "Default/super-admin role rule or role has assignments",
+                409: _ROLE_PERMISSIONS_409,
                 412: _ROLE_412,
             },
             requires_super="conditional",

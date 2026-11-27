@@ -300,6 +300,17 @@ class RbacRepository:
         stmt = select(exists().where(RoleAssignment.role_id == role_id))
         return bool(await self.session.scalar(stmt))
 
+    async def assignment_counts(self, role_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Rows per role, no expiry filter: same rows as `role_has_assignments`; change together."""
+        if not role_ids:
+            return {}
+        stmt = (
+            select(RoleAssignment.role_id, func.count())
+            .where(RoleAssignment.role_id.in_(role_ids))
+            .group_by(RoleAssignment.role_id)
+        )
+        return {role_id: n for role_id, n in (await self.session.execute(stmt)).all()}
+
     async def page_permissions(
         self, app_id: uuid.UUID, *, limit: int, offset: int
     ) -> tuple[list[Permission], int]:

@@ -106,6 +106,18 @@ the `admin` app's origins (set with `set-admin-origins`).
   does not move when only derived fields change (`is_default`, `privileged`, e.g. after an app's
   default role or a permission's `is_admin` changes). The PUT response carries the new tag, so edits
   can be chained without a re-GET.
+- **Role definitions (USR-26).** `GET …/role-definitions[/{role_id}]` gain `is_org_owner`
+  (`apps.org_owner_role_id`) and `assignment_count`: all `role_assignments` rows of the role,
+  expired and org-scoped included, the same rows that block DELETE. `0` means DELETE will not fail
+  with `role_has_assignments`; it is a snapshot, so a concurrent grant can still give 409. Both are
+  derived fields and do not move the ETag. Every 409 of `DELETE …/roles/{role_id}` and `PUT
+  …/roles/{role_id}/permissions` carries `details[0].reason` (code `conflict`). DELETE:
+  `system_role`, `default_role`, `org_owner_role`, `super_admin_role_designated`,
+  `role_has_assignments`, `changed_concurrently`. PUT: `default_role_admin_permission`,
+  `org_owner_admin_permission`, `default_role_org_permission`, `role_has_org_permissions`,
+  `wildcard_not_allowed`, `super_admin_must_keep_wildcard`, `changed_concurrently`; the one
+  exception is an is_admin permission added to a role with assignments, which answers code
+  `role_has_assignments` (reason `role_has_assignments`). Messages are unchanged; key on `reason`.
 - `admin-portal` cannot host the sign-up or forgot-password screens (ADM-002d); it is exempt from
   `/reset-password`, but must serve `/verify-email`.
 - **Unverified staff email (USR-12).** `/auth/token` answers 403 `email_unverified`. The UI may

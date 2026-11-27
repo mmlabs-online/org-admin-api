@@ -15,6 +15,7 @@ from app.core.errors import (
 from app.main import create_app
 from app.modules.admin_auth.deps import _ERROR_RESPONSES, require_permission
 from app.modules.rbac.models import APP_KEY_RE
+from app.modules.rbac.service import ROLE_DELETE_CONFLICT_REASONS, ROLE_PERMISSIONS_CONFLICT_REASONS
 
 REF = "#/components/schemas/ErrorEnvelope"
 
@@ -101,9 +102,26 @@ def test_role_definitions_operations() -> None:
             assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
     component = schema["components"]["schemas"]["RoleDefinitionRead"]
     assert set(component["required"]) == {
-        "id", "app", "key", "name", "is_system", "is_default", "is_super_admin", "privileged",
-        "permissions", "created_at", "updated_at",
+        "id", "app", "key", "name", "is_system", "is_default", "is_org_owner", "is_super_admin",
+        "privileged", "assignment_count", "permissions", "created_at", "updated_at",
     }  # fmt: skip
+    for name in ("is_org_owner", "assignment_count"):
+        assert component["properties"][name]["description"]
+    assert "expired" in component["properties"]["assignment_count"]["description"]
+
+
+def test_role_delete_409_documents_reasons() -> None:
+    op = _schema()["paths"]["/api/v1/apps/{key}/roles/{role_id}"]["delete"]
+    description = op["responses"]["409"]["description"]
+    for token in ("conflict", *ROLE_DELETE_CONFLICT_REASONS):
+        assert token in description, token
+
+
+def test_role_permissions_put_409_documents_reasons() -> None:
+    op = _schema()["paths"]["/api/v1/apps/{key}/roles/{role_id}/permissions"]["put"]
+    description = op["responses"]["409"]["description"]
+    for token in ("conflict", "role_has_assignments", *ROLE_PERMISSIONS_CONFLICT_REASONS):
+        assert token in description, token
 
 
 def test_role_holders_operation() -> None:
