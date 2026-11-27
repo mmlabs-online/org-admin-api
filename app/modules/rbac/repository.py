@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from sqlalchemy import (
     ColumnElement,
@@ -22,8 +22,9 @@ from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
+from sqlalchemy.orm import QueryableAttribute
 
-from app.core.listing import ilike_any, sort_clauses
+from app.core.listing import ilike_any
 from app.db.base import bumped_updated_at
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization, OrganizationStatus
@@ -76,7 +77,43 @@ def org_of_app_clause(app_id: uuid.UUID) -> ColumnElement[bool]:
     )
 
 
-_APP_SORT_COLUMNS = {"key": App.key, "name": App.name, "created_at": App.created_at}
+NAME_SORT_COLLATION: Final = "und-x-icu"
+
+
+def name_sort_key(column: QueryableAttribute[str]) -> ColumnElement[str]:
+    """Case-insensitive, locale-aware sort key for a name column (ADM-026).
+
+    The collation is a literal constant; never build a collation from input. It is applied
+    inside `lower()` so both the case mapping and the ordering use ICU.
+    """
+    return func.lower(column.collate(NAME_SORT_COLLATION))
+
+
+_APP_SORT_EXPRESSIONS: dict[str, ColumnElement[Any] | QueryableAttribute[Any]] = {
+    "key": App.key,
+    "name": name_sort_key(App.name),
+    "created_at": App.created_at,
+}
+
+
+def member_count_select() -> Select[uuid.UUID, int]:
+    """OQ5 member definition (owner, 2026-11-17): distinct `active` users with at least one
+    non-expired role assignment on the app (app scope or any org), grouped by app. The single
+    definition; ADM-015, ADM-016 and ADM-026 use it; do not duplicate it. Apps without members
+    are absent."""
+    return (
+        select(
+            Role.app_id.label("app_id"),
+            func.count(func.distinct(RoleAssignment.user_id)).label("member_count"),
+        )
+        .join(Role, Role.id == RoleAssignment.role_id)
+        .join(
+            User,
+            and_(User.id == RoleAssignment.user_id, User.status == UserStatus.ACTIVE.value),
+        )
+        .where(or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()))
+        .group_by(Role.app_id)
+    )
 
 
 @dataclass(frozen=True)
@@ -191,12 +228,18 @@ class RbacRepository:
         if q is not None:
             conditions.append(ilike_any(q, App.key, App.name))
         total = await self.session.scalar(select(func.count()).select_from(App).where(*conditions))
+        stmt = select(App).where(*conditions)
+        key = sort.removeprefix("-")
+        primary: ColumnElement[Any] | QueryableAttribute[Any]
+        if key == "member_count":
+            mc = member_count_select().subquery("mc")
+            stmt = stmt.outerjoin(mc, mc.c.app_id == App.id)
+            primary = func.coalesce(mc.c.member_count, 0)
+        else:
+            primary = _APP_SORT_EXPRESSIONS[key]
+        order = primary.desc() if sort.startswith("-") else primary.asc()
         result = await self.session.scalars(
-            select(App)
-            .where(*conditions)
-            .order_by(*sort_clauses(sort, _APP_SORT_COLUMNS, App.id))
-            .limit(limit)
-            .offset(offset)
+            stmt.order_by(order, App.id.asc()).limit(limit).offset(offset)
         )
         return list(result), total or 0
 
@@ -1089,16 +1132,7 @@ class RbacRepository:
         absent from the result (callers default to 0)."""
         if app_ids is not None and not app_ids:
             return {}
-        stmt = (
-            select(Role.app_id, func.count(func.distinct(RoleAssignment.user_id)))
-            .join(Role, Role.id == RoleAssignment.role_id)
-            .join(
-                User,
-                and_(User.id == RoleAssignment.user_id, User.status == UserStatus.ACTIVE.value),
-            )
-            .where(or_(RoleAssignment.expires_at.is_(None), RoleAssignment.expires_at > func.now()))
-            .group_by(Role.app_id)
-        )
+        stmt = member_count_select()
         if app_ids is not None:
             stmt = stmt.where(Role.app_id.in_(app_ids))
         return {app_id: total for app_id, total in await self.session.execute(stmt)}

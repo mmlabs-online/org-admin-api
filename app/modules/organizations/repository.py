@@ -1,23 +1,30 @@
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import ColumnElement, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import QueryableAttribute
 
-from app.core.listing import ilike_any, sort_clauses
+from app.core.listing import ilike_any
 from app.db.base import bumped_updated_at
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.organizations.models import Organization, OrganizationStatus
 from app.modules.organizations.schemas import OrganizationSort
 from app.modules.rbac.models import Role, RoleAssignment
-from app.modules.rbac.repository import org_of_app_clause
+from app.modules.rbac.repository import name_sort_key, org_of_app_clause
 
-_SORT_COLUMNS = {
+_SORT_EXPRESSIONS: dict[str, ColumnElement[Any] | QueryableAttribute[Any]] = {
     "created_at": Organization.created_at,
-    "name": Organization.name,
+    "name": name_sort_key(Organization.name),
     "slug": Organization.slug,
 }
+
+
+def _order_by(sort: OrganizationSort) -> list[ColumnElement[Any]]:
+    primary = _SORT_EXPRESSIONS[sort.removeprefix("-")]
+    return [primary.desc() if sort.startswith("-") else primary.asc(), Organization.id.asc()]
 
 
 class OrganizationRepository:
@@ -51,7 +58,7 @@ class OrganizationRepository:
         result = await self.session.execute(
             select(Organization)
             .where(*conditions)
-            .order_by(*sort_clauses(sort, _SORT_COLUMNS, Organization.id))
+            .order_by(*_order_by(sort))
             .limit(limit)
             .offset(offset)
         )

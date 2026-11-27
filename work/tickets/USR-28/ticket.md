@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P3 |
 | Areas | api, security |
 | Attempts | 1 |
@@ -37,4 +37,7 @@ USR-01b, ADM-002b. Consumer: admin-pan PAN-015c. Requested by admin-pan (batch 2
 - Follow-ups: separate High ticket to strip query strings from the access log; admin-pan PAN-015c switches to `POST /users/search` + `email_match: "exact"`, then decide on deprecating GET `email`; `assert READ_ONLY_POST <= set(BEARER)`; identity-architecture §4 and spec §5.15 snapshot mention the search route.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/113 (tier medium, merge approved by Ming).
 - Merge rule not met: CI `check` failed only on the 13 known kit-lint errors (job log checked); tier medium, label agrees, merge approved. Stopped for Ming: merge #113 or "merge cho tôi #113", then `/run-batch --resume` builds ADM-026 (after M-10).
+
+### 2026-11-27 — merged (batch 2026-11-27-1)
+- PR [#113](https://github.com/mmlabs-online/org-admin-api/pull/113) merged by the agent at d9ce140 on Ming's explicit instruction ("merge cho tôi #113"), overriding merge-rule condition 2 (CI `check` red only on the 13 known kit-lint errors, job log checked). Tier medium, merge approved in the batch round.
 

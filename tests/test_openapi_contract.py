@@ -351,7 +351,16 @@ def test_apps_list_query_params() -> None:
     assert (q["minLength"], q["maxLength"]) == (1, 100)
     assert "422" in _param(op, "q")["description"]
     sort = _param(op, "sort")["schema"]
-    assert sort["enum"] == ["key", "-key", "name", "-name", "created_at", "-created_at"]
+    assert sort["enum"] == [
+        "key",
+        "-key",
+        "name",
+        "-name",
+        "created_at",
+        "-created_at",
+        "member_count",
+        "-member_count",
+    ]
     assert sort["default"] == "key"
 
 
