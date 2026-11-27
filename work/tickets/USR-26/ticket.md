@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P3 |
 | Areas | api, db |
 | Attempts | 1 |
@@ -37,3 +37,7 @@ USR-16, USR-17. Consumer: admin-pan PAN-015b. Requested by admin-pan (batch 2026
 - Done: `RoleDefinitionRead.assignment_count` (one grouped query, same rows as the delete guard, list + detail) and `is_org_owner`; stable `details[0].reason` on all 6 DELETE-role and 8 PUT-permissions 409s (shipped field/reason pairs and PUT `role_has_assignments` code unchanged); OpenAPI descriptions from the reason tuples; docs. Review PASS (4522 passed; ruff/mypy/alembic clean; tier high); appsec PASS.
 - Follow-ups: owner decision — per-role holder counts (incl. super-admin count on the `admin` app) visible under `admin:apps:read` (accept, or gate behind `admin:users:read`); optional `active_assignment_count`; merge `_role_conflict` / `_assignment_conflict`.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/111 (tier high). Next: Ming merges #111 (or "merge cho tôi #111"); then `/run-batch --resume` builds USR-27.
+
+### 2026-11-27 — merged (batch 2026-11-27-1)
+- PR [#111](https://github.com/mmlabs-online/org-admin-api/pull/111) merged by the agent at fa85b0e on Ming's explicit instruction ("merge cho tôi #111") — owner exception to the High-tier no-agent-merge rule, logged. CI `check` red only on the 13 known kit-lint errors (job log checked). Ming did not answer the appsec 🟢 (per-role counts under `admin:apps:read`); left as shipped, open follow-up.
+
