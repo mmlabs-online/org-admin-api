@@ -12,7 +12,7 @@
 | Attempts | 1 |
 | Created | 2026-11-26 |
 | Claimed by | — |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/108 |
 
 ## Goal
 The documented errors of `POST /api/v1/users/{user_id}/role-assignments` match what the API really returns, and its 409s carry a stable reason clients can map. Helps admin-pan's single-assign dialog and PAN-033.
@@ -51,4 +51,4 @@ The documented errors of `POST /api/v1/users/{user_id}/role-assignments` match w
 - Agent calls: 5, tokens ~260k total (api-platform-engineer 38k, planner opus 82k, implementer sonnet 54k, reviewer opus 53k, appsec-engineer 34k).
 - Done: public `REASON_ASSIGNMENT_EXISTS` / `REASON_CHANGED_CONCURRENTLY`; all four 409s of the role-assignment POST carry `details=[{"reason": …}]` (messages and code unchanged); POST OpenAPI documents the real 403/404/409/422 outcomes (router-level 403 override; `admin_auth/deps.py` untouched); spec §5.15 Part 4. Review PASS (4445 passed + 2 errors from concurrent test-DB schema reset, re-run 109 passed; ruff/mypy/alembic clean; tier high); appsec PASS.
 - Follow-ups: DELETE 409 reason; `forbidden=` parameter on `require_permission`; `_USER_404` text names `not_found`; tell FK from unique violations; review agents must not run pytest concurrently (conftest resets the shared test schema).
-
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/108 (tier high). Next: Ming merges #108; then `/run-batch --resume` builds USR-36.
