@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Areas | auth, security |
 | Attempts | 1 |
@@ -37,3 +37,7 @@ USR-02c, ADM-002b, USR-03g. Requested by admin-pan (batch 2026-11-19).
 - Done: option (b) — one privileged predicate (`_role_is_privileged`: admin app, any `is_admin` permission at either scope, designated role) computed once per request and passed to `_forbid_self(privileged, user_id, actor)`; self grant, renew and revoke of privileged roles refused in every app (`self_assignment_forbidden`, "Cannot change your own privileged roles"); check order unchanged; batch per-item failure + denied row; docs (ADR-0008/0029/0030, identity-architecture, spec) and the read-only report query in docs/deploy.md (M-9). Review PASS (4514 passed; ruff/mypy/alembic clean; tier high); appsec PASS.
 - Follow-ups: stale docstring `rbac/assignments_router.py:3-4`; denied-audit handler on join approval if default roles could ever hold `is_admin`; optional self-grant history query over the audit log.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/110 (tier high). Next: Ming merges #110 (or "merge cho tôi #110"); then `/run-batch --resume` builds USR-26.
+
+### 2026-11-27 — merged (batch 2026-11-27-1)
+- PR [#110](https://github.com/mmlabs-online/org-admin-api/pull/110) merged by the agent at cee6cbc on Ming's explicit instruction ("merge cho tôi #110") — owner exception to the High-tier no-agent-merge rule, logged. CI `check` red only on the 13 known kit-lint errors (job log checked).
+
