@@ -48,8 +48,7 @@ async def list_role_assignments(
 
 _ASSIGN_403 = (
     "Missing permission (permission_denied), admin:* required for a privileged role "
-    "(admin_wildcard_required), or the caller's own admin-app role or the app's designated "
-    "super-admin role (self_assignment_forbidden)"
+    "(admin_wildcard_required), or the caller's own privileged role (self_assignment_forbidden)"
 )
 _ASSIGN_409 = (
     f"code=conflict; details[0].reason: {REASON_ASSIGNMENT_EXISTS} (role already actively held "
@@ -89,15 +88,19 @@ async def assign_role(
     return await AssignmentService(session).assign(user_id, body, actor=principal, ctx=ctx)
 
 
+_REVOKE_KWARGS = require_permission(
+    "admin:roles:assign",
+    errors={404: "Unknown user or assignment", 409: "Last active super-admin"},
+    requires_super="conditional",
+    super_when=_PRIVILEGED,
+)
+_REVOKE_KWARGS["responses"][403] = {"description": _ASSIGN_403}
+
+
 @router.delete(
     "/{user_id}/role-assignments/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    **require_permission(
-        "admin:roles:assign",
-        errors={404: "Unknown user or assignment", 409: "Last active super-admin"},
-        requires_super="conditional",
-        super_when=_PRIVILEGED,
-    ),
+    **_REVOKE_KWARGS,
 )
 async def revoke_role(
     session: SessionDep,

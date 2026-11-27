@@ -424,7 +424,7 @@ are unchanged.
 **Since ADM-002b** the users (`/api/v1/users`) and RBAC (`/api/v1/apps`, role assignments) admin
 APIs are live in production behind the same Bearer auth. Anything on the `admin` app, `is_admin`
 changes, privileged role grants/revokes and the status of staff users also need `admin:*`;
-nobody can change their own admin roles or status, and the last active super-admin cannot be
+nobody can change their own privileged roles or status, and the last active super-admin cannot be
 revoked or disabled (ADR-0008 amendment). `/docs` and `/openapi.json` are off in production
 (`API_DOCS_ENABLED=true` re-enables them). Run the read-only audit below once before deploying
 the release that contains ADM-002b.
@@ -475,6 +475,27 @@ ROLLBACK;
 Anything unexpected (a self-granted or unknown admin assignment, an extra admin role or
 permission, an assigned role holding an `is_admin` permission, a shared origin) is revoked or
 removed by a super-admin through the API before relying on the new guards.
+
+### USR-25 self-granted privileged assignments (read-only)
+
+Since USR-25 nobody grants or revokes their own privileged role in any app. Earlier self-grants are
+not revoked automatically; run once with the one-off `psql` above and decide per row whether another
+super-admin revokes it. Prints ids only. `granted_by` is overwritten on renewal, so a row renewed
+by someone else no longer shows; the audit log (`role_assignment.granted`, `actor_user_id`) is the
+full history.
+
+```sql
+BEGIN READ ONLY;
+-- USR-25: assignments of privileged roles whose last granter is the holder
+SELECT ra.id, ra.user_id, a.key AS app, r.key AS role, ra.org_id, ra.created_at, ra.expires_at
+FROM role_assignments ra JOIN roles r ON r.id = ra.role_id JOIN apps a ON a.id = r.app_id
+WHERE ra.granted_by = ra.user_id
+  AND (a.key = 'admin' OR a.super_admin_role_id = r.id OR EXISTS (
+       SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+       WHERE rp.role_id = r.id AND p.is_admin))
+ORDER BY ra.created_at;
+ROLLBACK;
+```
 
 An admin token needs a registered origin on the `admin` app: the login and token calls with
 `X-MM-App: admin` fail the origin check while `apps[admin].origins` is empty. Set it once with

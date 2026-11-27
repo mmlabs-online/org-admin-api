@@ -27,7 +27,7 @@ one server-side endpoint that reuses the single-assignment logic, at most 100 us
    role, ADR-0030; USR-36 implements it), and the shared-input rules `org_id_not_allowed`,
    `unknown_org`, `expires_in_past`. Per user: `created` (new, or an expired duplicate re-activated
    with its old id), `unchanged` (active holder, even with a different `expires_at`; nothing
-   changed, existing id and expiry returned), `failed` (`not_found`, `self_assignment_forbidden`
+   changed, existing id and expiry returned), `failed` (`not_found`, `self_assignment_forbidden` (the caller's own privileged role, ADR-0008, USR-25)
    and any other per-user rule of the single POST). Target state as the single POST (disabled
    users, unverified email, disabled apps accepted).
 4. **One transaction, one app lock, one savepoint per user.** The batch takes `lock_app` once and

@@ -235,6 +235,48 @@ async def _assign_self(db: AsyncSession, actor: User) -> Denied:
     )
 
 
+async def _product_admin_role(db: AsyncSession) -> Role:
+    app = await make_app(db, "stoktok")
+    perm = await make_permission(db, app, "stoktok:*", is_admin=True)
+    role = await make_role(db, app, "stoktok:admin")
+    await grant(db, role, perm)
+    return role
+
+
+async def _assign_self_product(db: AsyncSession, actor: User) -> Denied:
+    role_id = (await _product_admin_role(db)).id
+    return Denied(
+        "POST",
+        f"{V1}/users/{actor.id}/role-assignments",
+        {"role_id": str(role_id)},
+        SUPER,
+        403,
+        "self_assignment_forbidden",
+        None,
+        action="role_assignment.granted",
+        target=("user", actor.id),
+        app_key="stoktok",
+        changes={"reason": "self_assignment_forbidden", "role_key": "stoktok:admin"},
+    )
+
+
+async def _revoke_self_product(db: AsyncSession, actor: User) -> Denied:
+    ra_id = (await assign(db, actor, await _product_admin_role(db))).id
+    return Denied(
+        "DELETE",
+        f"{V1}/users/{actor.id}/role-assignments/{ra_id}",
+        None,
+        SUPER,
+        403,
+        "self_assignment_forbidden",
+        None,
+        action="role_assignment.revoked",
+        target=("role_assignment", ra_id),
+        app_key="stoktok",
+        changes={"reason": "self_assignment_forbidden", "role_key": "stoktok:admin"},
+    )
+
+
 async def _assign_org_scoped(db: AsyncSession, actor: User) -> Denied:
     """A privileged (`is_admin`) role of an org-scoped app: `org_id` is carried."""
     app = await make_app(db, "stoktok", org_mode="required")
@@ -376,6 +418,8 @@ SITES: dict[str, Setup] = {
     "role_replace_permissions": _role_replace,
     "assign": _assign,
     "assign_self": _assign_self,
+    "assign_self_product": _assign_self_product,
+    "revoke_self_product": _revoke_self_product,
     "assign_org_scoped": _assign_org_scoped,
     "batch_wildcard": _batch_wildcard,
     "revoke": _revoke,

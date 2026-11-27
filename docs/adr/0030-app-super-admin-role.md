@@ -28,7 +28,8 @@ build on them.
    not its permission content: granting, renewing and revoking it needs `admin:*` (ADR-0008 G4),
    holders count for the G5 user-status guard, and a role PUT on it needs `admin:*` (G2). One
    predicate in three places that change together: `role_is_privileged` (read model),
-   `AssignmentService._guard_privileged` and `RbacRepository.user_has_privileged_assignment`;
+   `AssignmentService._role_is_privileged` (used by `_require_privileged_grant` and
+   `_forbid_self`) and `RbacRepository.user_has_privileged_assignment`;
    the Python test is `is_designated_super_admin_role`.
 3. **Permission content.** The role takes `app`-scope permissions only: `scope = org` permissions
    and `<app>:*` are refused at designation, on the role PUT and on a permission scope flip.
@@ -38,7 +39,7 @@ build on them.
    of the app's permissions, org-scope ones included"), decided by the owner at the USR-38 gate.
 4. **Grant rules, every path.** App scope only (`org_id` -> 422 `org_id_not_allowed`, before the
    org lookup); `admin:*` required (403 `admin_wildcard_required`); self-grant and self-revoke
-   forbidden (403 `self_assignment_forbidden`); the recipient must be an active, verified account
+   forbidden (403 `self_assignment_forbidden`; ADR-0008 self-actions rule, USR-25); the recipient must be an active, verified account
    holding an unexpired app-scope `admin:super-admin` (422 `recipient_not_staff_super_admin`,
    re-checked on renewal of an expired row); expiry optional. Enforced in `_grant_locked`, the
    single point of all grant paths (system actors fail `require_super`). Invitations refuse the

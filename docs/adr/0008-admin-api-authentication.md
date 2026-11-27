@@ -90,9 +90,13 @@ longer decides privileged writes:
   or one holding an `is_admin` permission (G4); disabling or re-enabling a user holding any such
   assignment, expired rows included (G5). A role is also privileged by designation as an app's
   super-admin role (ADR-0030).
-- **Self-actions (403, also for super-admins):** `self_assignment_forbidden` for granting or
-  revoking one's own admin-app roles; `self_status_change_forbidden` for changing one's own status.
-  To step down, another super-admin revokes the role.
+- **Self-actions (403, also for super-admins):** `self_assignment_forbidden` for granting
+  (renewing included) or revoking one's own privileged role in any app — an admin-app role, a role
+  holding an `is_admin` permission (app or org scope) or an app's designated super-admin role
+  (USR-25, owner option (b), 2026-11-19); non-privileged roles stay self-assignable. It is
+  evaluated on the role's current content under the app lock, after the `admin:*` check (a caller
+  without `admin:*` gets `admin_wildcard_required`). `self_status_change_forbidden` for changing
+  one's own status. To step down, another super-admin revokes the role.
 - **State refusals:** 409 `role_has_assignments` when an `is_admin` permission would reach members
   of an assigned role (PUT adding one, or a false→true flip; every actor, every app; workaround
   revoke → edit → re-grant); 422 `wildcard_super_admin_only` for `admin:*` on any admin role other
