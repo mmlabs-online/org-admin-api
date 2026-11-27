@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P3 |
 | Areas | api |
 | Attempts | 1 |
@@ -35,3 +35,7 @@ USR-02c, USR-17. Consumer: admin-pan PAN-015c. Requested by admin-pan (batch 202
 - Done: `role_name` and `org_name` on `AssignmentRead` / `RoleHolderRead` (per-user list, assign create, role holders) via an outer join in `_assignment_rows` — no extra statements; row tuples → frozen dataclasses, positional reads confined to `_assignment_row`; `OrgMemberRead` and batch results unchanged. Review PASS (4527 passed; ruff/mypy/alembic clean; tier high); appsec PASS.
 - Follow-ups: docs (identity-architecture §4, spec §5.15:337) list the new fields and note `org_name` under `admin:users:read`; shared SQL-capture test helper.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/112 (tier high). Next: Ming merges #112 (or "merge cho tôi #112"); then `/run-batch --resume` builds USR-28.
+
+### 2026-11-27 — merged (batch 2026-11-27-1)
+- PR [#112](https://github.com/mmlabs-online/org-admin-api/pull/112) merged by the agent at a77e819 on Ming's explicit instruction ("merge cho tôi #112") — owner exception to the High-tier no-agent-merge rule, logged. CI `check` red only on the 13 known kit-lint errors (job log checked).
+
