@@ -8,10 +8,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.etag import version_etag
-from app.core.listing import sort_clauses
 from app.modules.audit.models import AuditLog
 from app.modules.organizations.models import Organization
-from app.modules.organizations.repository import _SORT_COLUMNS, OrganizationRepository
+from app.modules.organizations.repository import (
+    _SORT_EXPRESSIONS,
+    OrganizationRepository,
+    _order_by,
+)
 from app.modules.organizations.schemas import OrganizationSort
 from tests.admin_auth_factories import bearer, make_staff, mint
 from tests.rbac_factories import assign, make_app, make_role, make_user
@@ -151,8 +154,10 @@ def _slugs(body: dict) -> list[str]:
 
 
 async def test_sort_allow_list_matches_repository_mapping() -> None:
-    for value in get_args(OrganizationSort):
-        sort_clauses(value, _SORT_COLUMNS, Organization.id)
+    values = get_args(OrganizationSort)
+    assert set(values) == {k for key in _SORT_EXPRESSIONS for k in (key, f"-{key}")}
+    for value in values:
+        assert len(_order_by(value)) == 2
 
 
 async def test_list_filter_status(admin_client: AsyncClient, db_session: AsyncSession) -> None:
@@ -291,6 +296,7 @@ async def test_list_default_order_unchanged(
         {"sort": "bogus"},
         {"sort": "id"},
         {"sort": "NAME"},
+        {"sort": "member_count"},
         {"q": ""},
         {"q": "   "},
         {"q": "x" * 101},

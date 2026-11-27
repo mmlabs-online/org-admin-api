@@ -76,7 +76,8 @@ async def list_organizations(
         Query(
             description=(
                 "One of created_at, -created_at, name, -name, slug, -slug ('-' = descending); "
-                "id ascending breaks ties. name follows the database collation."
+                "id ascending breaks ties. name is case-insensitive and locale-aware (ICU "
+                "root collation): accented letters sort next to their base letter."
             )
         ),
     ] = DEFAULT_ORGANIZATION_SORT,

@@ -51,6 +51,7 @@ One model for every mmlabs app, the admin API included (app `admin`). Apps are r
 Membership (2026-11-11, D8–D10; details in [`identity-architecture.md`](identity-architecture.md)): each app has a `join_policy` (`open` | `approval` | `closed`; default `open`, `admin` = `closed`), a default role `<app>:member` holding all its permissions except those flagged `is_admin` (for `org_mode = required` apps also except org-level permissions, `permissions.scope = 'org'`; ADR-0015; owner, 2026-11-17), an `org_mode` (`none` | `required`; calechip = `required`) and its allowed browser `origins`. Joining assigns the default role at app scope (`org_id NULL`). Policy and role contents are data. The role catalog `GET /api/v1/apps/{key}/roles` is public (D17); app origins are limited to `mmlabs.online`, its subdomains and localhost (D19).
 
 > 2026-11-18 (USR-18): staff apps list filters `status`, `join_policy`, `org_mode`, `q` (key or name, trimmed 1..100, empty → 422) and `sort` (allow-list, default `key`, `id` tie-breaker).
+> 2026-11-27 (ADM-026): `name` sorts by `lower(name)` in the ICU root collation (`und-x-icu`), case-insensitive, accents next to their base letter, `id` tie-break. Apps also sort by `member_count`/`-member_count` (§5.9 definition, `id` tie-break).
 
 > 2026-11-25/26 (owner): the staff users list gains an opt-in access summary and filters by app and role, and staff can assign one role to up to 100 users with `POST /api/v1/apps/{key}/roles/{role_id}/assignment-batches` (D41, ADR-0029); admin-app roles are excluded from bulk. See §5.15.
 
@@ -74,6 +75,7 @@ Which org can use which product, with plan and limits; enable/disable per org. R
 
 > 2026-11-18 (ADM-019): `PATCH /api/v1/apps/{key}` changing `org_mode` from `required` to `none` is refused with 409 `org_mode_in_use` while the app has org entitlements or org-scoped role assignments (owner, 2026-11-17).
 > 2026-11-18 (ADM-020): staff list filters `status`, `q` (name or slug, trimmed 1..100, empty → 422) and `sort` (allow-list, default `-created_at`, `id` tie-breaker).
+> 2026-11-27 (ADM-026): `name` sorts by `lower(name)` in the ICU root collation (`und-x-icu`), case-insensitive, accents next to their base letter, `id` tie-break.
 > 2026-11-18: per-user (never per-org; owner, OQ53) AI usage limits are §5.14; they do not change this section or the `ent` claim.
 
 ### §5.8 mmlabs Identity — ecosystem users and authentication (owner, 2026-11-11)

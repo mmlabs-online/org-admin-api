@@ -95,8 +95,10 @@ async def list_apps(
         AppSort,
         Query(
             description=(
-                "One of key, -key, name, -name, created_at, -created_at ('-' = descending); "
-                "id ascending breaks ties. name follows the database collation."
+                "One of key, -key, name, -name, created_at, -created_at, member_count, "
+                "-member_count ('-' = descending); id ascending breaks ties. name is "
+                "case-insensitive and locale-aware (ICU root collation). member_count uses the "
+                "same member definition as the member_count field."
             )
         ),
     ] = DEFAULT_APP_SORT,

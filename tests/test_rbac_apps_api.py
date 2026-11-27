@@ -9,11 +9,10 @@ from httpx import AsyncClient
 from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.listing import sort_clauses
 from app.modules.audit.models import AuditLog
 from app.modules.entitlements.models import OrgEntitlement
 from app.modules.rbac.models import App, Permission, Role
-from app.modules.rbac.repository import _APP_SORT_COLUMNS, RbacRepository
+from app.modules.rbac.repository import _APP_SORT_EXPRESSIONS, RbacRepository
 from app.modules.rbac.schemas import AppSort
 from app.modules.rbac.service import RoleCatalogService
 from tests.admin_auth_factories import bearer, make_staff, mint
@@ -1014,8 +1013,8 @@ async def _keys(client: AsyncClient, query: str = "") -> list[str]:
 
 
 def test_apps_sort_allow_list_matches_repository_mapping() -> None:
-    for value in get_args(AppSort):
-        assert sort_clauses(value, _APP_SORT_COLUMNS, App.id)
+    keys = {*_APP_SORT_EXPRESSIONS, "member_count"}
+    assert set(get_args(AppSort)) == {k for key in keys for k in (key, f"-{key}")}
 
 
 async def test_list_apps_filter_status(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
@@ -1184,6 +1183,87 @@ async def test_list_apps_query_count_with_filters(
     assert sum("role_assignments" in s for s in many) == 1
 
 
+async def _mc_apps(db_session: AsyncSession, counts: dict[str, int]) -> None:
+    for key, n in counts.items():
+        app = await _seed_app(db_session, key, key.title())
+        role = await make_role(db_session, app, "mm:r")
+        for _ in range(n):
+            await assign(db_session, await make_login_user(db_session), role)
+
+
+async def _mc_items(client: AsyncClient, query: str, keys: set[str]) -> list[tuple[str, int]]:
+    resp = await client.get(f"{BASE}?{query}&limit=100")
+    assert resp.status_code == 200
+    return [(i["key"], i["member_count"]) for i in resp.json()["items"] if i["key"] in keys]
+
+
+@pytest.mark.parametrize("sort", ["member_count", "-member_count"])
+async def test_list_apps_sort_member_count(
+    rbac_client: AsyncClient, db_session: AsyncSession, sort: str
+) -> None:
+    await _mc_apps(db_session, {"mc-three": 3, "mc-zero": 0, "mc-one": 1})
+    got = await _mc_items(rbac_client, f"sort={sort}", {"mc-three", "mc-zero", "mc-one"})
+    expected = [("mc-zero", 0), ("mc-one", 1), ("mc-three", 3)]
+    assert got == (expected if sort == "member_count" else expected[::-1])
+
+
+@pytest.mark.parametrize("sort", ["member_count", "-member_count"])
+async def test_list_apps_sort_member_count_ties_by_id(
+    rbac_client: AsyncClient, db_session: AsyncSession, sort: str
+) -> None:
+    await _mc_apps(db_session, {"mt-a": 0, "mt-b": 0, "mt-c": 2, "mt-d": 2})
+    ids = {
+        k: (await _app_row(db_session, k)).id  # type: ignore[union-attr]
+        for k in ("mt-a", "mt-b", "mt-c", "mt-d")
+    }
+    got = await _mc_items(rbac_client, f"sort={sort}", set(ids))
+    zeros = sorted(("mt-a", "mt-b"), key=lambda k: ids[k])
+    twos = sorted(("mt-c", "mt-d"), key=lambda k: ids[k])
+    groups = [[(k, 0) for k in zeros], [(k, 2) for k in twos]]
+    if sort == "-member_count":
+        groups.reverse()
+    assert got == [x for g in groups for x in g]
+
+
+async def test_list_apps_sort_member_count_excludes_expired_and_inactive(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    ghost = await _seed_app(db_session, "mx-ghost", "Ghost")
+    real = await _seed_app(db_session, "mx-real", "Real")
+    rg, rr = await make_role(db_session, ghost, "mm:r"), await make_role(db_session, real, "mm:r")
+    past = datetime.now(UTC) - timedelta(days=1)
+    await assign(db_session, await make_login_user(db_session), rg, expires_at=past)
+    for _ in range(2):
+        await assign(db_session, await make_login_user(db_session, status="disabled"), rg)
+    await assign(db_session, await make_login_user(db_session), rr)
+    got = await _mc_items(rbac_client, "sort=-member_count", {"mx-ghost", "mx-real"})
+    assert got == [("mx-real", 1), ("mx-ghost", 0)]
+
+
+async def test_list_apps_sort_member_count_with_filters_and_paging(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await _mc_apps(db_session, {"mp-a": 1, "mp-b": 3, "mp-c": 2})
+    await _seed_app(db_session, "mp-off", "Off", status="disabled")
+    resp = await rbac_client.get(f"{BASE}?status=active&q=mp-&sort=-member_count&limit=1&offset=1")
+    body = resp.json()
+    assert body["total"] == 3
+    assert [(i["key"], i["member_count"]) for i in body["items"]] == [("mp-c", 2)]
+
+
+async def test_list_apps_sort_member_count_query_count(
+    make_client: MakeClient, db_session: AsyncSession
+) -> None:
+    path = f"{BASE}?status=active&q=qa-&sort=-member_count"
+    await _app_with_member(db_session)
+    few = await _app_statements(make_client, db_session, path)
+    for _ in range(4):
+        await _app_with_member(db_session)
+    many = await _app_statements(make_client, db_session, path)
+    assert len(few) == len(many) == 3
+    assert sum("role_assignments" in s for s in many) == 2
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -1193,7 +1273,6 @@ async def test_list_apps_query_count_with_filters(
         "sort=bogus",
         "sort=id",
         "sort=KEY",
-        "sort=member_count",
         "q=",
         "q=%20%20%20",
         "q=" + "x" * 101,
