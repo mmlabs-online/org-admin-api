@@ -15,13 +15,56 @@ from app.core.pagination import Page
 from app.modules.admin_auth.deps import AdminDep, current_admin, require_permission
 from app.modules.audit.deps import AuditContextDep
 from app.modules.rbac.models import APP_KEY_RE
+from app.modules.releases.body import inline_schema, read_json_body
 from app.modules.sessions.schemas import UserSessionRead
 from app.modules.sessions.staff_service import StaffSessionService
-from app.modules.users.models import UserStatus
-from app.modules.users.schemas import UserInclude, UserRead, UserUpdate, UserWithAccessRead
+from app.modules.users.models import User, UserStatus
+from app.modules.users.schemas import (
+    EmailMatch,
+    UserInclude,
+    UserRead,
+    UserSearch,
+    UserUpdate,
+    UserWithAccessRead,
+)
 from app.modules.users.service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(current_admin)])
+
+_SEARCH_MAX_BYTES = 4 * 1024
+_SEARCH_READ_TIMEOUT_S = 10.0
+
+
+async def _users_page(
+    service: UserService,
+    items: list[User],
+    total: int,
+    *,
+    limit: int,
+    offset: int,
+    include: list[UserInclude] | None,
+) -> Page[UserWithAccessRead] | Page[UserRead]:
+    if include is None or UserInclude.ACCESS not in include:
+        return Page(
+            items=[UserRead.model_validate(u) for u in items],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+    summaries = await service.access_summaries([u.id for u in items])
+    return Page(
+        items=[
+            UserWithAccessRead(
+                **UserRead.model_validate(u).model_dump(),
+                access=summaries[u.id][0],
+                access_truncated=summaries[u.id][1],
+            )
+            for u in items
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(
@@ -34,7 +77,7 @@ router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(curren
                 "Validation failed (code=validation_error: malformed query value such as an "
                 "`app` key that fails the key grammar or a `role_id` that is not a UUID) or "
                 "refused filter value (code=unprocessable, details[].reason: unknown_app, "
-                "unknown_role, role_not_in_app)."
+                "unknown_role, role_not_in_app, email_required)."
             )
         },
     ),
@@ -42,7 +85,26 @@ router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(curren
 async def list_users(
     session: SessionDep,
     page: PageDep,
-    email: Annotated[str | None, Query(min_length=1, max_length=254)] = None,
+    email: Annotated[
+        str | None,
+        Query(
+            min_length=1,
+            max_length=254,
+            description=(
+                "Case-insensitive substring by default; `email_match=exact` for one account. "
+                "Prefer `POST /users/search` (keeps the email out of URLs and logs)."
+            ),
+        ),
+    ] = None,
+    email_match: Annotated[
+        EmailMatch | None,
+        Query(
+            description=(
+                "`contains` (default) or `exact` (trimmed, lower-cased like sign-up; 0 or 1 "
+                "item). Without `email` -> 422 `unprocessable`, reason `email_required`."
+            )
+        ),
+    ] = None,
     status: Annotated[UserStatus | None, Query()] = None,
     app: Annotated[
         str | None,
@@ -80,32 +142,71 @@ async def list_users(
     service = UserService(session)
     items, total = await service.list(
         email=email,
+        email_match=email_match,
         status=status,
         app_key=app,
         role_id=role_id,
         limit=page.limit,
         offset=page.offset,
     )
-    if include is None or UserInclude.ACCESS not in include:
-        return Page(
-            items=[UserRead.model_validate(u) for u in items],
-            total=total,
-            limit=page.limit,
-            offset=page.offset,
-        )
-    summaries = await service.access_summaries([u.id for u in items])
-    return Page(
-        items=[
-            UserWithAccessRead(
-                **UserRead.model_validate(u).model_dump(),
-                access=summaries[u.id][0],
-                access_truncated=summaries[u.id][1],
-            )
-            for u in items
-        ],
-        total=total,
-        limit=page.limit,
-        offset=page.offset,
+    return await _users_page(
+        service, items, total, limit=page.limit, offset=page.offset, include=include
+    )
+
+
+def _search_kwargs() -> dict[str, Any]:
+    kwargs = require_permission(
+        "admin:users:read",
+        errors={
+            411: "Content-Length required (length_required)",
+            413: "Body larger than 4 KiB (payload_too_large)",
+            415: "Content-Type must be application/json (unsupported_media_type)",
+            422: (
+                "validation_error (body shape) or unprocessable with reason unknown_app, "
+                "unknown_role, role_not_in_app or email_required"
+            ),
+        },
+    )
+    kwargs["openapi_extra"] = {
+        **kwargs["openapi_extra"],
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": inline_schema(UserSearch)}},
+        },
+    }
+    return kwargs
+
+
+@router.post(
+    "/search",
+    response_model=Page[UserWithAccessRead] | Page[UserRead],
+    status_code=200,
+    summary="Search users (filters in the body)",
+    description=(
+        "Same filters, `include` and pagination as `GET /users`, with the email in the JSON "
+        "body so it stays out of URLs and access logs. Answers 200 (a read, not 201); "
+        "read-only, no audit entry."
+    ),
+    **_search_kwargs(),
+)
+async def search_users(
+    request: Request, session: SessionDep
+) -> Page[UserWithAccessRead] | Page[UserRead]:
+    body = await read_json_body(
+        request, UserSearch, cap=_SEARCH_MAX_BYTES, timeout_s=_SEARCH_READ_TIMEOUT_S
+    )
+    service = UserService(session)
+    items, total = await service.list(
+        email=body.email,
+        email_match=body.email_match,
+        status=body.status,
+        app_key=body.app,
+        role_id=body.role_id,
+        limit=body.limit,
+        offset=body.offset,
+    )
+    return await _users_page(
+        service, items, total, limit=body.limit, offset=body.offset, include=body.include
     )
 
 

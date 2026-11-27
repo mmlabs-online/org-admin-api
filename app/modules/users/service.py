@@ -16,6 +16,7 @@ from app.modules.audit.context import AuditContext
 from app.modules.audit.diff import change
 from app.modules.audit.service import AuditLogger
 from app.modules.auth.repository import EmailTokenRepository
+from app.modules.auth.service import normalize_email
 from app.modules.join_requests.repository import JoinRequestRepository
 from app.modules.rbac.actor import Actor, actor_user_id, require_super
 from app.modules.rbac.models import ADMIN_APP_KEY, AppStatus
@@ -24,7 +25,7 @@ from app.modules.rbac.service import SUPER_ADMIN_ROLE
 from app.modules.sessions.repository import SessionRepository
 from app.modules.users.models import User, UserStatus
 from app.modules.users.repository import AccessRow, UserRepository
-from app.modules.users.schemas import AccessRole, AppAccess, UserUpdate
+from app.modules.users.schemas import AccessRole, AppAccess, EmailMatch, UserUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ class UserService:
         self,
         *,
         email: str | None,
+        email_match: EmailMatch | None = None,
         status: UserStatus | None,
         app_key: str | None = None,
         role_id: uuid.UUID | None = None,
@@ -87,6 +89,13 @@ class UserService:
         offset: int,
     ) -> tuple[list[User], int]:
         """Unknown `app_key` / `role_id` are 422, not an empty page (spec §5.15, OQ76)."""
+        if email_match is not None and email is None:
+            raise _filter_unprocessable(
+                "email_match requires email", "email_match", "email_required"
+            )
+        exact = email_match == EmailMatch.EXACT
+        if exact and email is not None:
+            email = normalize_email(email)
         app_id: uuid.UUID | None = None
         rbac = RbacRepository(self.repo.session)
         if app_key is not None:
@@ -105,6 +114,7 @@ class UserService:
             app_id = None  # the role already pins the app
         return await self.repo.list(
             email=email,
+            email_exact=exact,
             status=status,
             app_id=app_id,
             role_id=role_id,

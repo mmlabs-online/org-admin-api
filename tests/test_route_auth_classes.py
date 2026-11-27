@@ -113,6 +113,7 @@ BEARER = {
     ("GET", f"{V1}/deployer-credentials"): "admin:*",
     ("DELETE", f"{V1}/deployer-credentials/{{credential_id}}"): "admin:*",
     ("GET", f"{V1}/users"): "admin:users:read",
+    ("POST", f"{V1}/users/search"): "admin:users:read",
     ("GET", f"{V1}/users/{{user_id}}"): "admin:users:read",
     ("PATCH", f"{V1}/users/{{user_id}}"): "admin:users:write",
     ("GET", f"{V1}/users/{{user_id}}/sessions"): "admin:*",

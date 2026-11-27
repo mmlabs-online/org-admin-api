@@ -683,8 +683,11 @@ async def _count(db_session: AsyncSession) -> int:
     return await db_session.scalar(select(func.count()).select_from(AuditLog)) or 0
 
 
+READ_ONLY_POST = {("POST", f"{V1}/users/search")}  # a read with a body (D43); no audit
+
+
 def test_every_mutating_bearer_route_is_mapped() -> None:
-    assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
+    assert set(AUDITED) == {r for r in BEARER if r[0] != "GET" and r not in READ_ONLY_POST}
     assert len(AUDITED) == 35
 
 
