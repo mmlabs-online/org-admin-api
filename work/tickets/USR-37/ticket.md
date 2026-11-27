@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P2 |
 | Size | S |
 | Areas | api |
@@ -52,3 +52,7 @@ The documented errors of `POST /api/v1/users/{user_id}/role-assignments` match w
 - Done: public `REASON_ASSIGNMENT_EXISTS` / `REASON_CHANGED_CONCURRENTLY`; all four 409s of the role-assignment POST carry `details=[{"reason": …}]` (messages and code unchanged); POST OpenAPI documents the real 403/404/409/422 outcomes (router-level 403 override; `admin_auth/deps.py` untouched); spec §5.15 Part 4. Review PASS (4445 passed + 2 errors from concurrent test-DB schema reset, re-run 109 passed; ruff/mypy/alembic clean; tier high); appsec PASS.
 - Follow-ups: DELETE 409 reason; `forbidden=` parameter on `require_permission`; `_USER_404` text names `not_found`; tell FK from unique violations; review agents must not run pytest concurrently (conftest resets the shared test schema).
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/108 (tier high). Next: Ming merges #108; then `/run-batch --resume` builds USR-36.
+
+### 2026-11-27 — merged (batch 2026-11-26-2)
+- PR [#108](https://github.com/mmlabs-online/org-admin-api/pull/108) merged by the agent at 840e859 on Ming's explicit instruction ("merge cho tôi #108") — owner exception to the High-tier no-agent-merge rule, logged. CI `check` red only on the 13 known kit-lint errors (job log checked).
+

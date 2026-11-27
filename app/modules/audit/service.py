@@ -120,6 +120,10 @@ def _build(
     )
 
 
+def _denied_changes(exc: AppError, facts: Mapping[str, Any] | None) -> dict[str, Any]:
+    return {"reason": exc.code, **(facts or {})}
+
+
 class AuditLogger:
     """Admin mutations store `{field: {from, to}}` in `changes`; identity and failure rows a
     flat object of allowlisted scalars (ADR-0009 amendment)."""
@@ -218,7 +222,37 @@ class AuditLogger:
             target=target,
             app_key=app_key,
             org_id=org_id,
-            changes={"reason": exc.code, **(facts or {})},
+            changes=_denied_changes(exc, facts),
+        )
+
+    async def record_denied_in_tx(
+        self,
+        action: AuditAction,
+        *,
+        exc: AppError,
+        actor: Actor,
+        ctx: AuditContext,
+        target: tuple[AuditTarget, uuid.UUID] | None = None,
+        app_key: str | None = None,
+        org_id: uuid.UUID | None = None,
+        facts: Mapping[str, Any] | None = None,
+    ) -> None:
+        """`record_denied` inside a caller-owned transaction (bulk endpoints, ADR-0029): the row
+        is committed with the caller's work and lost if it rolls back. Never commits or rolls
+        back; an error propagates, so a failed write fails the caller's transaction."""
+        if not isinstance(actor, AdminPrincipal):
+            return
+        await self.repo.add(
+            _build(
+                action,
+                outcome=AuditOutcome.DENIED,
+                actor=actor,
+                ctx=ctx,
+                target=target,
+                app_key=app_key,
+                org_id=org_id,
+                changes=_denied_changes(exc, facts),
+            )
         )
 
     async def record_in_savepoint(

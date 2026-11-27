@@ -2,17 +2,17 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | DONE |
 | Priority | P2 |
 | Size | M |
 | Areas | architecture, api, auth, security, db |
 | Gate | plan-approval |
 | Depends on | — |
 | Needs Ming | — |
-| Attempts | 0 |
+| Attempts | 1 |
 | Created | 2026-11-26 |
-| Claimed by | claude@2026-11-26T08:06Z |
-| PR | — |
+| Claimed by | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/109 |
 
 ## Goal
 Staff grant one role to many users in a single server-side request with per-user results, applying exactly the single-assignment rules. Requested by admin-pan for PAN-033 (bulk assign).
@@ -57,3 +57,9 @@ Staff grant one role to many users in a single server-side request with per-user
 - Plan approved (2026-11-26, batch 2026-11-26-2); all blocking questions answered with the plan defaults.
 
 ## Handoff
+
+### 2026-11-27 — claude — DONE (batch 2026-11-26-2, attempt 1)
+- Agent calls: 9, tokens ~684k total (software-architect 42k, api-platform-engineer 35k, identity-access-engineer 50k, security-architect 43k, database-optimizer 44k, planner opus 156k, implementer sonnet 139k, reviewer opus 114k, appsec-engineer 61k).
+- Done: `POST /api/v1/apps/{key}/roles/{role_id}/assignment-batches` (200 `{batch_id, results[]}`, ≤ 100 users, one transaction, one app lock with `lock_timeout` 5 s, savepoint per user, request-level 422 `duplicate_user_ids` / `admin_app_role` / `super_admin_role`, 403 `admin_wildcard_required` with per-user denied rows, `record_denied_in_tx`, 16 KiB body cap); `_grant_locked` / `_guard_privileged` split with the single POST unchanged. Review PASS (4498 passed; ruff/mypy/alembic clean; tier high); appsec PASS (5 🟢).
+- Follow-ups: audit-logs test isolation (`test_audit_logs_api.py` exact totals fail when any concurrency test file runs first — pre-existing, /bug candidate); denied row for non-super 422 probes of admin/designated roles (optional); OQ79 audit filter by `request_id`; bulk revoke; G5 race; `bootstrap_super_admin` using `UNCHANGED`; per-item `details.reason`; USR-25 widens `_forbid_self`.
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/109 (tier high). Ming's "merge cho tôi #109" arrived before this PR existed (and before review finished), so the agent did not act on it; waiting for Ming to merge or re-confirm.

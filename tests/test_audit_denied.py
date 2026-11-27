@@ -261,6 +261,26 @@ async def _assign_org_scoped(db: AsyncSession, actor: User) -> Denied:
     )
 
 
+async def _batch_wildcard(db: AsyncSession, actor: User) -> Denied:
+    """The bulk route's request-level refusal writes the single POST's row (one existing user)."""
+    app = await make_app(db, "stoktok")
+    perm = await make_permission(db, app, "stoktok:*", is_admin=True)
+    role = await make_role(db, app, "stoktok:admin")
+    await grant(db, role, perm)
+    user_id = (await make_login_user(db)).id
+    return Denied(
+        "POST",
+        f"{V1}/apps/stoktok/roles/{role.id}/assignment-batches",
+        {"user_ids": [str(user_id)]},
+        ["admin:roles:assign"],
+        **_wildcard(),
+        action="role_assignment.granted",
+        target=("user", user_id),
+        app_key="stoktok",
+        changes={"reason": "admin_wildcard_required", "role_key": "stoktok:admin"},
+    )
+
+
 async def _revoke(db: AsyncSession, actor: User) -> Denied:
     user = await make_login_user(db)
     ra_id = (await assign(db, user, await _admin_role(db))).id
@@ -357,6 +377,7 @@ SITES: dict[str, Setup] = {
     "assign": _assign,
     "assign_self": _assign_self,
     "assign_org_scoped": _assign_org_scoped,
+    "batch_wildcard": _batch_wildcard,
     "revoke": _revoke,
     "revoke_last_super_admin": _revoke_last_super_admin,
     "status_self": _status_self,

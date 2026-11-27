@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Literal, Self
 
 from pydantic import (
@@ -315,6 +316,46 @@ class AssignmentRead(BaseModel):
     expires_at: datetime | None
     active: bool  # computed with the database clock
     created_at: datetime
+
+
+ASSIGNMENT_BATCH_MAX_USERS = 100
+
+
+class AssignmentBatchCreate(BaseModel):
+    """Assign one role to many users; `org_id` and `expires_at` apply to every user. Duplicate
+    ids are refused by the service (422 `duplicate_user_ids`), not here."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_ids: list[uuid.UUID] = Field(min_length=1, max_length=ASSIGNMENT_BATCH_MAX_USERS)
+    org_id: uuid.UUID | None = None
+    expires_at: AwareDatetime | None = None
+
+
+class BatchItemStatus(StrEnum):
+    CREATED = "created"
+    UNCHANGED = "unchanged"
+    FAILED = "failed"
+
+
+class AssignmentBatchError(BaseModel):
+    code: str
+    message: str
+
+
+class AssignmentBatchItem(BaseModel):
+    """Every key is always present (null when not applicable)."""
+
+    user_id: uuid.UUID
+    status: BatchItemStatus
+    assignment_id: uuid.UUID | None
+    expires_at: datetime | None
+    error: AssignmentBatchError | None
+
+
+class AssignmentBatchRead(BaseModel):
+    batch_id: uuid.UUID = Field(description="The request id; also on every audit row of the batch.")
+    results: list[AssignmentBatchItem] = Field(description="One result per user, request order.")
 
 
 class RoleHolderRead(AssignmentRead):

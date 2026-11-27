@@ -15,11 +15,13 @@ from sqlalchemy import (
     not_,
     or_,
     select,
+    text,
     update,
 )
 from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 
 from app.core.listing import ilike_any, sort_clauses
 from app.db.base import bumped_updated_at
@@ -99,6 +101,9 @@ class AppOrgMemberRow:
 
 # `session.info` flag: an app was written; the CORS origin cache is invalidated after commit.
 APPS_CHANGED_KEY = "rbac_apps_changed"
+
+# Bound on every lock wait of a bulk assignment batch (ADR-0029); a constant, never input.
+ASSIGNMENT_BATCH_LOCK_TIMEOUT = "5s"
 
 
 class RbacRepository:
@@ -820,6 +825,38 @@ class RbacRepository:
             )
         )
         return bool(await self.session.scalar(stmt))
+
+    async def set_lock_timeout(self, value: str) -> None:
+        """`SET LOCAL lock_timeout` for this transaction; `value` is a constant, never input."""
+        await self.session.execute(text(f"SET LOCAL lock_timeout = '{value}'"))
+
+    @staticmethod
+    def is_lock_timeout(exc: DBAPIError) -> bool:
+        """SQLSTATE 55P03 (lock_not_available)."""
+        orig: Any = exc.orig
+        code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        return code == "55P03"
+
+    def savepoint(self) -> AsyncSessionTransaction:
+        return self.session.begin_nested()
+
+    async def existing_user_ids(self, ids: Iterable[uuid.UUID]) -> set[uuid.UUID]:
+        result = await self.session.scalars(select(User.id).where(User.id.in_(list(ids))))
+        return set(result)
+
+    async def find_assignments(
+        self, user_ids: Iterable[uuid.UUID], role_id: uuid.UUID, org_id: uuid.UUID | None
+    ) -> dict[uuid.UUID, RoleAssignment]:
+        result = await self.session.scalars(
+            select(RoleAssignment)
+            .where(
+                RoleAssignment.user_id.in_(list(user_ids)),
+                RoleAssignment.role_id == role_id,
+                RoleAssignment.org_id.is_not_distinct_from(org_id),
+            )
+            .execution_options(populate_existing=True)
+        )
+        return {ra.user_id: ra for ra in result}
 
     async def add_assignment(self, ra: RoleAssignment) -> RoleAssignment:
         """Insert in a savepoint so a unique or FK violation leaves the transaction usable."""

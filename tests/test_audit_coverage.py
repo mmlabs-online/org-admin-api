@@ -127,6 +127,12 @@ async def _assign(s: AsyncSession) -> Call:
     return f"{V1}/users/{(await make_user(s)).id}/role-assignments", {"role_id": str(role.id)}
 
 
+async def _assign_batch(s: AsyncSession) -> Call:
+    app, role = await _role(s)
+    user_id = (await make_user(s)).id
+    return f"{V1}/apps/{app.key}/roles/{role.id}/assignment-batches", {"user_ids": [str(user_id)]}
+
+
 async def _revoke(s: AsyncSession) -> Call:
     _, role = await _role(s)
     user = await make_user(s)
@@ -386,6 +392,13 @@ async def _assign_unknown_user(s: AsyncSession) -> Call:
     return f"{V1}/users/{uuid.uuid4()}/role-assignments", {"role_id": str(role.id)}
 
 
+async def _assign_batch_unknown_role(s: AsyncSession) -> Call:
+    app, _ = await _role(s)
+    user_id = (await make_user(s)).id
+    url = f"{V1}/apps/{app.key}/roles/{uuid.uuid4()}/assignment-batches"
+    return url, {"user_ids": [str(user_id)]}
+
+
 async def _revoke_unknown(s: AsyncSession) -> Call:
     return f"{V1}/users/{(await make_user(s)).id}/role-assignments/{uuid.uuid4()}", None
 
@@ -516,6 +529,12 @@ AUDITED: dict[tuple[str, str], tuple[set[str], Scenario, Scenario, int]] = {
         404,
     ),
     ("POST", ASSIGN): ({"role_assignment.granted"}, _assign, _assign_unknown_user, 404),
+    ("POST", f"{V1}/apps/{{key}}/roles/{{role_id}}/assignment-batches"): (
+        {"role_assignment.granted"},
+        _assign_batch,
+        _assign_batch_unknown_role,
+        404,
+    ),
     ("DELETE", f"{ASSIGN}/{{assignment_id}}"): (
         {"role_assignment.revoked"},
         _revoke,
@@ -638,6 +657,7 @@ _SUCCESS_STATUS_BY_ROUTE = {  # state transitions answer 200 with the updated re
     ("POST", f"{JREQ}/{{request_id}}/approve"): 200,
     ("POST", f"{JREQ}/{{request_id}}/reject"): 200,
     ("PUT", f"{V1}/apps/{{key}}/usage-metrics/{{metric_id}}/overrides/{{user_id}}"): 201,
+    ("POST", f"{V1}/apps/{{key}}/roles/{{role_id}}/assignment-batches"): 200,
 }
 
 
@@ -665,7 +685,7 @@ async def _count(db_session: AsyncSession) -> int:
 
 def test_every_mutating_bearer_route_is_mapped() -> None:
     assert set(AUDITED) == {r for r in BEARER if r[0] != "GET"}
-    assert len(AUDITED) == 34
+    assert len(AUDITED) == 35
 
 
 @pytest.mark.parametrize("route", list(AUDITED), ids=lambda r: f"{r[0]} {r[1]}")
