@@ -2,10 +2,11 @@
 
 | Field | Value |
 |---|---|
-| State | BACKLOG |
+| State | PLANNING |
 | Priority | P3 |
 | Areas | api |
 | Attempts | 0 |
+| Claimed by | claude@2026-11-27T03:59Z |
 | Created | 2026-11-19 |
 | PR | — |
 
