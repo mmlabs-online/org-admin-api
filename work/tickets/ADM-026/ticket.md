@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| State | DONE |
+| State | MERGED |
 | Priority | P3 |
 | Areas | api, db |
 | Attempts | 1 |
@@ -37,3 +37,8 @@ ADM-020, USR-18, ADM-016. Consumer: admin-pan PAN-029. Requested by admin-pan (b
 - **Merge gate:** M-10 — Ming confirms on prod (read-only) that `und-x-icu` exists and `server_encoding` = UTF8; without ICU every name sort would 500.
 - Follow-ups: remove or generalise `app/core/listing.py::sort_clauses` (High); reuse `name_sort_key` for other name-sorted lists; `is_active_app_member` reuses the shared member rule; catch-all `Exception` handler returning the R6 envelope (High); remove or guard unused `app_debug`.
 - PR: https://github.com/mmlabs-online/org-admin-api/pull/114 (tier high). Next: Ming does M-10, then merges #114 (or "merge cho tôi #114"); `/run-batch --resume` closes the batch.
+
+### 2026-11-27 — merged (batch 2026-11-27-1)
+- PR [#114](https://github.com/mmlabs-online/org-admin-api/pull/114) merged by the agent at 1b0f03e on Ming's explicit instruction ("merge cho tôi #114") — owner exception to the High-tier no-agent-merge rule, logged. CI `check` red only on the 13 known kit-lint errors (job log checked).
+- **M-10 not done before merge:** asked explicitly; Ming answered "Chưa kiểm tra, cứ merge" (accepts the risk). Risk: if prod Postgres lacks the `und-x-icu` collation, every `sort=name`/`-name` on the organizations and apps lists returns 500 (other sorts unaffected). M-10 stays open in work/ming-todo.md — run it right after deploy.
+
