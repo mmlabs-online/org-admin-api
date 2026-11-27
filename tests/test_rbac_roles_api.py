@@ -265,12 +265,14 @@ async def test_delete_system_role_409(rbac_client: AsyncClient, db_session: Asyn
     resp = await rbac_client.delete(f"{BASE}/admin/roles/{super_admin.id}")
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["details"] == [{"reason": "system_role"}]
 
     member = await _create_app_with_member(rbac_client, db_session)
     patch = await rbac_client.patch(f"{BASE}/stoktok", json={"default_role_id": None})
     assert patch.status_code == 200
     resp = await rbac_client.delete(f"{URL}/{member.id}")
     assert resp.status_code == 409
+    assert resp.json()["error"]["details"] == [{"reason": "system_role"}]
     assert await _role(db_session, "admin:super-admin") is not None
     assert await _role(db_session, "stoktok:member") is not None
 
@@ -282,6 +284,7 @@ async def test_delete_default_role_409(rbac_client: AsyncClient, db_session: Asy
     resp = await rbac_client.delete(f"{URL}/{role.id}")
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["details"] == [{"reason": "default_role"}]
     assert await _role(db_session, "stoktok:viewer") is not None
 
 
@@ -293,6 +296,25 @@ async def test_delete_role_with_assignments_409(
     resp = await rbac_client.delete(f"{URL}/{role.id}")
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["details"] == [{"reason": "role_has_assignments"}]
+    assert await _role(db_session, "stoktok:viewer") is not None
+
+
+async def test_delete_role_integrity_race_is_409(
+    rbac_client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, role = await _setup(db_session)
+    await assign(db_session, await make_user(db_session), role)
+
+    async def _none(self: RbacRepository, role_id: uuid.UUID) -> bool:
+        return False
+
+    monkeypatch.setattr(RbacRepository, "role_has_assignments", _none)
+    resp = await rbac_client.delete(f"{URL}/{role.id}")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["details"] == [{"reason": "changed_concurrently"}]
+    # The savepoint kept the session usable.
     assert await _role(db_session, "stoktok:viewer") is not None
 
 
@@ -424,6 +446,7 @@ async def test_put_super_admin_without_wildcard_409(
     resp = await rbac_client.put(_put_url(super_admin.id, "admin"), json={"permission_keys": []})
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["details"] == [{"reason": "super_admin_must_keep_wildcard"}]
     assert await _held(db_session, super_admin.id) == before
 
     # `admin:apps:read` is seeded (ADM-002).
@@ -451,6 +474,7 @@ async def test_put_admin_permission_on_default_role_409(
         )
         assert resp.status_code == 409
         assert resp.json()["error"]["code"] == "conflict"
+        assert resp.json()["error"]["details"] == [{"reason": "default_role_admin_permission"}]
         assert await _held(db_session, member.id) == set()
 
     resp = await rbac_client.put(_put_url(member.id), json={"permission_keys": ["stoktok:a:read"]})
@@ -483,6 +507,7 @@ async def test_default_then_put_admin_permission_409(
         _put_url(role.id), json={"permission_keys": ["stoktok:roles:manage"]}
     )
     assert resp.status_code == 409
+    assert resp.json()["error"]["details"] == [{"reason": "default_role_admin_permission"}]
     assert await _held(db_session, role.id) == set()
 
 
@@ -515,6 +540,7 @@ async def test_put_role_permissions_integrity_race_is_409(
     resp = await rbac_client.put(_put_url(role.id), json={"permission_keys": ["stoktok:a:read"]})
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["details"] == [{"reason": "changed_concurrently"}]
     # The savepoint kept the session usable.
     assert await db_session.scalar(select(func.count()).select_from(App)) == 2
     assert await _held(db_session, role.id) == set()
@@ -541,6 +567,7 @@ async def test_delete_org_owner_role_409(
     resp = await rbac_client.delete(f"{URL.replace('stoktok', 'calechip')}/{role.id}")
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
+    assert resp.json()["error"]["details"] == [{"reason": "org_owner_role"}]
     assert await _role(db_session, "calechip:org-owner") is not None
 
 
@@ -553,6 +580,7 @@ async def test_add_admin_permission_to_org_owner_role_409(
         _put_url(role.id, "calechip"), json={"permission_keys": ["calechip:roles:manage"]}
     )
     assert resp.status_code == 409
+    assert resp.json()["error"]["details"] == [{"reason": "org_owner_admin_permission"}]
     assert await _held(db_session, role.id) == set()
 
 
@@ -589,6 +617,7 @@ async def test_put_org_permission_on_org_app_default_role_409(
         f"{BASE}/calechip/roles/{role.id}/permissions", json={"permission_keys": ["calechip:a:b"]}
     )
     assert resp.status_code == 409
+    assert resp.json()["error"]["details"] == [{"reason": "default_role_org_permission"}]
     held = await db_session.scalar(
         select(func.count()).select_from(RolePermission).where(RolePermission.role_id == role.id)
     )

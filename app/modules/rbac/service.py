@@ -184,7 +184,7 @@ def _validate_admin_origins(origins: list[str], app_env: str) -> None:
 def _role_has_assignments(field: str) -> RoleHasAssignmentsError:
     return RoleHasAssignmentsError(
         "A role holding this permission has assignments; revoke them first",
-        details=[{"field": field, "reason": "role_has_assignments"}],
+        details=[{"field": field, "reason": REASON_ROLE_HAS_ASSIGNMENTS}],
     )
 
 
@@ -212,7 +212,9 @@ async def _set_role_permissions(
         try:
             await repo.apply_role_permission_diff(role.id, role.app_id, to_add, to_remove)
         except IntegrityError as exc:
-            raise ConflictError("Role permissions changed concurrently") from exc
+            raise _role_conflict(
+                "Role permissions changed concurrently", REASON_CHANGED_CONCURRENTLY
+            ) from exc
         await repo.touch_role(role)
     return sorted(target[p] for p in to_add), sorted(current[p] for p in to_remove)
 
@@ -1196,6 +1198,7 @@ class RoleService:
             keys.setdefault(role_id, []).append(perm_key)
             if is_admin:
                 admin.add(role_id)
+        counts = await self.repo.assignment_counts([r.id for r in roles])
         return [
             RoleDefinitionRead(
                 id=r.id,
@@ -1204,8 +1207,10 @@ class RoleService:
                 name=r.name,
                 is_system=r.is_system,
                 is_default=r.id == app.default_role_id,
+                is_org_owner=r.id == app.org_owner_role_id,
                 is_super_admin=is_designated_super_admin_role(app, r.id),
                 privileged=role_is_privileged(app, r.id, r.id in admin),
+                assignment_count=counts.get(r.id, 0),
                 permissions=sorted(keys.get(r.id, [])),
                 created_at=r.created_at,
                 updated_at=r.updated_at,
@@ -1344,23 +1349,27 @@ class RoleService:
             )
             raise
         if role.is_system:
-            raise ConflictError("System roles cannot be deleted")
+            raise _role_conflict("System roles cannot be deleted", REASON_SYSTEM_ROLE)
         if role.id == app.default_role_id:
-            raise ConflictError("The app's default role cannot be deleted")
+            raise _role_conflict("The app's default role cannot be deleted", REASON_DEFAULT_ROLE)
         if role.id == app.org_owner_role_id:
-            raise ConflictError("The app's org owner role cannot be deleted")
+            raise _role_conflict(
+                "The app's org owner role cannot be deleted", REASON_ORG_OWNER_ROLE
+            )
         if is_designated_super_admin_role(app, role.id):
             raise ConflictError(
                 "The app's super-admin role cannot be deleted; clear the designation first",
-                details=[{"field": "role_id", "reason": "super_admin_role_designated"}],
+                details=[{"field": "role_id", "reason": REASON_SUPER_ADMIN_ROLE_DESIGNATED}],
             )
         if await self.repo.role_has_assignments(role.id):
-            raise ConflictError("Role has assignments")
+            raise _role_conflict("Role has assignments", REASON_ROLE_HAS_ASSIGNMENTS)
         before = diff.snapshot(role, diff.ROLE)
         try:
             await self.repo.delete_role(role)
         except IntegrityError as exc:  # an assignment or default was added concurrently
-            raise ConflictError("Role was changed concurrently") from exc
+            raise _role_conflict(
+                "Role was changed concurrently", REASON_CHANGED_CONCURRENTLY
+            ) from exc
         await self.audit.record(
             AuditAction.ROLE_DELETED,
             actor=actor,
@@ -1434,32 +1443,45 @@ class RoleService:
             )
             raise
         if role.id == app.default_role_id and any(p.is_admin for p in found.values()):
-            raise ConflictError("A default role must not hold admin permissions")
+            raise _role_conflict(
+                "A default role must not hold admin permissions",
+                REASON_DEFAULT_ROLE_ADMIN_PERMISSION,
+            )
         if role.id == app.org_owner_role_id and any(p.is_admin for p in found.values()):
-            raise ConflictError("An org owner role must not hold admin permissions")
+            raise _role_conflict(
+                "An org owner role must not hold admin permissions",
+                REASON_ORG_OWNER_ADMIN_PERMISSION,
+            )
         if (
             role.id == app.default_role_id
             and app.org_mode == OrgMode.REQUIRED.value
             and any(p.scope == PermissionScope.ORG.value for p in found.values())
         ):
-            raise ConflictError("A default role of an org app must not hold org-level permissions")
+            raise _role_conflict(
+                "A default role of an org app must not hold org-level permissions",
+                REASON_DEFAULT_ROLE_ORG_PERMISSION,
+            )
         if is_designated_super_admin_role(app, role.id):
             if any(p.scope == PermissionScope.ORG.value for p in found.values()):
                 raise ConflictError(
                     "The super-admin role must not hold org-level permissions",
-                    details=[{"field": "permission_keys", "reason": "role_has_org_permissions"}],
+                    details=[
+                        {"field": "permission_keys", "reason": REASON_ROLE_HAS_ORG_PERMISSIONS}
+                    ],
                 )
             if f"{app.key}:*" in found:
                 raise ConflictError(
                     "The super-admin role must not hold the app wildcard",
-                    details=[{"field": "permission_keys", "reason": "wildcard_not_allowed"}],
+                    details=[{"field": "permission_keys", "reason": REASON_WILDCARD_NOT_ALLOWED}],
                 )
         if (
             app.key == ADMIN_APP_KEY
             and role.key == SUPER_ADMIN_ROLE
             and ADMIN_WILDCARD not in found
         ):
-            raise ConflictError("admin:super-admin must keep admin:*")
+            raise _role_conflict(
+                "admin:super-admin must keep admin:*", REASON_SUPER_ADMIN_MUST_KEEP_WILDCARD
+            )
         if any(p.is_admin for p in added) and await self.repo.role_has_assignments(role.id):
             raise _role_has_assignments("permission_keys")  # G3 (USR-02d)
         added_keys, removed_keys = await _set_role_permissions(
@@ -1486,6 +1508,41 @@ class RoleService:
 
 REASON_ASSIGNMENT_EXISTS: Final = "assignment_exists"
 REASON_CHANGED_CONCURRENTLY: Final = "changed_concurrently"
+
+# Role DELETE / permission PUT 409 reasons (USR-26); the UI keys on `details[0].reason`.
+REASON_SYSTEM_ROLE: Final = "system_role"
+REASON_DEFAULT_ROLE: Final = "default_role"
+REASON_ORG_OWNER_ROLE: Final = "org_owner_role"
+REASON_SUPER_ADMIN_ROLE_DESIGNATED: Final = "super_admin_role_designated"
+REASON_ROLE_HAS_ASSIGNMENTS: Final = "role_has_assignments"
+REASON_DEFAULT_ROLE_ADMIN_PERMISSION: Final = "default_role_admin_permission"
+REASON_ORG_OWNER_ADMIN_PERMISSION: Final = "org_owner_admin_permission"
+REASON_DEFAULT_ROLE_ORG_PERMISSION: Final = "default_role_org_permission"
+REASON_ROLE_HAS_ORG_PERMISSIONS: Final = "role_has_org_permissions"
+REASON_WILDCARD_NOT_ALLOWED: Final = "wildcard_not_allowed"
+REASON_SUPER_ADMIN_MUST_KEEP_WILDCARD: Final = "super_admin_must_keep_wildcard"
+ROLE_DELETE_CONFLICT_REASONS: Final = (
+    REASON_SYSTEM_ROLE,
+    REASON_DEFAULT_ROLE,
+    REASON_ORG_OWNER_ROLE,
+    REASON_SUPER_ADMIN_ROLE_DESIGNATED,
+    REASON_ROLE_HAS_ASSIGNMENTS,
+    REASON_CHANGED_CONCURRENTLY,
+)
+ROLE_PERMISSIONS_CONFLICT_REASONS: Final = (
+    REASON_DEFAULT_ROLE_ADMIN_PERMISSION,
+    REASON_ORG_OWNER_ADMIN_PERMISSION,
+    REASON_DEFAULT_ROLE_ORG_PERMISSION,
+    REASON_ROLE_HAS_ORG_PERMISSIONS,
+    REASON_WILDCARD_NOT_ALLOWED,
+    REASON_SUPER_ADMIN_MUST_KEEP_WILDCARD,
+    REASON_ROLE_HAS_ASSIGNMENTS,
+    REASON_CHANGED_CONCURRENTLY,
+)
+
+
+def _role_conflict(message: str, reason: str) -> ConflictError:
+    return ConflictError(message, details=[{"reason": reason}])
 
 
 def _assignment_conflict(message: str, reason: str) -> ConflictError:

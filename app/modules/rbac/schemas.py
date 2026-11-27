@@ -253,6 +253,9 @@ class RoleDefinitionRead(BaseModel):
     is_default: bool = Field(
         description="This role is the app's default role (apps.default_role_id)."
     )
+    is_org_owner: bool = Field(
+        description="This role is the app's org owner role (apps.org_owner_role_id)."
+    )
     is_super_admin: bool = Field(
         description="This role is the app's designated super-admin role (apps.super_admin_role_id)."
     )
@@ -262,6 +265,15 @@ class RoleDefinitionRead(BaseModel):
             "designated super-admin role. Granting or revoking it needs admin:* (ADR-0008 G4, "
             "ADR-0030). UI hint; the server enforces on every write."
         )
+    )
+    assignment_count: int = Field(
+        ge=0,
+        description=(
+            "Number of role_assignments rows for this role, including expired and org-scoped "
+            "ones: the rows that block DELETE. 0 means DELETE will not fail with "
+            "`role_has_assignments`. A snapshot: a concurrent grant can still produce 409. "
+            "Does not move `updated_at`/ETag."
+        ),
     )
     permissions: list[str]  # sorted permission keys
     created_at: datetime

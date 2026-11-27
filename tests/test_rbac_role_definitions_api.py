@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -11,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.rbac.models import App, Role
 from tests.conftest import MakeClient
 from tests.rbac_factories import (
+    assign,
     grant,
     make_app,
+    make_org,
     make_permission,
     make_role,
     make_user,
@@ -26,8 +29,10 @@ KEYS = {
     "name",
     "is_system",
     "is_default",
+    "is_org_owner",
     "is_super_admin",
     "privileged",
+    "assignment_count",
     "permissions",
     "created_at",
     "updated_at",
@@ -251,8 +256,10 @@ async def test_role_definitions_bounded_queries(
 ) -> None:
     app, roles = await _roles(db_session, 6)
     perm = await make_permission(db_session, app, "stoktok:a:read")
+    user = await make_user(db_session)
     for r in roles:
         await grant(db_session, r, perm)
+        await assign(db_session, user, r)
     counts = []
     for limit in (1, 6):
         with _capture_sql(db_session) as statements:
@@ -275,3 +282,66 @@ async def test_catalog_unchanged_and_consistent(
     cat = (await rbac_client.get(f"{BASE}/stoktok/roles")).json()["roles"]
     defs = (await rbac_client.get(_url())).json()["items"]
     assert {r["key"]: r["permissions"] for r in cat} == {d["key"]: d["permissions"] for d in defs}
+
+
+async def test_role_definitions_is_org_owner(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    app = await make_app(db_session, "stoktok", org_mode="required")
+    a = await make_role(db_session, app, "stoktok:a")
+    b = await make_role(db_session, app, "stoktok:b")
+    flags = {i["id"]: i["is_org_owner"] for i in (await rbac_client.get(_url())).json()["items"]}
+    assert flags == {str(a.id): False, str(b.id): False}
+    app.org_owner_role_id = a.id
+    app.default_role_id = b.id
+    await db_session.flush()
+    items = {i["id"]: i for i in (await rbac_client.get(_url())).json()["items"]}
+    assert (items[str(a.id)]["is_org_owner"], items[str(a.id)]["is_default"]) == (True, False)
+    assert (items[str(b.id)]["is_org_owner"], items[str(b.id)]["is_default"]) == (False, True)
+
+
+async def test_role_definitions_assignment_count_counts_all_rows(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, (held, free) = await _roles(db_session, 2)
+    org = await make_org(db_session)
+    past = datetime.now(UTC) - timedelta(days=1)
+    await assign(db_session, await make_user(db_session), held)
+    await assign(db_session, await make_user(db_session), held, expires_at=past)
+    await assign(db_session, await make_user(db_session), held, org_id=org.id)
+    items = {i["id"]: i for i in (await rbac_client.get(_url())).json()["items"]}
+    assert items[str(held.id)]["assignment_count"] == 3
+    assert items[str(free.id)]["assignment_count"] == 0
+
+
+async def test_role_definition_detail_assignment_count(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, (held, free) = await _roles(db_session, 2)
+    await assign(db_session, await make_user(db_session), held)
+    await assign(db_session, await make_user(db_session), held)
+    listed = {i["id"]: i for i in (await rbac_client.get(_url())).json()["items"]}
+    detail = (await rbac_client.get(_url(role_id=held.id))).json()
+    assert detail["assignment_count"] == listed[str(held.id)]["assignment_count"] == 2
+    assert (await rbac_client.get(_url(role_id=free.id))).json()["assignment_count"] == 0
+
+
+async def test_assignment_count_zero_means_deletable(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, (role,) = await _roles(db_session)
+    assert (await rbac_client.get(_url(role_id=role.id))).json()["assignment_count"] == 0
+    resp = await rbac_client.delete(f"{BASE}/stoktok/roles/{role.id}")
+    assert resp.status_code == 204
+
+
+async def test_assignment_count_expired_only_blocks_delete(
+    rbac_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, (role,) = await _roles(db_session)
+    past = datetime.now(UTC) - timedelta(days=1)
+    await assign(db_session, await make_user(db_session), role, expires_at=past)
+    assert (await rbac_client.get(_url(role_id=role.id))).json()["assignment_count"] == 1
+    resp = await rbac_client.delete(f"{BASE}/stoktok/roles/{role.id}")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["details"] == [{"reason": "role_has_assignments"}]
