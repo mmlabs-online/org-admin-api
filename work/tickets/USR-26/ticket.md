@@ -8,7 +8,7 @@
 | Attempts | 1 |
 | Claimed by | — |
 | Created | 2026-11-19 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/111 |
 
 ## Goal
 The admin-pan roles table (PAN-015b) can show holders, pre-disable Delete for a role with holders, flag the org-owner role, and show fixed translatable copy for each 409 instead of the raw server message.
@@ -36,4 +36,4 @@ USR-16, USR-17. Consumer: admin-pan PAN-015b. Requested by admin-pan (batch 2026
 - Agent calls: 6, tokens ~308k total (api-platform-engineer 37k, database-optimizer 29k, planner opus 57k, implementer sonnet 74k, reviewer opus 69k, appsec-engineer 42k).
 - Done: `RoleDefinitionRead.assignment_count` (one grouped query, same rows as the delete guard, list + detail) and `is_org_owner`; stable `details[0].reason` on all 6 DELETE-role and 8 PUT-permissions 409s (shipped field/reason pairs and PUT `role_has_assignments` code unchanged); OpenAPI descriptions from the reason tuples; docs. Review PASS (4522 passed; ruff/mypy/alembic clean; tier high); appsec PASS.
 - Follow-ups: owner decision — per-role holder counts (incl. super-admin count on the `admin` app) visible under `admin:apps:read` (accept, or gate behind `admin:users:read`); optional `active_assignment_count`; merge `_role_conflict` / `_assignment_conflict`.
-
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/111 (tier high). Next: Ming merges #111 (or "merge cho tôi #111"); then `/run-batch --resume` builds USR-27.
