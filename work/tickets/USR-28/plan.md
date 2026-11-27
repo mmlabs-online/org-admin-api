@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > BLOCKED only on the batch approval round (`## Blocking questions`). Every question has a default.
 > With the defaults this plan is implementable as written, and the predicted tier is **Medium**.

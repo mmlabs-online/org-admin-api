@@ -25,3 +25,5 @@ The admin UI can name a role and its org scope without extra lookups: `Assignmen
 USR-02c, USR-17. Consumer: admin-pan PAN-015c. Requested by admin-pan (batch 2026-11-19).
 
 ## Notes / answers from owner
+- 2026-11-27 (Ming, chat): "duyệt hết; câu 1–24 theo mặc định; cho merge USR-28".
+- Plan approved (2026-11-27, batch 2026-11-27-1); all blocking questions answered with the plan defaults.

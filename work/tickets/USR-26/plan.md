@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > Blocked only on Ming confirming the five defaults under `## Blocking questions for Ming`
 > (batch 2026-11-27-1 approval round). The plan below is complete under those defaults: "defaults OK"

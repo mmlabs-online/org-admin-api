@@ -2,11 +2,11 @@
 
 | Field | Value |
 |---|---|
-| State | PLANNING |
+| State | IN_PROGRESS |
 | Priority | P2 |
 | Areas | auth, security |
 | Attempts | 0 |
-| Claimed by | claude@2026-11-27T03:59Z |
+| Claimed by | claude@2026-11-27T04:08Z |
 | Created | 2026-11-19 |
 | PR | — |
 
@@ -27,3 +27,5 @@ USR-02c, ADM-002b, USR-03g. Requested by admin-pan (batch 2026-11-19).
 
 ## Notes / answers from owner
 - 2026-11-19 (owner): **option (b)** — forbid self-grant and self-revoke of privileged roles (any role holding an `is_admin` permission, plus every admin-app role as today) in every app; non-privileged roles (e.g. `<app>:member`) may still be self-assigned.
+- 2026-11-27 (Ming, chat): "duyệt hết; câu 1–24 theo mặc định; cho merge USR-28".
+- Plan approved (2026-11-27, batch 2026-11-27-1); all blocking questions answered with the plan defaults.

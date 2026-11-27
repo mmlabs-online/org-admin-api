@@ -1,4 +1,4 @@
-Status: BLOCKED
+Status: READY
 
 > Every question below has a default. If Ming approves this plan as written in the batch 2026-11-27-1 approval round,
 > the defaults apply and the plan is READY as is. It needs that approval anyway, because it edits `app/modules/rbac/**` (High).
