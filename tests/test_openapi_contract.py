@@ -135,9 +135,19 @@ def test_role_holders_operation() -> None:
         assert op["responses"][code]["content"]["application/json"]["schema"] == {"$ref": REF}
     component = schema["components"]["schemas"]["RoleHolderRead"]
     assert set(component["required"]) == {
-        "id", "app", "role_id", "role_key", "org_id", "granted_by", "expires_at", "active",
-        "created_at", "user_id", "email", "display_name", "user_status",
+        "id", "app", "role_id", "role_key", "role_name", "org_id", "org_name", "granted_by",
+        "expires_at", "active", "created_at", "user_id", "email", "display_name", "user_status",
     }  # fmt: skip
+
+
+def test_assignment_read_component() -> None:
+    component = _schema()["components"]["schemas"]["AssignmentRead"]
+    assert set(component["required"]) == {
+        "id", "app", "role_id", "role_key", "role_name", "org_id", "org_name", "granted_by",
+        "expires_at", "active", "created_at",
+    }  # fmt: skip
+    assert {"type": "string"} in component["properties"]["org_name"]["anyOf"]
+    assert {"type": "null"} in component["properties"]["org_name"]["anyOf"]
 
 
 # Only the two attachment routes document a 5xx: 503 attachment_storage_unavailable (ADR-0023, R6).

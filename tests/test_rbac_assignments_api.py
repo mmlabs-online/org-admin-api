@@ -1,10 +1,12 @@
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +23,9 @@ ASSIGNMENT_KEYS = {
     "app",
     "role_id",
     "role_key",
+    "role_name",
     "org_id",
+    "org_name",
     "granted_by",
     "expires_at",
     "active",
@@ -39,6 +43,22 @@ async def actor(db_session: AsyncSession) -> User:
 async def rbac_client(make_client: MakeClient, actor: User) -> AsyncIterator[AsyncClient]:
     async with make_client(admin_permissions=["admin:*"], admin_user=actor) as c:
         yield c
+
+
+@contextmanager
+def _capture_sql(db_session: AsyncSession) -> Iterator[list[str]]:
+    statements: list[str] = []
+    conn = db_session.bind.sync_connection  # type: ignore[union-attr]
+    assert conn is not None
+
+    def _record(*args: Any) -> None:
+        statements.append(args[2])
+
+    event.listen(conn, "before_cursor_execute", _record)
+    try:
+        yield statements
+    finally:
+        event.remove(conn, "before_cursor_execute", _record)
 
 
 def _url(user_id: uuid.UUID, assignment_id: uuid.UUID | str | None = None) -> str:
@@ -106,7 +126,9 @@ async def test_list_happy_path(rbac_client: AsyncClient, db_session: AsyncSessio
         "app": "stoktok",
         "role_id": str(editor.id),
         "role_key": "stoktok:editor",
+        "role_name": "stoktok:editor",
         "org_id": None,
+        "org_name": None,
         "granted_by": str(other.id),
         "expires_at": None,
         "active": True,
@@ -172,6 +194,56 @@ async def test_list_active_flag(rbac_client: AsyncClient, db_session: AsyncSessi
     assert active == {str(expired.id): False, str(open_ended.id): True, str(future.id): True}
 
 
+async def test_list_org_scope_names(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    user = await make_user(db_session)
+    _, viewer = await _stoktok(db_session)
+    viewer.name = "Viewer"
+    org = Organization(slug=f"org-{uuid.uuid4().hex[:8]}", name="Acme")
+    db_session.add(org)
+    await db_session.flush()
+    in_org = await assign(db_session, user, viewer, org_id=org.id)
+    app_scope = await assign(db_session, user, viewer)
+    await db_session.flush()
+
+    items = (await rbac_client.get(_url(user.id))).json()["items"]
+    by_id = {i["id"]: i for i in items}
+    assert by_id[str(in_org.id)]["org_name"] == "Acme"
+    assert by_id[str(app_scope.id)]["org_name"] is None
+    assert {i["role_name"] for i in items} == {"Viewer"}
+
+
+async def test_list_bounded_queries(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    user = await make_user(db_session)
+    app, viewer = await _stoktok(db_session)
+    editor = await make_role(db_session, app, "stoktok:editor")
+    org1, org2 = await _make_org(db_session), await _make_org(db_session)
+    for role in (viewer, editor):
+        for org in (org1, org2):
+            await assign(db_session, user, role, org_id=org.id)
+        await assign(db_session, user, role)
+    counts = []
+    for limit in (1, 6):
+        with _capture_sql(db_session) as statements:
+            resp = await rbac_client.get(_url(user.id), params={"limit": limit})
+        assert len(resp.json()["items"]) == limit
+        counts.append(len(statements))
+    assert counts[0] == counts[1]
+
+
+async def test_page_assignments_two_statements(db_session: AsyncSession) -> None:
+    user = await make_user(db_session)
+    _, viewer = await _stoktok(db_session)
+    await assign(db_session, user, viewer)
+    with _capture_sql(db_session) as statements:
+        rows, total = await RbacRepository(db_session).page_assignments(
+            user.id, app_key=None, limit=10, offset=0
+        )
+    assert len(statements) == 2
+    assert (len(rows), total) == (1, 1)
+    assert "LEFT OUTER JOIN organizations" in statements[1]
+    assert "organizations" not in statements[0]
+
+
 async def test_list_unknown_user_404(rbac_client: AsyncClient) -> None:
     _assert_error(await rbac_client.get(_url(uuid.uuid4())), 404, "not_found")
 
@@ -199,7 +271,9 @@ async def test_assign_app_scope_201(
     assert set(body) == ASSIGNMENT_KEYS
     assert body["app"] == "stoktok"
     assert body["role_key"] == "stoktok:viewer"
+    assert body["role_name"] == "stoktok:viewer"
     assert body["org_id"] is None
+    assert body["org_name"] is None
     assert body["granted_by"] == str(actor.id)
     assert body["expires_at"] is None
     assert body["active"] is True
@@ -218,11 +292,13 @@ async def test_assign_org_scope_201(rbac_client: AsyncClient, db_session: AsyncS
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["org_id"] == str(org.id)
+    assert resp.json()["org_name"] == org.name
 
     # App scope on a `required` app is allowed too (A4).
     resp = await rbac_client.post(_url(user.id), json={"role_id": str(viewer.id), "org_id": None})
     assert resp.status_code == 201, resp.text
     assert resp.json()["org_id"] is None
+    assert resp.json()["org_name"] is None
 
 
 async def test_assign_unknown_user_404(rbac_client: AsyncClient) -> None:

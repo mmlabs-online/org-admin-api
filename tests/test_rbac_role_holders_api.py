@@ -28,7 +28,9 @@ KEYS = {
     "app",
     "role_id",
     "role_key",
+    "role_name",
     "org_id",
+    "org_name",
     "granted_by",
     "expires_at",
     "active",
@@ -168,6 +170,22 @@ async def test_holders_limit_over_100_is_422(
 # --- shape --------------------------------------------------------------------
 
 
+async def test_holders_org_scope_names(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
+    _, role = await _setup(db_session)
+    role.name = "Viewer"
+    org = await make_org(db_session, name="Acme")
+    await assign(db_session, await make_user(db_session), role, org_id=org.id)
+    await assign(db_session, await make_user(db_session), role)
+    await db_session.flush()
+    items = (await rbac_client.get(_url("stoktok", role.id))).json()["items"]
+    assert {i["org_name"] for i in items} == {"Acme", None}
+    assert {i["role_name"] for i in items} == {"Viewer"}
+    for i in items:
+        assert (i["org_name"] is None) == (i["org_id"] is None)
+    filtered = await rbac_client.get(_url("stoktok", role.id), params={"org_id": str(org.id)})
+    assert [i["org_name"] for i in filtered.json()["items"]] == ["Acme"]
+
+
 async def test_holders_item_shape(rbac_client: AsyncClient, db_session: AsyncSession) -> None:
     _, role = await _setup(db_session)
     user = await make_user(db_session)
@@ -184,7 +202,9 @@ async def test_holders_item_shape(rbac_client: AsyncClient, db_session: AsyncSes
     assert item["app"] == "stoktok"
     assert item["role_id"] == str(role.id)
     assert item["role_key"] == "stoktok:r0"
+    assert item["role_name"] == "stoktok:r0"
     assert item["org_id"] is None
+    assert item["org_name"] is None
     assert item["granted_by"] == str(granter.id)
     assert item["expires_at"] is None
     assert item["active"] is True

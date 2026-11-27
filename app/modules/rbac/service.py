@@ -1564,47 +1564,49 @@ def _batch_failed(user_id: uuid.UUID, exc: AppError) -> AssignmentBatchItem:
 
 
 def _assignment_read(row: AssignmentRow) -> AssignmentRead:
-    ra, app_key, role_key, active = row
+    ra = row.assignment
     return AssignmentRead(
         id=ra.id,
-        app=app_key,
+        app=row.app_key,
         role_id=ra.role_id,
-        role_key=role_key,
+        role_key=row.role_key,
+        role_name=row.role_name,
         org_id=ra.org_id,
+        org_name=row.org_name,
         granted_by=ra.granted_by,
         expires_at=ra.expires_at,
-        active=active,
+        active=row.active,
         created_at=ra.created_at,
     )
 
 
 def _role_holder_read(row: RoleHolderRow) -> RoleHolderRead:
-    ra, app_key, role_key, active, email, display_name, user_status = row
     return RoleHolderRead(
-        **_assignment_read((ra, app_key, role_key, active)).model_dump(),
-        user_id=ra.user_id,
-        email=email,
-        display_name=display_name,
-        user_status=UserStatus(user_status),
+        **_assignment_read(row.base).model_dump(),
+        user_id=row.base.assignment.user_id,
+        email=row.email,
+        display_name=row.display_name,
+        user_status=UserStatus(row.user_status),
     )
 
 
 def _org_member_read(row: OrgMemberRow) -> OrgMemberRead:
-    ra, app_key, role_key, active, role_name, email, display_name, user_status = row
+    base = row.base
+    ra = base.assignment
     return OrgMemberRead(
         assignment_id=ra.id,
         user_id=ra.user_id,
-        email=email,
-        display_name=display_name,
-        user_status=UserStatus(user_status),
-        app=app_key,
+        email=row.email,
+        display_name=row.display_name,
+        user_status=UserStatus(row.user_status),
+        app=base.app_key,
         role_id=ra.role_id,
-        role_key=role_key,
-        role_name=role_name,
+        role_key=base.role_key,
+        role_name=base.role_name,
         granted_by=ra.granted_by,
         created_at=ra.created_at,
         expires_at=ra.expires_at,
-        active=active,
+        active=base.active,
     )
 
 
@@ -2049,11 +2051,12 @@ class AssignmentService:
         row = await self.repo.get_assignment_row(user_id, assignment_id)
         if row is None:
             raise NotFoundError("Assignment not found")
-        app = await _locked_app(self.repo, row[1])
+        app = await _locked_app(self.repo, row.app_key)
         row = await self.repo.get_assignment_row(user_id, assignment_id)
         if row is None:  # revoked between the read and the lock
             raise NotFoundError("Assignment not found")
-        ra, _, role_key, _ = row
+        ra = row.assignment
+        role_key = row.role_key
         try:
             await self._guard_privileged(app, ra.role_id, user_id, actor)
             if (
