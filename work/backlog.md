@@ -82,7 +82,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-22 | Join requests: optional reject reason and expiry of stale pending requests | BACKLOG | P3 | api, auth, security, db | 0 | 2026-11-17 |
 | USR-23 | Staff read of an organization's members and invitations | MERGED | P1 | api, auth, security, db | 1 | 2026-11-19 |
 | USR-24 | Optimistic concurrency on PUT role permissions | MERGED | P2 | api, db | 0 | 2026-11-19 |
-| USR-25 | Scope of `self_assignment_forbidden` beyond the admin app | REVIEW | P2 | auth, security | 0 | 2026-11-19 |
+| USR-25 | Scope of `self_assignment_forbidden` beyond the admin app | DONE | P2 | auth, security | 1 | 2026-11-19 |
 | USR-36 | Bulk-assign one role to up to 100 users (`assignment-batches`) | MERGED | P2 | architecture, api, auth, security, db | 1 | 2026-11-26 |
 | USR-38 | Designated per-app super-admin role for org apps (simap SIM-043) | MERGED | P2 | architecture, db, api, auth, security | 1 | 2026-11-26 |
 | USR-39 | Org token for a non-member org via the app's super-admin role (simap SIM-043) | MERGED | P2 | auth, security, api | 1 | 2026-11-26 |

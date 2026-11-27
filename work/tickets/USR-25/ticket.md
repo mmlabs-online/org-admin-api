@@ -2,11 +2,11 @@
 
 | Field | Value |
 |---|---|
-| State | REVIEW |
+| State | DONE |
 | Priority | P2 |
 | Areas | auth, security |
-| Attempts | 0 |
-| Claimed by | claude@2026-11-27T04:08Z |
+| Attempts | 1 |
+| Claimed by | — |
 | Created | 2026-11-19 |
 | PR | — |
 
@@ -29,3 +29,11 @@ USR-02c, ADM-002b, USR-03g. Requested by admin-pan (batch 2026-11-19).
 - 2026-11-19 (owner): **option (b)** — forbid self-grant and self-revoke of privileged roles (any role holding an `is_admin` permission, plus every admin-app role as today) in every app; non-privileged roles (e.g. `<app>:member`) may still be self-assigned.
 - 2026-11-27 (Ming, chat): "duyệt hết; câu 1–24 theo mặc định; cho merge USR-28".
 - Plan approved (2026-11-27, batch 2026-11-27-1); all blocking questions answered with the plan defaults.
+
+## Handoff
+
+### 2026-11-27 — claude — DONE (batch 2026-11-27-1, attempt 1)
+- Agent calls: 7, tokens ~437k total (identity-access-engineer 53k, security-architect 52k, planner opus 111k, implementer sonnet 85k, reviewer opus 73k, appsec-engineer 63k).
+- Done: option (b) — one privileged predicate (`_role_is_privileged`: admin app, any `is_admin` permission at either scope, designated role) computed once per request and passed to `_forbid_self(privileged, user_id, actor)`; self grant, renew and revoke of privileged roles refused in every app (`self_assignment_forbidden`, "Cannot change your own privileged roles"); check order unchanged; batch per-item failure + denied row; docs (ADR-0008/0029/0030, identity-architecture, spec) and the read-only report query in docs/deploy.md (M-9). Review PASS (4514 passed; ruff/mypy/alembic clean; tier high); appsec PASS.
+- Follow-ups: stale docstring `rbac/assignments_router.py:3-4`; denied-audit handler on join approval if default roles could ever hold `is_admin`; optional self-grant history query over the audit log.
+
