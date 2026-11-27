@@ -89,7 +89,7 @@ Ticket IDs: `USR-XX` for users, identity and authorization (mmlabs Identity, spe
 | USR-40 | Org picker lists every org of the app for super-admin holders (simap SIM-043) | MERGED | P2 | api, auth | 1 | 2026-11-26 |
 | USR-26 | Role definitions: assignment count, org-owner flag, stable reasons on 409 conflicts | MERGED | P3 | api, db | 1 | 2026-11-19 |
 | USR-27 | Role assignments: return role and org names | MERGED | P3 | api | 1 | 2026-11-19 |
-| USR-28 | Exact email lookup for staff user search | IN_PROGRESS | P3 | api, security | 0 | 2026-11-19 |
+| USR-28 | Exact email lookup for staff user search | REVIEW | P3 | api, security | 0 | 2026-11-19 |
 | ADM-026 | Organizations and apps lists: name sort collation and member_count sort | PLANNING | P3 | api, db | 0 | 2026-11-19 |
 | ADM-027 | Google Drive attachment client for bug reports | MERGED | P2 | architecture, security | 0 | 2026-11-19 |
 | ADM-028 | Bug reports: data model and text submit from apps (cookie class) | MERGED | P2 | db, api, auth, security | 0 | 2026-11-19 |
