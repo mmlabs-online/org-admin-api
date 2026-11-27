@@ -8,7 +8,7 @@
 | Attempts | 1 |
 | Claimed by | — |
 | Created | 2026-11-19 |
-| PR | — |
+| PR | https://github.com/mmlabs-online/org-admin-api/pull/114 |
 
 ## Goal
 `sort=name` orders Vietnamese and mixed-case names as staff expect (today it follows the database collation: uppercase before lowercase, accented letters last), and apps can be sorted by `member_count` (422 today).
@@ -36,4 +36,4 @@ ADM-020, USR-18, ADM-016. Consumer: admin-pan PAN-029. Requested by admin-pan (b
 - Done: organizations and apps `name`/`-name` sort = `lower(name COLLATE "und-x-icu")` then `id` ascending (case/accent folded, Vietnamese-friendly); apps `member_count`/`-member_count` via one grouped LEFT JOIN with `coalesce` (shared `member_count_select()`, also used by `member_counts`); other sorts/defaults unchanged; app/core and migrations untouched; ICU guard test. Review PASS (4586 passed; ruff/mypy/alembic clean; tier high); appsec PASS (🟡 deploy prerequisite).
 - **Merge gate:** M-10 — Ming confirms on prod (read-only) that `und-x-icu` exists and `server_encoding` = UTF8; without ICU every name sort would 500.
 - Follow-ups: remove or generalise `app/core/listing.py::sort_clauses` (High); reuse `name_sort_key` for other name-sorted lists; `is_active_app_member` reuses the shared member rule; catch-all `Exception` handler returning the R6 envelope (High); remove or guard unused `app_debug`.
-
+- PR: https://github.com/mmlabs-online/org-admin-api/pull/114 (tier high). Next: Ming does M-10, then merges #114 (or "merge cho tôi #114"); `/run-batch --resume` closes the batch.
