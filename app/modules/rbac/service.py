@@ -6,11 +6,12 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     DENIED_ERRORS,
+    AppError,
     AppKeyTakenError,
     ConflictError,
     LastSuperAdminError,
@@ -26,6 +27,7 @@ from app.modules.audit import diff
 from app.modules.audit.actions import AuditAction, AuditTarget
 from app.modules.audit.context import AuditContext
 from app.modules.audit.service import AuditLogger
+from app.modules.rbac import repository as rbac_repository
 from app.modules.rbac.actor import SYSTEM_CLI, Actor, actor_user_id, require_super
 from app.modules.rbac.authz import is_designated_super_admin_role
 from app.modules.rbac.models import (
@@ -48,8 +50,13 @@ from app.modules.rbac.schemas import (
     AppRegister,
     AppSort,
     AppUpdate,
+    AssignmentBatchCreate,
+    AssignmentBatchError,
+    AssignmentBatchItem,
+    AssignmentBatchRead,
     AssignmentCreate,
     AssignmentRead,
+    BatchItemStatus,
     OrgMemberRead,
     PermissionCreate,
     PermissionUpdate,
@@ -1488,6 +1495,16 @@ def _assignment_unprocessable(message: str, field: str, reason: str) -> Unproces
     return UnprocessableError(message, details=[{"field": field, "reason": reason}])
 
 
+def _batch_failed(user_id: uuid.UUID, exc: AppError) -> AssignmentBatchItem:
+    return AssignmentBatchItem(
+        user_id=user_id,
+        status=BatchItemStatus.FAILED,
+        assignment_id=None,
+        expires_at=None,
+        error=AssignmentBatchError(code=exc.code, message=exc.message),
+    )
+
+
 def _assignment_read(row: AssignmentRow) -> AssignmentRead:
     ra, app_key, role_key, active = row
     return AssignmentRead(
@@ -1549,6 +1566,12 @@ def assignment_changes(
         "expires_at": ra.expires_at,
     }
     return diff.diff(None, values) if granted else diff.diff(values, None)
+
+
+class GrantOutcome(StrEnum):
+    CREATED = "created"
+    RENEWED = "renewed"
+    UNCHANGED = "unchanged"
 
 
 class AssignmentService:
@@ -1682,6 +1705,27 @@ class AssignmentService:
         actor: Actor,
     ) -> tuple[RoleAssignment, bool]:
         """The caller holds `lock_app(app.key)`. Returns (assignment, created). Never audits."""
+        now = await self.repo.db_now()
+        await self._check_grant_request(app, role, org_id, expires_at, actor=actor, now=now)
+        existing = await self.repo.find_assignment(user_id, role.id, org_id)
+        ra, outcome = await self._grant_user_locked(
+            app, role, user_id, org_id, expires_at, actor=actor, now=now, existing=existing
+        )
+        if outcome is GrantOutcome.UNCHANGED:
+            raise _assignment_conflict("Role is already assigned", REASON_ASSIGNMENT_EXISTS)
+        return ra, outcome is GrantOutcome.CREATED
+
+    async def _check_grant_request(
+        self,
+        app: App,
+        role: Role,
+        org_id: uuid.UUID | None,
+        expires_at: datetime | None,
+        *,
+        actor: Actor,
+        now: datetime,
+    ) -> None:
+        """The rules that depend on the request, not on the user (the caller holds the app lock)."""
         designated = is_designated_super_admin_role(app, role.id)
         if designated and org_id is not None:  # before the org lookup: app scope only
             raise _assignment_unprocessable(
@@ -1699,13 +1743,31 @@ class AssignmentService:
                 raise _assignment_unprocessable(
                     "admin:super-admin cannot expire", "expires_at", "expiry_not_allowed"
                 )
-            if expires_at <= await self.repo.db_now():
+            if expires_at <= now:
                 raise _assignment_unprocessable(
                     "expires_at must be in the future", "expires_at", "expires_in_past"
                 )
-        await self._guard_privileged(app, role.id, user_id, actor)
+        await self._require_privileged_grant(app, role.id, actor)
+
+    async def _grant_user_locked(
+        self,
+        app: App,
+        role: Role,
+        user_id: uuid.UUID,
+        org_id: uuid.UUID | None,
+        expires_at: datetime | None,
+        *,
+        actor: Actor,
+        now: datetime,
+        existing: RoleAssignment | None,
+    ) -> tuple[RoleAssignment, GrantOutcome]:
+        """The per-user part after `_check_grant_request`; `existing` is the user's row for
+        (role, org), if any. An active duplicate is returned as `UNCHANGED`, untouched."""
+        self._forbid_self(app, role.id, user_id, actor)
         # Plain read under the target app's lock; never lock `admin` here (ADR-0030 §6).
-        if designated and not await self.repo.is_active_staff_super_admin(user_id):
+        if is_designated_super_admin_role(
+            app, role.id
+        ) and not await self.repo.is_active_staff_super_admin(user_id):
             raise _assignment_unprocessable(
                 "Only an active staff super-admin can hold the super-admin role",
                 "user_id",
@@ -1713,10 +1775,9 @@ class AssignmentService:
             )
         granted_by = actor_user_id(actor)
 
-        existing = await self.repo.find_assignment(user_id, role.id, org_id)
         if existing is not None:
-            if existing.expires_at is None or existing.expires_at > await self.repo.db_now():
-                raise _assignment_conflict("Role is already assigned", REASON_ASSIGNMENT_EXISTS)
+            if existing.expires_at is None or existing.expires_at > now:
+                return existing, GrantOutcome.UNCHANGED
             # Expired duplicate: replaced in place (same id and created_at).
             existing.expires_at = expires_at
             existing.granted_by = granted_by
@@ -1726,7 +1787,7 @@ class AssignmentService:
                 raise _assignment_conflict(
                     "Assignment was changed concurrently", REASON_CHANGED_CONCURRENTLY
                 ) from exc
-            return existing, False
+            return existing, GrantOutcome.RENEWED
 
         try:
             ra = await self.repo.add_assignment(
@@ -1742,26 +1803,172 @@ class AssignmentService:
             raise _assignment_conflict(
                 "Role is already assigned", REASON_ASSIGNMENT_EXISTS
             ) from exc
-        return ra, True
+        return ra, GrantOutcome.CREATED
 
     async def _guard_privileged(
         self, app: App, role_id: uuid.UUID, user_id: uuid.UUID, actor: Actor
     ) -> None:
+        """Revoke's guard: `_require_privileged_grant`, then `_forbid_self`."""
+        await self._require_privileged_grant(app, role_id, actor)
+        self._forbid_self(app, role_id, user_id, actor)
+
+    async def _require_privileged_grant(self, app: App, role_id: uuid.UUID, actor: Actor) -> None:
         """A privileged role (admin app, holding an `is_admin` permission, or the app's designated
-        super-admin role) needs `admin:*`; nobody grants or revokes their own admin-app or
-        designated role, super-admins included. Mirrors `role_is_privileged` (ADR-0030)."""
-        designated = is_designated_super_admin_role(app, role_id)
+        super-admin role) needs `admin:*`. Mirrors `role_is_privileged` (ADR-0030)."""
         if (
             app.key != ADMIN_APP_KEY
-            and not designated
+            and not is_designated_super_admin_role(app, role_id)
             and not await self.repo.role_has_admin_permission(role_id)
         ):
             return
         require_super(actor)
+
+    def _forbid_self(self, app: App, role_id: uuid.UUID, user_id: uuid.UUID, actor: Actor) -> None:
+        """Nobody grants or revokes their own admin-app or designated role, super-admins
+        included."""
         if app.key == ADMIN_APP_KEY and user_id == actor_user_id(actor):
             raise SelfAssignmentForbiddenError("Cannot change your own admin roles")
-        if designated and user_id == actor_user_id(actor):
+        if is_designated_super_admin_role(app, role_id) and user_id == actor_user_id(actor):
             raise SelfAssignmentForbiddenError("Cannot change your own super-admin roles")
+
+    async def assign_batch(
+        self,
+        key: str,
+        role_id: uuid.UUID,
+        data: AssignmentBatchCreate,
+        *,
+        actor: Actor,
+        ctx: AuditContext,
+    ) -> AssignmentBatchRead:
+        """One role to many users (ADR-0029): one transaction, one app lock, one savepoint per
+        user, users in sorted order, results in request order. The grant rules are the single
+        POST's (`_check_grant_request` once, `_grant_user_locked` per user)."""
+        if len(set(data.user_ids)) != len(data.user_ids):
+            raise _assignment_unprocessable(
+                "user_ids must be unique", "user_ids", "duplicate_user_ids"
+            )
+        if ctx.request_id is None:  # the middleware always sets it for HTTP requests
+            raise RuntimeError("assignment batch without a request id")
+        batch_id = uuid.UUID(ctx.request_id)
+        try:
+            items = await self._assign_batch_locked(key, role_id, data, actor=actor, ctx=ctx)
+        except DBAPIError as exc:
+            if RbacRepository.is_lock_timeout(exc):
+                raise _assignment_conflict(
+                    "Assignment was changed concurrently", REASON_CHANGED_CONCURRENTLY
+                ) from exc
+            raise
+        return AssignmentBatchRead(batch_id=batch_id, results=[items[uid] for uid in data.user_ids])
+
+    async def _assign_batch_locked(
+        self,
+        key: str,
+        role_id: uuid.UUID,
+        data: AssignmentBatchCreate,
+        *,
+        actor: Actor,
+        ctx: AuditContext,
+    ) -> dict[uuid.UUID, AssignmentBatchItem]:
+        # Before the lock, so it bounds the app-lock wait and every later lock wait.
+        await self.repo.set_lock_timeout(rbac_repository.ASSIGNMENT_BATCH_LOCK_TIMEOUT)
+        # Never lock the `admin` app here: its roles are refused below, nothing is written.
+        app = (
+            await self.repo.get_app_by_key(key)
+            if key == ADMIN_APP_KEY
+            else await self.repo.lock_app(key)
+        )
+        if app is None:
+            raise NotFoundError("Unknown app")
+        role = await self.repo.get_role(app.id, role_id)
+        if role is None:
+            raise NotFoundError("Unknown app, or role not of that app")
+        if app.key == ADMIN_APP_KEY:
+            raise _assignment_unprocessable(
+                "Admin-app roles cannot be assigned in bulk", "role_id", "admin_app_role"
+            )
+        if is_designated_super_admin_role(app, role.id):
+            raise _assignment_unprocessable(
+                "The super-admin role cannot be assigned in bulk", "role_id", "super_admin_role"
+            )
+        now = await self.repo.db_now()
+        try:
+            await self._check_grant_request(
+                app, role, data.org_id, data.expires_at, actor=actor, now=now
+            )
+        except DENIED_ERRORS as exc:
+            await self._record_batch_wildcard_denied(exc, app.key, role.key, data, actor, ctx)
+            raise
+        existing_users = await self.repo.existing_user_ids(data.user_ids)
+        held = await self.repo.find_assignments(existing_users, role.id, data.org_id)
+        items: dict[uuid.UUID, AssignmentBatchItem] = {}
+        for uid in sorted(data.user_ids):
+            if uid not in existing_users:
+                items[uid] = _batch_failed(uid, NotFoundError("User not found"))
+                continue
+            try:
+                async with self.repo.savepoint():
+                    ra, outcome = await self._grant_user_locked(
+                        app,
+                        role,
+                        uid,
+                        data.org_id,
+                        data.expires_at,
+                        actor=actor,
+                        now=now,
+                        existing=held.get(uid),
+                    )
+                    if outcome is not GrantOutcome.UNCHANGED:
+                        await self._record_grant(ra, app, role, actor, ctx)
+            except DENIED_ERRORS as exc:  # the savepoint is rolled back; the row joins the batch
+                await self.audit.record_denied_in_tx(
+                    AuditAction.ROLE_ASSIGNMENT_GRANTED,
+                    exc=exc,
+                    actor=actor,
+                    ctx=ctx,
+                    target=(AuditTarget.USER, uid),
+                    app_key=app.key,
+                    org_id=data.org_id,
+                    facts={"role_key": role.key},
+                )
+                items[uid] = _batch_failed(uid, exc)
+            except AppError as exc:
+                items[uid] = _batch_failed(uid, exc)
+            else:
+                items[uid] = AssignmentBatchItem(
+                    user_id=uid,
+                    status=(
+                        BatchItemStatus.UNCHANGED
+                        if outcome is GrantOutcome.UNCHANGED
+                        else BatchItemStatus.CREATED
+                    ),
+                    assignment_id=ra.id,
+                    expires_at=ra.expires_at,
+                    error=None,
+                )
+        return items
+
+    async def _record_batch_wildcard_denied(
+        self,
+        exc: AppError,
+        app_key: str,
+        role_key: str,
+        data: AssignmentBatchCreate,
+        actor: Actor,
+        ctx: AuditContext,
+    ) -> None:
+        """Request-level refusal: one `denied` row per existing requested user, as the single POST
+        writes it. `record_denied` rolls back the pending work, so the user ids are read first."""
+        for uid in sorted(await self.repo.existing_user_ids(data.user_ids)):
+            await self.audit.record_denied(
+                AuditAction.ROLE_ASSIGNMENT_GRANTED,
+                exc=exc,
+                actor=actor,
+                ctx=ctx,
+                target=(AuditTarget.USER, uid),
+                app_key=app_key,
+                org_id=data.org_id,
+                facts={"role_key": role_key},
+            )
 
     async def revoke(
         self, user_id: uuid.UUID, assignment_id: uuid.UUID, *, actor: Actor, ctx: AuditContext

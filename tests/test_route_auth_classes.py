@@ -137,6 +137,7 @@ BEARER = {
     ("PATCH", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("DELETE", f"{V1}/apps/{{key}}/roles/{{role_id}}"): "admin:roles:manage",
     ("PUT", f"{V1}/apps/{{key}}/roles/{{role_id}}/permissions"): "admin:roles:manage",
+    ("POST", f"{V1}/apps/{{key}}/roles/{{role_id}}/assignment-batches"): "admin:roles:assign",
     ("POST", f"{V1}/apps/{{key}}/credentials"): "admin:apps:write",
     ("GET", f"{V1}/apps/{{key}}/credentials"): "admin:apps:read",
     ("DELETE", f"{V1}/apps/{{key}}/credentials/{{credential_id}}"): "admin:apps:write",

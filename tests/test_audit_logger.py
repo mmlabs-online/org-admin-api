@@ -256,6 +256,56 @@ async def test_record_denied_skips_system_actor(db_session: AsyncSession) -> Non
     assert await db_session.scalar(select(Organization.id).where(Organization.id == org_id))
 
 
+async def test_record_denied_in_tx_same_content_as_record_denied(db_session: AsyncSession) -> None:
+    logger = AuditLogger(db_session)
+    kwargs: dict[str, Any] = {
+        "exc": AdminWildcardRequiredError(),
+        "actor": PRINCIPAL,
+        "ctx": AuditContext.NONE,
+        "target": (AuditTarget.USER, uuid.uuid4()),
+        "app_key": "stoktok",
+        "facts": {"role_key": "stoktok:admin"},
+    }
+    await logger.record_denied(AuditAction.ROLE_ASSIGNMENT_GRANTED, **kwargs)
+    await logger.record_denied_in_tx(AuditAction.ROLE_ASSIGNMENT_GRANTED, **kwargs)
+    first, second = sorted(await db_session.scalars(select(AuditLog)), key=lambda r: r.occurred_at)
+    skip = {"id", "occurred_at"}
+    columns = [c.key for c in AuditLog.__table__.columns if c.key not in skip]
+    assert {c: getattr(first, c) for c in columns} == {c: getattr(second, c) for c in columns}
+    assert second.outcome == "denied"
+    assert second.changes == {"reason": "admin_wildcard_required", "role_key": "stoktok:admin"}
+
+
+async def test_record_denied_in_tx_keeps_pending_work(db_session: AsyncSession) -> None:
+    org = Organization(slug=f"org-{uuid.uuid4().hex[:8]}", name="Kept")
+    db_session.add(org)
+    await db_session.flush()
+    org_id = org.id
+    await AuditLogger(db_session).record_denied_in_tx(
+        AuditAction.APP_UPDATED,
+        exc=AdminWildcardRequiredError(),
+        actor=PRINCIPAL,
+        ctx=AuditContext.NONE,
+        app_key="admin",
+    )
+    assert await _count(db_session) == 1
+    assert await db_session.scalar(select(Organization.id).where(Organization.id == org_id))
+    await db_session.rollback()  # the caller's rollback removes the row with the work
+    assert await _count(db_session) == 0
+    assert await db_session.scalar(select(Organization.id).where(Organization.id == org_id)) is None
+
+
+async def test_record_denied_in_tx_system_actor_writes_nothing(db_session: AsyncSession) -> None:
+    await AuditLogger(db_session).record_denied_in_tx(
+        AuditAction.APP_UPDATED,
+        exc=AdminWildcardRequiredError(),
+        actor=SYSTEM_CLI,
+        ctx=AuditContext.NONE,
+        app_key="admin",
+    )
+    assert await _count(db_session) == 0
+
+
 async def test_allowed_keys_only_for_retention_ints(db_session: AsyncSession) -> None:
     logger = AuditLogger(db_session)
     await logger.record(

@@ -24,6 +24,8 @@ from app.modules.rbac.schemas import (
     AppRead,
     AppSort,
     AppUpdate,
+    AssignmentBatchCreate,
+    AssignmentBatchRead,
     PermissionCreate,
     PermissionRead,
     PermissionUpdate,
@@ -34,7 +36,8 @@ from app.modules.rbac.schemas import (
     RoleRead,
     RoleUpdate,
 )
-from app.modules.rbac.service import AppService, PermissionService, RoleService
+from app.modules.rbac.service import AppService, AssignmentService, PermissionService, RoleService
+from app.modules.releases.body import inline_schema, read_json_body
 
 router = APIRouter(prefix="/apps", tags=["apps"], dependencies=[Depends(current_admin)])
 
@@ -42,6 +45,8 @@ router = APIRouter(prefix="/apps", tags=["apps"], dependencies=[Depends(current_
 _APP_404 = "Unknown app"
 _ROLE_404 = "Unknown app, or role not of that app"
 _ADMIN_APP = "On the admin app"
+_ASSIGNMENT_BATCH_MAX_BYTES = 16 * 1024
+_ASSIGNMENT_BATCH_READ_TIMEOUT_S = 10.0
 _ROLE_412 = "Stale If-Match (code precondition_failed); nothing changed; carries the current ETag"
 
 
@@ -433,3 +438,72 @@ async def replace_role_permissions(
     )
     response.headers["ETag"] = version_etag(read.updated_at)
     return read
+
+
+_BATCH_KWARGS = require_permission(
+    "admin:roles:assign",
+    errors={
+        404: _ROLE_404,
+        409: "The app lock could not be taken in time (conflict, reason changed_concurrently); "
+        "nothing written",
+        411: "Content-Length required (length_required)",
+        413: "Body larger than 16 KiB (payload_too_large)",
+        415: "Content-Type must be application/json (unsupported_media_type)",
+        422: "validation_error (body shape, 1..100 user_ids), or unprocessable with reason "
+        "duplicate_user_ids, admin_app_role, super_admin_role, org_id_not_allowed, unknown_org "
+        "or expires_in_past; nothing written",
+    },
+    requires_super="conditional",
+    super_when="Role holding an is_admin permission",
+)
+
+
+def _batch_kwargs() -> dict[str, Any]:
+    kwargs = dict(_BATCH_KWARGS)
+    kwargs["openapi_extra"] = {
+        **kwargs["openapi_extra"],
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": inline_schema(AssignmentBatchCreate)}},
+        },
+    }
+    return kwargs
+
+
+@router.post(
+    "/{key}/roles/{role_id}/assignment-batches",
+    response_model=AssignmentBatchRead,
+    status_code=status.HTTP_200_OK,
+    summary="Assign one role to up to 100 users",
+    description=(
+        "Answers 200 with one result per requested user, in request order (`created`, "
+        "`unchanged` or `failed`), even when every user failed; `batch_id` is the request id "
+        "(the `X-Request-ID` header and the `request_id` of every audit row of the batch). "
+        "The whole batch runs in one transaction under one app lock, held until commit and "
+        "bounded by a 5 s lock wait (409 `changed_concurrently`, nothing written). Each user "
+        "runs in its own savepoint, so a per-user failure undoes only that user; users are "
+        "processed in sorted id order. An unexpected error rolls back the whole batch (5xx, "
+        "nothing written). An active holder is `unchanged` and never gets a new `expires_at`; "
+        "an expired holder is renewed in place (`created`, same assignment id). A retry gives "
+        "`unchanged`. Request-level errors write nothing, except the `denied` audit rows of "
+        "403 `admin_wildcard_required`."
+    ),
+    **_batch_kwargs(),
+)
+async def create_assignment_batch(
+    request: Request,
+    session: SessionDep,
+    principal: AdminDep,
+    ctx: AuditContextDep,
+    key: str,
+    role_id: uuid.UUID,
+) -> AssignmentBatchRead:
+    body = await read_json_body(
+        request,
+        AssignmentBatchCreate,
+        cap=_ASSIGNMENT_BATCH_MAX_BYTES,
+        timeout_s=_ASSIGNMENT_BATCH_READ_TIMEOUT_S,
+    )
+    return await AssignmentService(session).assign_batch(
+        key, role_id, body, actor=principal, ctx=ctx
+    )

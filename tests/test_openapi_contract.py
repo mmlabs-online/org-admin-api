@@ -355,6 +355,7 @@ _EXPECTED_ERRORS: dict[tuple[str, str], set[str]] = {
     ("patch", _R): {"404", "409"},
     ("delete", _R): {"404", "409"},
     ("put", f"{_R}/permissions"): {"404", "409"},
+    ("post", f"{_R}/assignment-batches"): {"404", "409"},
     ("post", _C): {"404", "409"},
     ("get", _C): {"404"},
     ("delete", f"{_C}/{{credential_id}}"): {"404"},
@@ -393,6 +394,7 @@ _SUPER: dict[tuple[str, str], str] = {
     ("patch", _R): "conditional",
     ("delete", _R): "conditional",
     ("put", f"{_R}/permissions"): "conditional",
+    ("post", f"{_R}/assignment-batches"): "conditional",
     ("post", _RA): "conditional",
     ("delete", f"{_RA}/{{assignment_id}}"): "conditional",
     ("patch", _U): "conditional",
@@ -427,6 +429,31 @@ def test_requires_super_extension() -> None:
         if value is not None:
             assert op["x-permission"] != "admin:*", key
             assert "admin_wildcard_required" in op["responses"]["403"]["description"], key
+
+
+def test_assignment_batches_documented() -> None:
+    op = _schema()["paths"]["/api/v1/apps/{key}/roles/{role_id}/assignment-batches"]["post"]
+    assert set(op["responses"]) == {"200", "401", "403", "404", "409", "411", "413", "415", "422"}
+    for code in ("401", "403", "404", "409", "411", "413", "415", "422"):
+        schema = op["responses"][code]["content"]["application/json"]["schema"]
+        assert schema == {"$ref": REF}, code
+    description = op["description"]
+    for word in ("one transaction", "lock", "savepoint", "sorted", "5xx"):
+        assert word in description, word
+    text = op["responses"]["422"]["description"]
+    for reason in (
+        "validation_error",
+        "duplicate_user_ids",
+        "admin_app_role",
+        "super_admin_role",
+        "org_id_not_allowed",
+        "unknown_org",
+        "expires_in_past",
+    ):
+        assert reason in text, reason
+    body = op["requestBody"]["content"]["application/json"]["schema"]
+    assert body["properties"]["user_ids"]["minItems"] == 1
+    assert body["properties"]["user_ids"]["maxItems"] == 100
 
 
 def test_post_apps_409_documents_codes() -> None:
